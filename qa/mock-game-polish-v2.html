@@ -1,0 +1,1187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Game polish craft+chrome · Nunu Filter mock v2</title>
+  <style>
+    :root {
+      --bg: #050505;
+      --panel: #121212;
+      --panel2: #161616;
+      --border: #2a2a2a;
+      --text: #e7e9ea;
+      --muted: #8b98a5;
+      --good: #3ecf8e;
+      --amber: #f0a33a;
+      --bad: #f07178;
+      --nebula-a: #9b6dff;
+      --nebula-b: #c84bff;
+      --nebula-c: #5b8cff;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      --glow-g: 0 0 24px rgba(62,207,142,.35);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: var(--sans); background: var(--bg); color: var(--text);
+      min-height: 100vh; line-height: 1.35;
+    }
+    .banner {
+      background: linear-gradient(90deg, #1a1810, #0a0a0a);
+      border-bottom: 1px solid #6a5320;
+      padding: 9px 16px; font-size: 0.78rem; color: #f0d9a0; font-weight: 700;
+      display: flex; gap: 12px; flex-wrap: wrap; align-items: center;
+    }
+    .banner code { font-family: var(--mono); color: var(--amber); }
+    .banner .tag {
+      display: inline-block; padding: 2px 8px; border-radius: 999px;
+      background: #241e10; border: 1px solid #6a5320; color: var(--amber);
+      font-size: 0.65rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+    }
+    .app { max-width: 1480px; margin: 0 auto; padding: 14px 16px 28px; }
+    .claim {
+      margin: 0 0 6px; font-size: 1.35rem; font-weight: 900; letter-spacing: -0.03em;
+      background: linear-gradient(90deg, #fff, var(--nebula-b) 45%, var(--good));
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .claim span {
+      display: block; font-size: 0.72rem; font-weight: 650; color: var(--muted);
+      letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 4px;
+      background: none; -webkit-background-clip: unset; color: var(--muted);
+    }
+    .lede {
+      margin: 0 0 12px; color: var(--muted); font-size: 0.8rem; max-width: 1100px;
+    }
+    .lede b { color: var(--text); }
+
+    .topbar {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+      margin-bottom: 12px; padding: 10px 12px;
+      background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    }
+    .logo {
+      width: 34px; height: 34px; border-radius: 10px;
+      background: linear-gradient(135deg, #2a2a2a, #111);
+      display: grid; place-items: center; font-weight: 800; color: #fff;
+    }
+    .brand h1 { margin: 0; font-size: 1.05rem; }
+    .brand .sub { margin: 0; color: var(--muted); font-size: 0.72rem; }
+    .tabs {
+      display: inline-flex; gap: 4px; padding: 3px; margin-left: 8px;
+      background: #0e0e0e; border: 1px solid var(--border); border-radius: 999px;
+    }
+    .tabs span {
+      padding: 5px 14px; border-radius: 999px; font-size: 0.78rem; font-weight: 700; color: var(--muted);
+    }
+    .tabs span.on { background: #e7e9ea; color: #0a0a0a; }
+    .live {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px; border-radius: 999px; background: #102018; border: 1px solid #2a5a40;
+      font-size: 0.75rem; color: var(--good); font-weight: 600;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; background: var(--good);
+      box-shadow: 0 0 0 4px rgba(62,207,142,.25);
+    }
+    .sound-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px; border-radius: 999px;
+      background: #102018; border: 1px solid #2a5a40;
+      font-size: 0.72rem; color: var(--good); font-weight: 700;
+    }
+    .sound-chip.off {
+      background: #1a1a1a; border-color: #444; color: var(--muted);
+    }
+    .profile-chip {
+      margin-left: auto; display: inline-flex; align-items: center; gap: 10px;
+      padding: 5px 10px 5px 5px; border-radius: 999px;
+      background: var(--panel2); border: 1px solid var(--border);
+    }
+    .pf-av {
+      width: 32px; height: 32px; border-radius: 50%;
+      background: linear-gradient(135deg, #3a3a3a, #1a1a1a);
+      border: 2px solid var(--amber);
+      display: grid; place-items: center; font-weight: 900; font-size: 0.75rem;
+      box-shadow: 0 0 10px rgba(240,163,58,.35);
+    }
+    .pf-meta { line-height: 1.15; }
+    .pf-meta .name { font-weight: 800; font-size: 0.85rem; }
+    .pf-meta .pts {
+      font-family: var(--mono); font-size: 0.7rem; color: var(--amber); font-weight: 700;
+    }
+
+    .story-label {
+      display: flex; align-items: baseline; gap: 10px; margin: 4px 0 10px; flex-wrap: wrap;
+    }
+    .story-label h2 {
+      margin: 0; font-size: 0.78rem; text-transform: uppercase; letter-spacing: .08em; color: var(--amber);
+    }
+    .story-label .sub { color: var(--muted); font-size: 0.72rem; font-family: var(--mono); }
+
+    .story {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 11px; margin-bottom: 12px;
+    }
+    .panel {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+      overflow: hidden; display: flex; flex-direction: column;
+    }
+    .panel.before { border-color: #5a3030; }
+    .panel.tick { border-color: #2a5a40; box-shadow: var(--glow-g); }
+    .panel.down { border-color: #6a2a32; }
+    .panel.after-idle { border-color: #3a2a5a; box-shadow: 0 0 18px rgba(155,109,255,.18); }
+
+    .panel-head {
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+      padding: 8px 10px; border-bottom: 1px solid var(--border); background: #0e0e0e;
+    }
+    .panel-head .state {
+      font-size: 0.7rem; font-weight: 900; letter-spacing: .04em; text-transform: uppercase;
+    }
+    .panel.before .panel-head .state { color: var(--bad); }
+    .panel.after-idle .panel-head .state { color: var(--nebula-a); }
+    .panel.tick .panel-head .state { color: var(--good); }
+    .panel.down .panel-head .state { color: var(--bad); }
+    .badge {
+      font-size: 0.56rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+      padding: 2px 6px; border-radius: 999px; border: 1px solid var(--border);
+      color: var(--muted); background: #1a1a1a;
+    }
+    .badge.ex { border-color: #5a4a20; color: var(--amber); background: #241e10; }
+    .badge.ass { border-color: #6a2a32; color: var(--bad); background: #241018; }
+    .badge.sound {
+      border-color: #2a5a40; color: var(--good); background: #102018;
+    }
+    .badge.quiet { border-color: #333; color: #666; }
+    .badge.new { border-color: #5a3a8a; color: #d0b0ff; background: #1a1028; }
+    .badge.cta { border-color: #2a5080; color: #8ab0ff; background: #101828; }
+    .panel-head .rule {
+      margin-left: auto; font-size: 0.58rem; color: var(--muted); font-family: var(--mono);
+    }
+
+    @keyframes thruster-dim {
+      0%,100%{ opacity:.45; transform: scaleX(1) }
+      50%{ opacity:.7; transform: scaleX(1.08) }
+    }
+    @keyframes thruster-hot {
+      0%,100%{ opacity:.92; transform: scaleX(1) translateX(0) }
+      50%{ opacity:1; transform: scaleX(1.22) translateX(-4px) }
+    }
+    @keyframes lift {
+      0%,100%{ transform: translateY(-50%) rotate(-8deg) }
+      50%{ transform: translateY(calc(-50% - 11px)) rotate(-12deg) }
+    }
+    @keyframes floaty {
+      0%,100%{ transform: translateY(-50%) }
+      50%{ transform: translateY(calc(-50% - 4px)) }
+    }
+    @keyframes blob-float {
+      0%,100%{ transform: translateY(-50%) }
+      50%{ transform: translateY(calc(-50% - 2px)) }
+    }
+    @keyframes smoke {
+      0%{ opacity:.55; transform: translateY(0) scale(1) }
+      100%{ opacity:0; transform: translateY(16px) scale(1.5) }
+    }
+    @keyframes flashg {
+      0%,100%{ background: linear-gradient(160deg, #102018 0%, #161616 70%); }
+      40%{ background: linear-gradient(160deg, #1a4030 0%, #102018 70%); }
+    }
+    @keyframes popdelta {
+      0%{ opacity:0; transform: translateY(8px) }
+      20%{ opacity:1; transform: translateY(0) }
+      80%{ opacity:1; transform: translateY(-10px) }
+      100%{ opacity:0; transform: translateY(-18px) }
+    }
+    @keyframes bankflash {
+      0%,100%{ color: var(--good); text-shadow: 0 0 12px rgba(62,207,142,.35); }
+      50%{ color: #b8f5d0; text-shadow: 0 0 22px rgba(62,207,142,.7); }
+    }
+    @keyframes canopy {
+      0%,100%{ opacity:.9 }
+      50%{ opacity:1 }
+    }
+    @keyframes chartpulse {
+      0%,100%{ opacity:.55 }
+      50%{ opacity:.85 }
+    }
+
+    .rocket-strip {
+      position: relative; height: 168px;
+      overflow: hidden;
+      background: radial-gradient(ellipse at 30% 35%, #1a2030 0%, #050508 55%, #000 100%);
+    }
+    .panel.before .rocket-strip {
+      background: radial-gradient(ellipse at 35% 45%, #1a1520 0%, #080508 60%, #000 100%);
+    }
+    .panel.after-idle .rocket-strip {
+      background: radial-gradient(ellipse at 35% 40%, #181428 0%, #050508 60%, #000 100%);
+    }
+    .panel.down .rocket-strip {
+      background: radial-gradient(ellipse at 40% 60%, #201010 0%, #0a0505 55%, #000 100%);
+    }
+    .stars {
+      position: absolute; inset: 0;
+      background-image:
+        radial-gradient(1px 1px at 10% 20%, #fff 50%, transparent 51%),
+        radial-gradient(1px 1px at 30% 70%, #fff 50%, transparent 51%),
+        radial-gradient(1.5px 1.5px at 55% 30%, #fff 50%, transparent 51%),
+        radial-gradient(1px 1px at 75% 60%, #ccc 50%, transparent 51%),
+        radial-gradient(1px 1px at 90% 15%, #fff 50%, transparent 51%),
+        radial-gradient(1px 1px at 45% 85%, #fff 50%, transparent 51%),
+        radial-gradient(1px 1px at 20% 45%, #aaa 50%, transparent 51%),
+        radial-gradient(1px 1px at 65% 18%, #fff 50%, transparent 51%);
+      opacity: .55;
+    }
+
+    /* price / space chart stage under craft */
+    .chart-stage {
+      position: absolute; left: 0; right: 0; bottom: 0; height: 72px;
+      opacity: .55; pointer-events: none;
+    }
+    .panel.before .chart-stage { opacity: .28; filter: grayscale(.4); }
+    .panel.tick .chart-stage { opacity: .75; animation: chartpulse 1.4s ease-in-out infinite; }
+    .panel.down .chart-stage { opacity: .5; }
+
+    .craft-wrap {
+      position: absolute; left: 6%; top: 42%;
+      transform: translateY(-50%);
+      width: 230px; height: 96px;
+      z-index: 2;
+    }
+    .panel.before .craft-wrap { animation: blob-float 3.2s ease-in-out infinite; left: 10%; top: 48%; }
+    .panel.after-idle .craft-wrap { animation: floaty 3.2s ease-in-out infinite; }
+    .panel.tick .craft-wrap { animation: lift .7s ease-in-out infinite; left: 8%; }
+    .panel.down .craft-wrap {
+      transform: translateY(-32%) rotate(28deg);
+      animation: none; left: 14%;
+    }
+    .craft-svg { width: 230px; height: 96px; display: block; overflow: visible; }
+
+    .flame { transform-origin: 28px 48px; }
+    .panel.after-idle .flame { animation: thruster-dim 1.1s ease-in-out infinite; opacity: .55; }
+    .panel.tick .flame { animation: thruster-hot .3s ease-in-out infinite; }
+    .panel.down .flame { display: none; }
+    .panel.before .flame { display: none; }
+
+    .smoke-puffs { display: none; }
+    .panel.down .smoke-puffs { display: block; }
+    .smoke-puffs circle { animation: smoke 1.25s ease-out infinite; }
+    .smoke-puffs circle:nth-child(2) { animation-delay: .28s; }
+    .smoke-puffs circle:nth-child(3) { animation-delay: .55s; }
+
+    .canopy-glow { animation: canopy 2.4s ease-in-out infinite; }
+
+    .float-delta {
+      position: absolute; left: 56%; top: 14%;
+      font-family: var(--mono); font-weight: 900; font-size: 1.05rem;
+      color: var(--good); pointer-events: none; z-index: 3;
+      text-shadow: 0 0 14px rgba(62,207,142,.55);
+      animation: popdelta 1.6s ease-out infinite;
+    }
+    .panel:not(.tick) .float-delta { display: none; }
+
+    .pos-chip {
+      position: absolute; left: 10px; bottom: 8px; z-index: 3;
+      font-size: 0.58rem; font-family: var(--mono); font-weight: 700;
+      padding: 3px 7px; border-radius: 6px;
+      background: rgba(16,32,24,.85); border: 1px solid #2a5a40; color: var(--good);
+    }
+    .panel.before .pos-chip {
+      background: rgba(36,16,24,.85); border-color: #6a2a32; color: var(--bad);
+    }
+    .panel.down .pos-chip {
+      background: rgba(36,16,24,.85); border-color: #6a2a32; color: var(--bad);
+    }
+    .panel.after-idle .pos-chip {
+      background: rgba(26,16,40,.85); border-color: #5a3a8a; color: #d0b0ff;
+    }
+
+    .rocket-hud {
+      position: absolute; right: 8px; top: 8px; text-align: right; z-index: 3;
+    }
+    .rocket-hud .skin {
+      font-size: 0.55rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase;
+      color: var(--amber); margin-bottom: 2px;
+    }
+    .rocket-hud .dir {
+      font-family: var(--mono); font-size: 0.95rem; font-weight: 900;
+    }
+    .panel.before .rocket-hud .dir { color: var(--muted); }
+    .panel.after-idle .rocket-hud .dir { color: var(--good); text-shadow: 0 0 10px rgba(62,207,142,.3); }
+    .panel.tick .rocket-hud .dir { color: var(--good); text-shadow: 0 0 16px rgba(62,207,142,.5); }
+    .panel.down .rocket-hud .dir { color: var(--bad); text-shadow: 0 0 16px rgba(240,113,120,.45); }
+    .rocket-hud .sub { font-size: 0.58rem; color: var(--muted); font-family: var(--mono); }
+
+    .bank {
+      display: grid; grid-template-columns: 1.15fr 1fr; gap: 6px;
+      padding: 8px 10px; border-top: 1px solid var(--border);
+      background: #0e0e0e;
+    }
+    .bank .stat {
+      background: var(--panel2); border: 1px solid var(--border);
+      border-radius: 9px; padding: 6px 8px;
+    }
+    .panel.tick .bank .stat.equity {
+      border-color: #2a5a40;
+      animation: flashg 1.2s ease-in-out infinite;
+    }
+    .bank .lab {
+      color: var(--muted); font-size: 0.55rem; text-transform: uppercase;
+      letter-spacing: 0.06em; font-weight: 700;
+    }
+    .bank .val {
+      font-family: var(--mono); font-size: 0.95rem; font-weight: 900;
+      margin-top: 1px; letter-spacing: -0.02em;
+    }
+    .panel.tick .bank .stat.equity .val { animation: bankflash 1.2s ease-in-out infinite; }
+    .panel.after-idle .bank .val.good,
+    .panel.tick .bank .val.good { color: var(--good); }
+    .panel.down .bank .val.bad,
+    .panel.before .bank .val.dead { color: var(--muted); }
+    .panel.down .bank .val.bad { color: var(--bad); }
+    .bank .hint { margin-top: 1px; font-size: 0.55rem; color: var(--muted); font-family: var(--mono); }
+
+    .chrome {
+      padding: 8px 10px 10px; border-top: 1px solid var(--border);
+      background: #0a0a0a; display: flex; flex-direction: column; gap: 6px;
+    }
+    .session-row {
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    }
+    .sess {
+      font-size: 0.58rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+      padding: 3px 7px; border-radius: 999px; border: 1px solid var(--border);
+      color: var(--muted); background: #141414;
+    }
+    .sess.ended { border-color: #6a2a32; color: var(--bad); background: #241018; }
+    .sess.live { border-color: #2a5a40; color: var(--good); background: #102018; }
+    .sess.down { border-color: #6a2a32; color: var(--bad); background: #241018; }
+    .cta {
+      display: inline-flex; align-items: center; justify-content: center;
+      padding: 7px 12px; border-radius: 9px; font-size: 0.72rem; font-weight: 800;
+      background: linear-gradient(180deg, #3a7cff, #1a4ab0);
+      color: #fff; border: 1px solid #5a9aff;
+      box-shadow: 0 0 14px rgba(90,154,255,.35);
+    }
+    .cta.ghost {
+      background: #1a1a1a; border-color: #444; color: var(--muted);
+      box-shadow: none; opacity: .55; text-decoration: line-through;
+    }
+    .cta.secondary {
+      background: #1a1a22; border-color: #3a3a50; color: #a0a8c0;
+      box-shadow: none; font-size: 0.62rem; padding: 5px 8px;
+    }
+    .trade-row {
+      display: grid; grid-template-columns: 1fr auto auto; gap: 5px; align-items: center;
+    }
+    .ticker {
+      font-family: var(--mono); font-size: 0.62rem; color: var(--muted);
+      padding: 5px 7px; border-radius: 7px; border: 1px solid var(--border); background: #121212;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .btn-buy {
+      padding: 5px 10px; border-radius: 7px; font-size: 0.65rem; font-weight: 800;
+      background: #102018; border: 1px solid #2a5a40; color: var(--good);
+    }
+    .btn-sell {
+      padding: 5px 10px; border-radius: 7px; font-size: 0.65rem; font-weight: 800;
+      background: #241018; border: 1px solid #6a2a32; color: var(--bad);
+    }
+    .tape {
+      font-family: var(--mono); font-size: 0.55rem; color: var(--muted);
+      line-height: 1.35; max-height: 42px; overflow: hidden;
+      border-top: 1px dashed #2a2a2a; padding-top: 5px;
+    }
+    .tape .g { color: var(--good); }
+    .tape .r { color: var(--bad); }
+    .tape .hi { color: var(--amber); }
+
+    .ac-note {
+      padding: 7px 10px 9px; font-size: 0.64rem; color: var(--muted); line-height: 1.35;
+      border-top: 1px dashed #2a2a2a;
+    }
+    .ac-note b { color: var(--text); }
+    .ac-note .ok { color: var(--good); font-weight: 800; }
+    .ac-note .no { color: var(--bad); font-weight: 800; }
+
+    /* BEFORE only: dense QA footer callout (hidden on AFTER) */
+    .qa-dense {
+      padding: 6px 10px 8px; font-size: 0.55rem; color: #666; font-family: var(--mono);
+      border-top: 1px solid #222; background: #0a0a0a; line-height: 1.3;
+    }
+    .panel:not(.before) .qa-dense { display: none; }
+
+    .func-strip {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+      margin-bottom: 12px;
+    }
+    .func-card {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+      padding: 10px 12px;
+    }
+    .func-card .id {
+      font-family: var(--mono); font-size: 0.65rem; font-weight: 800; color: var(--good);
+    }
+    .func-card .t { font-weight: 800; font-size: 0.78rem; margin: 3px 0 4px; }
+    .func-card .d { font-size: 0.68rem; color: var(--muted); line-height: 1.35; }
+    .func-card .d b { color: var(--text); }
+
+    .shop-thin {
+      display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: center;
+      margin-bottom: 12px; padding: 12px 14px;
+      background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    }
+    .shop-thin .lab {
+      font-size: 0.7rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+      color: var(--amber);
+    }
+    .shop-thin .lab span {
+      display: block; font-family: var(--mono); font-weight: 600; color: var(--muted);
+      font-size: 0.62rem; letter-spacing: 0; text-transform: none; margin-top: 2px;
+    }
+    .skins {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+    }
+    .sku {
+      background: var(--panel2); border: 1px solid var(--border); border-radius: 10px;
+      padding: 8px 10px; position: relative; min-height: 78px;
+    }
+    .sku.eq { border-color: var(--amber); box-shadow: 0 0 10px rgba(240,163,58,.22); }
+    .sku .t { font-weight: 800; font-size: 0.72rem; }
+    .sku .p { font-family: var(--mono); font-size: 0.65rem; color: var(--amber); margin-top: 2px; }
+    .sku .p.free { color: var(--good); }
+    .sku .swatch {
+      height: 12px; border-radius: 4px; margin-bottom: 5px;
+      border: 1px solid #333;
+    }
+    .sku .swatch.neb { background: linear-gradient(90deg, #5b8cff, #c84bff, #9b6dff); }
+    .sku .swatch.plain { background: linear-gradient(90deg, #888, #ddd, #666); }
+    .sku .swatch.acid { background: linear-gradient(90deg, #1a5a3a, #3ecf8e, #a8f5c8); }
+    .sku .swatch.crown { background: linear-gradient(90deg, #6a5320, #f0a33a, #f0d9a0); }
+    .sku .mini {
+      height: 28px; margin-bottom: 5px; border-radius: 6px;
+      background: #0a0a0e; border: 1px solid #222;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .sku .mini svg { width: 72px; height: 24px; }
+    .sku .tag2 {
+      position: absolute; top: 6px; right: 6px;
+      font-size: 0.52rem; font-weight: 800; letter-spacing: .04em;
+      padding: 1px 5px; border-radius: 999px; text-transform: uppercase;
+      background: #241e10; border: 1px solid #6a5320; color: var(--amber);
+    }
+    .sku .prev {
+      font-size: 0.52rem; color: #8ab0ff; font-weight: 700; margin-top: 2px;
+      text-transform: uppercase; letter-spacing: .04em;
+    }
+
+    .acs {
+      margin-top: 4px; padding: 12px 14px;
+      background: #0e0e0e; border: 1px dashed #333; border-radius: 12px;
+    }
+    .acs h3 {
+      margin: 0 0 8px; font-size: 0.75rem; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--amber);
+    }
+    .acs-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 4px 18px;
+    }
+    .acs ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 0.74rem; }
+    .acs li { margin-bottom: 2px; }
+    .acs b { color: var(--text); }
+    .acs .id { color: var(--good); font-weight: 800; font-family: var(--mono); font-size: 0.7rem; }
+    .foot { margin-top: 10px; font-size: 0.66rem; color: var(--muted); text-align: center; }
+
+
+    .sfx-hit {
+      position: absolute; left: 50%; top: 8px; transform: translateX(-50%);
+      z-index: 4; pointer-events: none;
+      font-family: var(--mono); font-weight: 900; font-size: 0.72rem;
+      letter-spacing: .04em; text-transform: uppercase;
+      padding: 4px 10px; border-radius: 999px;
+      white-space: nowrap;
+    }
+    .sfx-hit.win {
+      color: #0a0a0a; background: linear-gradient(90deg, #3ecf8e, #a8f5c8);
+      border: 1px solid #b8ffd8;
+      box-shadow: 0 0 18px rgba(62,207,142,.65), 0 0 4px #fff;
+      animation: sfxwin 0.85s ease-out infinite;
+    }
+    .sfx-hit.loss {
+      color: #fff; background: linear-gradient(90deg, #a03038, #f07178);
+      border: 1px solid #ffb0b8;
+      box-shadow: 0 0 18px rgba(240,113,120,.55);
+      animation: sfxloss 0.95s ease-out infinite;
+    }
+    @keyframes sfxwin {
+      0%{ opacity:0; transform: translateX(-50%) scale(.85) translateY(6px); }
+      25%{ opacity:1; transform: translateX(-50%) scale(1.08) translateY(0); }
+      70%{ opacity:1; transform: translateX(-50%) scale(1) translateY(-2px); }
+      100%{ opacity:0; transform: translateX(-50%) scale(.95) translateY(-10px); }
+    }
+    @keyframes sfxloss {
+      0%{ opacity:0; transform: translateX(-50%) translateY(-4px) scale(1.05); }
+      30%{ opacity:1; transform: translateX(-50%) translateY(2px) scale(1); }
+      100%{ opacity:0; transform: translateX(-50%) translateY(10px) scale(.9); }
+    }
+    .sfx-strip {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+      margin-bottom: 12px;
+    }
+    .sfx-card {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+      padding: 10px 12px;
+    }
+    .sfx-card.win { border-color: #2a5a40; box-shadow: 0 0 12px rgba(62,207,142,.15); }
+    .sfx-card.loss { border-color: #6a2a32; }
+    .sfx-card.mute { border-color: #444; }
+    .sfx-card .id { font-family: var(--mono); font-size: 0.65rem; font-weight: 800; color: var(--good); }
+    .sfx-card.loss .id { color: var(--bad); }
+    .sfx-card.mute .id { color: var(--muted); }
+    .sfx-card .t { font-weight: 800; font-size: 0.78rem; margin: 3px 0 4px; }
+    .sfx-card .d { font-size: 0.68rem; color: var(--muted); line-height: 1.35; }
+    .sfx-card .d b { color: var(--text); }
+    .sfx-card .wave {
+      font-family: var(--mono); font-size: 0.62rem; color: var(--amber);
+      margin-top: 4px; letter-spacing: .02em;
+    }
+    .sound-toggle {
+      display: inline-flex; align-items: center; gap: 0;
+      border-radius: 999px; border: 1px solid #2a5a40; overflow: hidden;
+      background: #0e0e0e; font-size: 0.7rem; font-weight: 800;
+    }
+    .sound-toggle .on {
+      padding: 5px 10px; background: #102018; color: var(--good);
+    }
+    .sound-toggle .off {
+      padding: 5px 10px; color: #555; background: #141414;
+    }
+    .sound-toggle.muted { border-color: #444; }
+    .sound-toggle.muted .on { background: #141414; color: #555; }
+    .sound-toggle.muted .off { background: #1a1a1a; color: var(--muted); }
+    .clock-chip {
+      font-family: var(--mono); font-size: 0.62rem; font-weight: 700;
+      padding: 3px 7px; border-radius: 6px;
+      background: #121212; border: 1px solid var(--border); color: var(--text);
+    }
+    .panel.after-idle .clock-chip,
+    .panel.tick .clock-chip { border-color: #2a5a40; color: var(--good); }
+    .panel.down .clock-chip { border-color: #6a2a32; color: var(--bad); }
+    .panel.before .clock-chip { color: var(--muted); }
+
+    @media (max-width: 1200px) {
+      .story { grid-template-columns: 1fr 1fr; }
+      .func-strip { grid-template-columns: 1fr 1fr; }
+      .skins { grid-template-columns: 1fr 1fr; }
+      .acs-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="banner">
+    <span class="tag">Eyes only</span>
+    <span class="tag">Not a PR</span>
+    <span class="tag">EXAMPLE $</span>
+    MOCK · SHIP G craft+chrome polish v2 ·
+    <code>qa/mock-game-polish-v2.html</code>
+  </div>
+  <div class="app">
+    <p class="claim"><span>Proto Bot · SHIP G expanded · craft + functional</span>Ship in chart-space. Punchy casino hits. Honest ACTIVE chrome. Mute clear.</p>
+    <p class="lede">
+      Locked cut <b>qa/cut-2026-10-26-ship-g-game-animation.md</b>. Polishes v1 craft geometry (less cartoon / no face vibes)
+      + functional chrome: obvious <b>Start/Restart 24h</b> when ended, live Last tick/equity, Buy/Sell/shop,
+      event tape, craft on a <b>space/price chart stage</b>. SFX = <b>punchy win/tick+ + distinct loss hits</b> (casino energy, not sparse beeps) with one clear
+      <b>Sound on | Mute</b> toggle (AC-S01…S03). ACTIVE panels never show Session ended while clock/equity live.
+      Profile = <b>Pilot</b>. All $ EXAMPLE. No prod code · no PR.
+    </p>
+
+    <div class="topbar">
+      <div class="logo">N</div>
+      <div class="brand">
+        <h1>Nunu Filter</h1>
+        <p class="sub">Game polish mock v2 · craft + chrome</p>
+      </div>
+      <div class="tabs">
+        <span>Filter</span>
+        <span class="on">Game</span>
+      </div>
+      <div class="live"><span class="dot"></span> PAPER · EXAMPLE</div>
+      <div class="sound-toggle" title="AC-S03"><span class="on">🔊 Sound on</span><span class="off">Mute</span></div>
+      <div class="profile-chip">
+        <div class="pf-av">P</div>
+        <div class="pf-meta">
+          <div class="name">Pilot</div>
+          <div class="pts">1,240 pts</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="story-label">
+      <h2>Storyboard · BEFORE → craft + chrome</h2>
+      <span class="sub">ENDED · IDLE ACTIVE · TICK+ WIN HIT · DOWN LOSS HIT · AC-R + AC-F + AC-S</span>
+    </div>
+
+    <div class="story">
+      <!-- 1 BEFORE: live blob + dead/ended -->
+      <section class="panel before">
+        <div class="panel-head">
+          <span class="state">1 · Before</span>
+          <span class="badge ass">Face blob · ended</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">live gap</span>
+        </div>
+        <div class="rocket-strip">
+          <div class="stars"></div>
+          <svg class="chart-stage" viewBox="0 0 320 72" preserveAspectRatio="none" aria-hidden="true">
+            <polyline fill="none" stroke="#555" stroke-width="1.5"
+              points="0,50 40,48 80,52 120,46 160,55 200,50 240,58 280,54 320,60"/>
+            <polyline fill="none" stroke="#444" stroke-width="1" stroke-dasharray="3 3"
+              points="0,36 320,36"/>
+          </svg>
+          <div class="craft-wrap">
+            <svg class="craft-svg" viewBox="0 0 220 100" xmlns="http://www.w3.org/2000/svg" aria-label="Current face-in-window blob">
+              <g class="blob-trail">
+                <circle cx="42" cy="50" r="9" fill="#3ecf8e" opacity=".55"/>
+                <circle cx="28" cy="50" r="6" fill="#3ecf8e" opacity=".4"/>
+                <circle cx="16" cy="50" r="4" fill="#3ecf8e" opacity=".28"/>
+              </g>
+              <ellipse cx="118" cy="50" rx="58" ry="26" fill="url(#blobGrad)" stroke="#e7e9ea" stroke-width="1.2"/>
+              <polygon points="48,50 62,42 62,58" fill="#e7e9ea"/>
+              <!-- face-in-window (the gap) -->
+              <rect x="96" y="36" width="28" height="28" rx="7" fill="#0a0a0a"/>
+              <circle cx="106" cy="46" r="2.4" fill="#f0a33a"/>
+              <circle cx="116" cy="46" r="2.4" fill="#f0a33a"/>
+              <path d="M104 56 Q111 60 118 56" stroke="#f0a33a" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+              <defs>
+                <linearGradient id="blobGrad" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="#7a4dff"/>
+                  <stop offset="55%" stop-color="#c84bff"/>
+                  <stop offset="100%" stop-color="#5b3a9a"/>
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+          <div class="rocket-hud">
+            <div class="skin">Skin · Nebula Frame</div>
+            <div class="dir">SESSION ENDED</div>
+            <div class="sub">last tick $0 · dead vibes</div>
+          </div>
+          <div class="pos-chip">no open · clock 00:00:00</div>
+        </div>
+        <div class="bank">
+          <div class="stat equity">
+            <div class="lab">Equity · ended</div>
+            <div class="val dead">$6.52</div>
+            <div class="hint">stuck settle · +30.4%</div>
+          </div>
+          <div class="stat">
+            <div class="lab">Last tick</div>
+            <div class="val dead">$0.00</div>
+            <div class="hint">no cue · face calm</div>
+          </div>
+        </div>
+        <div class="chrome">
+          <div class="session-row">
+            <span class="sess ended">Session ended</span>
+            <span class="clock-chip">CLOCK 00:00:00</span>
+            <span class="cta">Start 24h ($5)</span>
+            <span class="cta ghost">Start 24h</span>
+          </div>
+          <div class="trade-row">
+            <div class="ticker">ticker / CA…</div>
+            <span class="btn-buy">BUY</span>
+            <span class="btn-sell">SELL ALL</span>
+          </div>
+          <div class="tape">
+            <span class="r">ended</span> · stuck face blob · NO SOUND badge vs Sound on · dense QA footer
+          </div>
+        </div>
+        <div class="ac-note">
+          <b>GAPS:</b> face-in-window blob · duplicate Start · dead $0 ·
+          <span class="no">NO SOUND vs Sound on</span> · no chart-space · sparse/missing casino hits · dense QA footer.
+        </div>
+        <div class="qa-dense">
+          QA footer (BEFORE only): /api/game/* · game-idle · game-ended · tick-up/down · hide this on AFTER · AC-F chrome clean
+        </div>
+      </section>
+
+      <!-- 2 AFTER IDLE: finished ship mid-run -->
+      <section class="panel after-idle">
+        <div class="panel-head">
+          <span class="state">2 · After Idle</span>
+          <span class="badge sound">Sound on</span>
+          <span class="badge new">Ship</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">R01 R02 F02</span>
+        </div>
+        <div class="rocket-strip">
+          <div class="stars"></div>
+          <svg class="chart-stage" viewBox="0 0 320 72" preserveAspectRatio="none" aria-hidden="true">
+            <defs>
+              <linearGradient id="cg1" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#3ecf8e" stop-opacity=".25"/>
+                <stop offset="100%" stop-color="#3ecf8e" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <polyline fill="url(#cg1)" stroke="none"
+              points="0,72 0,48 40,44 80,46 120,38 160,40 200,34 240,36 280,30 320,28 320,72"/>
+            <polyline fill="none" stroke="#3ecf8e" stroke-width="1.8"
+              points="0,48 40,44 80,46 120,38 160,40 200,34 240,36 280,30 320,28"/>
+            <polyline fill="none" stroke="#c84bff" stroke-width="1" stroke-opacity=".45"
+              points="0,55 80,52 160,50 240,48 320,46"/>
+          </svg>
+          <div class="craft-wrap">
+            <!-- Improved craft: glass canopy (no face), tapered hull, twin thrusters, plate seams -->
+            <svg class="craft-svg" viewBox="0 0 240 96" xmlns="http://www.w3.org/2000/svg" aria-label="Craft idle v2">
+              <defs>
+                <linearGradient id="hull1" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stop-color="#5a2ee0"/>
+                  <stop offset="40%" stop-color="#c84bff"/>
+                  <stop offset="100%" stop-color="#7aa8ff"/>
+                </linearGradient>
+                <linearGradient id="nose1" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stop-color="#c8b0ff"/>
+                  <stop offset="100%" stop-color="#ffffff"/>
+                </linearGradient>
+                <linearGradient id="flame1" x1="1" y1="0" x2="0" y2="0">
+                  <stop offset="0%" stop-color="#3ecf8e"/>
+                  <stop offset="55%" stop-color="#a8f5c8"/>
+                  <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+                </linearGradient>
+                <linearGradient id="can1" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#d8f0ff"/>
+                  <stop offset="40%" stop-color="#5b8cff"/>
+                  <stop offset="100%" stop-color="#1a2048"/>
+                </linearGradient>
+                <filter id="glow1" x="-40%" y="-40%" width="180%" height="180%">
+                  <feGaussianBlur stdDeviation="2" result="b"/>
+                  <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+                </filter>
+              </defs>
+              <g class="flame">
+                <ellipse cx="36" cy="48" rx="20" ry="8" fill="url(#flame1)" opacity=".65"/>
+                <ellipse cx="28" cy="48" rx="11" ry="4.5" fill="#a8f5c8" opacity=".4"/>
+              </g>
+              <!-- twin engine bells -->
+              <ellipse cx="54" cy="40" rx="5" ry="9" fill="#12081e" stroke="#c84bff" stroke-width="1.6"/>
+              <ellipse cx="54" cy="56" rx="5" ry="9" fill="#12081e" stroke="#c84bff" stroke-width="1.6"/>
+              <ellipse cx="54" cy="40" rx="2.2" ry="4.5" fill="#3ecf8e" opacity=".3"/>
+              <ellipse cx="54" cy="56" rx="2.2" ry="4.5" fill="#3ecf8e" opacity=".3"/>
+              <!-- dorsal + ventral fins -->
+              <path d="M86 34 L68 8 L108 30 Z" fill="#7a4dff" stroke="#e7e9ea" stroke-width="1"/>
+              <path d="M86 62 L68 88 L108 66 Z" fill="#7a4dff" stroke="#e7e9ea" stroke-width="1"/>
+              <!-- rear stabilizer -->
+              <path d="M62 44 L52 48 L62 52 Z" fill="#9b6dff" stroke="#d0b0ff" stroke-width=".8"/>
+              <!-- main hull tapered -->
+              <path d="M58 36 C80 22, 130 18, 168 32 L186 48 L168 64 C130 78, 80 74, 58 60 Z"
+                    fill="url(#hull1)" stroke="#e7e9ea" stroke-width="1.5" filter="url(#glow1)"/>
+              <!-- plate seams (tech, not face) -->
+              <path d="M78 40 C118 32, 148 34, 174 46" stroke="#fff" stroke-opacity=".22" stroke-width="1.1" fill="none"/>
+              <path d="M90 54 C120 58, 148 56, 172 50" stroke="#fff" stroke-opacity=".12" stroke-width="1" fill="none"/>
+              <rect x="92" y="44" width="22" height="2.2" rx="1" fill="#1a1028" opacity=".5"/>
+              <!-- nose cone -->
+              <path d="M168 32 L214 48 L168 64 Z" fill="url(#nose1)" stroke="#e7e9ea" stroke-width="1.2"/>
+              <!-- glass canopy — reflection only, NO eyes/mouth -->
+              <ellipse class="canopy-glow" cx="128" cy="46" rx="18" ry="10" fill="url(#can1)" stroke="#8ab0ff" stroke-width="1.5"/>
+              <path d="M118 42 Q128 38 140 42" stroke="#fff" stroke-opacity=".45" stroke-width="1.4" fill="none"/>
+              <!-- nav light (not a face) -->
+              <circle cx="158" cy="34" r="2" fill="#f0a33a"/>
+              <circle cx="158" cy="34" r="4" fill="#f0a33a" opacity=".25"/>
+            </svg>
+          </div>
+          <div class="rocket-hud">
+            <div class="skin">Skin · Nebula Frame</div>
+            <div class="dir">— FLAT · mid-run</div>
+            <div class="sub">chart stage · dim twin flame</div>
+          </div>
+          <div class="pos-chip">OPEN · NEON · +0.4 SOL · EXAMPLE</div>
+        </div>
+        <div class="bank">
+          <div class="stat equity">
+            <div class="lab">Equity</div>
+            <div class="val good">$7.18</div>
+            <div class="hint">alive · not stuck</div>
+          </div>
+          <div class="stat">
+            <div class="lab">Last tick</div>
+            <div class="val">$0.00</div>
+            <div class="hint">waiting mark</div>
+          </div>
+        </div>
+        <div class="chrome">
+          <div class="session-row">
+            <span class="sess live">ACTIVE · mid-run</span>
+            <span class="clock-chip">CLOCK 18:42:11</span>
+            <span class="cta secondary">Restart only when ended</span>
+          </div>
+          <div class="trade-row">
+            <div class="ticker">NEON · open EXAMPLE</div>
+            <span class="btn-buy">BUY</span>
+            <span class="btn-sell">SELL ALL</span>
+          </div>
+          <div class="tape">
+            <span class="g">buy</span> NEON · <span class="hi">high</span> $7.20 · shop Nebula equipped
+          </div>
+        </div>
+        <div class="ac-note">
+          <b>IDLE craft:</b> nose · hull · twin fins · glass canopy <span class="ok">(no face)</span> · Nebula tint · on chart stage.
+          Mid-run chrome alive. <span class="ok">Sound on</span> chip only — no “NO SOUND” badge.
+        </div>
+      </section>
+
+      <!-- 3 AFTER TICK+ -->
+      <section class="panel tick">
+        <div class="panel-head">
+          <span class="state">3 · After Tick+</span>
+          <span class="badge sound">♪ WIN HIT</span>
+          <span class="badge new">Lift</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">R03 S01</span>
+        </div>
+        <div class="rocket-strip">
+          <div class="stars"></div>
+          <div class="sfx-hit win">♪♪ WIN · casino tick+</div>
+          <svg class="chart-stage" viewBox="0 0 320 72" preserveAspectRatio="none" aria-hidden="true">
+            <defs>
+              <linearGradient id="cg2" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#3ecf8e" stop-opacity=".4"/>
+                <stop offset="100%" stop-color="#3ecf8e" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <polyline fill="url(#cg2)" stroke="none"
+              points="0,72 0,50 40,46 80,44 120,40 160,36 200,30 240,24 280,18 320,12 320,72"/>
+            <polyline fill="none" stroke="#3ecf8e" stroke-width="2.2"
+              points="0,50 40,46 80,44 120,40 160,36 200,30 240,24 280,18 320,12"/>
+            <circle cx="300" cy="14" r="3.5" fill="#3ecf8e"/>
+          </svg>
+          <div class="float-delta">+$0.14</div>
+          <div class="craft-wrap">
+            <svg class="craft-svg" viewBox="0 0 240 96" xmlns="http://www.w3.org/2000/svg" aria-label="Craft tick+ v2">
+              <defs>
+                <linearGradient id="hull2" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stop-color="#5a2ee0"/>
+                  <stop offset="40%" stop-color="#c84bff"/>
+                  <stop offset="100%" stop-color="#7aa8ff"/>
+                </linearGradient>
+                <linearGradient id="nose2" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stop-color="#c8b0ff"/>
+                  <stop offset="100%" stop-color="#ffffff"/>
+                </linearGradient>
+                <linearGradient id="flame2" x1="1" y1="0" x2="0" y2="0">
+                  <stop offset="0%" stop-color="#3ecf8e"/>
+                  <stop offset="35%" stop-color="#a8f5c8"/>
+                  <stop offset="70%" stop-color="#ffffff"/>
+                  <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+                </linearGradient>
+                <linearGradient id="can2" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#e8fff4"/>
+                  <stop offset="45%" stop-color="#3ecf8e"/>
+                  <stop offset="100%" stop-color="#1a4030"/>
+                </linearGradient>
+                <filter id="glow2" x="-40%" y="-40%" width="180%" height="180%">
+                  <feGaussianBlur stdDeviation="2.2" result="b"/>
+                  <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+                </filter>
+              </defs>
+              <g class="flame">
+                <ellipse cx="30" cy="48" rx="34" ry="12" fill="url(#flame2)" opacity=".95"/>
+                <ellipse cx="18" cy="48" rx="18" ry="6.5" fill="#ffffff" opacity=".75"/>
+                <ellipse cx="10" cy="48" rx="8" ry="3" fill="#fff" opacity=".9"/>
+                <circle cx="42" cy="38" r="1.5" fill="#a8f5c8"/>
+                <circle cx="34" cy="56" r="1.2" fill="#3ecf8e"/>
+              </g>
+              <ellipse cx="54" cy="40" rx="5" ry="9" fill="#12081e" stroke="#3ecf8e" stroke-width="2"/>
+              <ellipse cx="54" cy="56" rx="5" ry="9" fill="#12081e" stroke="#3ecf8e" stroke-width="2"/>
+              <ellipse cx="54" cy="40" rx="2.2" ry="4.5" fill="#3ecf8e" opacity=".75"/>
+              <ellipse cx="54" cy="56" rx="2.2" ry="4.5" fill="#3ecf8e" opacity=".75"/>
+              <path d="M86 34 L68 8 L108 30 Z" fill="#7a4dff" stroke="#e7e9ea" stroke-width="1"/>
+              <path d="M86 62 L68 88 L108 66 Z" fill="#7a4dff" stroke="#e7e9ea" stroke-width="1"/>
+              <path d="M62 44 L52 48 L62 52 Z" fill="#9b6dff" stroke="#d0b0ff" stroke-width=".8"/>
+              <path d="M58 36 C80 22, 130 18, 168 32 L186 48 L168 64 C130 78, 80 74, 58 60 Z"
+                    fill="url(#hull2)" stroke="#e7e9ea" stroke-width="1.5" filter="url(#glow2)"/>
+              <path d="M78 40 C118 32, 148 34, 174 46" stroke="#fff" stroke-opacity=".28" stroke-width="1.1" fill="none"/>
+              <rect x="92" y="44" width="22" height="2.2" rx="1" fill="#1a1028" opacity=".5"/>
+              <path d="M168 32 L214 48 L168 64 Z" fill="url(#nose2)" stroke="#e7e9ea" stroke-width="1.2"/>
+              <ellipse class="canopy-glow" cx="128" cy="46" rx="18" ry="10" fill="url(#can2)" stroke="#3ecf8e" stroke-width="1.7"/>
+              <path d="M118 42 Q128 38 140 42" stroke="#fff" stroke-opacity=".55" stroke-width="1.4" fill="none"/>
+              <circle cx="158" cy="34" r="2" fill="#3ecf8e"/>
+              <circle cx="158" cy="34" r="4" fill="#3ecf8e" opacity=".3"/>
+            </svg>
+          </div>
+          <div class="rocket-hud">
+            <div class="skin">Skin · Nebula Frame</div>
+            <div class="dir">▲ UP +14.2%</div>
+            <div class="sub">open mark · lift + flame</div>
+          </div>
+          <div class="pos-chip">OPEN · NEON · mark +$0.14</div>
+        </div>
+        <div class="bank">
+          <div class="stat equity">
+            <div class="lab">Equity · flash</div>
+            <div class="val good">$7.32</div>
+            <div class="hint">was $7.18 · green</div>
+          </div>
+          <div class="stat">
+            <div class="lab">Last tick</div>
+            <div class="val good">+$0.14</div>
+            <div class="hint">♪ once · not stuck $0</div>
+          </div>
+        </div>
+        <div class="chrome">
+          <div class="session-row">
+            <span class="sess live">ACTIVE · ▲ UP +14.2%</span>
+            <span class="clock-chip">CLOCK 18:42:11</span>
+          </div>
+          <div class="trade-row">
+            <div class="ticker">NEON · open EXAMPLE</div>
+            <span class="btn-buy">BUY</span>
+            <span class="btn-sell">SELL ALL</span>
+          </div>
+          <div class="tape">
+            <span class="g">mark</span> NEON +$0.14 · <span class="hi">WIN HIT</span> ♪♪ punchy casino · equity $7.32
+          </div>
+        </div>
+        <div class="ac-note">
+          <b>TICK+:</b> <span class="ok">lift + long thruster + +$ chip</span> + <span class="ok">♪♪ punchy WIN HIT</span> (AC-S01).
+          Equity + Last tick update. ACTIVE clock live. Chart-space stage spikes with mark.
+        </div>
+      </section>
+
+      <!-- 4 AFTER DOWN -->
+      <section class="panel down">
+        <div class="panel-head">
+          <span class="state">4 · After Down</span>
+          <span class="badge sound" style="border-color:#6a2a32;color:var(--bad);background:#241018">♪ LOSS HIT</span>
+          <span class="badge new">Smoke</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">R04 S02</span>
+        </div>
+        <div class="rocket-strip">
+          <div class="stars"></div>
+          <div class="sfx-hit loss">♪ THUD · loss hit</div>
+          <svg class="chart-stage" viewBox="0 0 320 72" preserveAspectRatio="none" aria-hidden="true">
+            <defs>
+              <linearGradient id="cg3" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#f07178" stop-opacity=".3"/>
+                <stop offset="100%" stop-color="#f07178" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <polyline fill="url(#cg3)" stroke="none"
+              points="0,72 0,30 40,28 80,32 120,36 160,42 200,48 240,54 280,60 320,66 320,72"/>
+            <polyline fill="none" stroke="#f07178" stroke-width="2"
+              points="0,30 40,28 80,32 120,36 160,42 200,48 240,54 280,60 320,66"/>
+            <circle cx="300" cy="64" r="3.5" fill="#f07178"/>
+          </svg>
+          <div class="craft-wrap">
+            <svg class="craft-svg" viewBox="0 0 240 96" xmlns="http://www.w3.org/2000/svg" aria-label="Craft down v2">
+              <defs>
+                <linearGradient id="hull3" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stop-color="#4a28a0"/>
+                  <stop offset="40%" stop-color="#9a3acc"/>
+                  <stop offset="100%" stop-color="#5a70a0"/>
+                </linearGradient>
+                <linearGradient id="nose3" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stop-color="#a090b8"/>
+                  <stop offset="100%" stop-color="#d8d0e0"/>
+                </linearGradient>
+                <linearGradient id="can3" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#ffd0d4"/>
+                  <stop offset="45%" stop-color="#a04050"/>
+                  <stop offset="100%" stop-color="#301018"/>
+                </linearGradient>
+                <filter id="glow3" x="-40%" y="-40%" width="180%" height="180%">
+                  <feGaussianBlur stdDeviation="1.6" result="b"/>
+                  <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+                </filter>
+              </defs>
+              <g class="smoke-puffs">
+                <circle cx="38" cy="54" r="10" fill="#777" opacity=".45"/>
+                <circle cx="24" cy="62" r="13" fill="#666" opacity=".38"/>
+                <circle cx="12" cy="72" r="15" fill="#555" opacity=".3"/>
+              </g>
+              <ellipse cx="54" cy="40" rx="5" ry="9" fill="#12081e" stroke="#666" stroke-width="1.6"/>
+              <ellipse cx="54" cy="56" rx="5" ry="9" fill="#12081e" stroke="#666" stroke-width="1.6"/>
+              <ellipse cx="54" cy="40" rx="2.2" ry="4.5" fill="#444" opacity=".5"/>
+              <ellipse cx="54" cy="56" rx="2.2" ry="4.5" fill="#444" opacity=".5"/>
+              <path d="M86 34 L68 8 L108 30 Z" fill="#5a38aa" stroke="#c0b0d0" stroke-width="1"/>
+              <path d="M86 62 L68 88 L108 66 Z" fill="#5a38aa" stroke="#c0b0d0" stroke-width="1"/>
+              <path d="M62 44 L52 48 L62 52 Z" fill="#6a4a9a" stroke="#a090b8" stroke-width=".8"/>
+              <path d="M58 36 C80 22, 130 18, 168 32 L186 48 L168 64 C130 78, 80 74, 58 60 Z"
+                    fill="url(#hull3)" stroke="#c0b0d0" stroke-width="1.5" filter="url(#glow3)"/>
+              <path d="M78 40 C118 32, 148 34, 174 46" stroke="#fff" stroke-opacity=".12" stroke-width="1.1" fill="none"/>
+              <rect x="92" y="44" width="22" height="2.2" rx="1" fill="#1a1028" opacity=".5"/>
+              <path d="M168 32 L214 48 L168 64 Z" fill="url(#nose3)" stroke="#c0b0d0" stroke-width="1.2"/>
+              <ellipse class="canopy-glow" cx="128" cy="46" rx="18" ry="10" fill="url(#can3)" stroke="#f07178" stroke-width="1.5"/>
+              <path d="M118 42 Q128 38 140 42" stroke="#fff" stroke-opacity=".25" stroke-width="1.4" fill="none"/>
+              <circle cx="158" cy="34" r="2" fill="#f07178"/>
+              <circle cx="158" cy="34" r="4" fill="#f07178" opacity=".25"/>
+            </svg>
+          </div>
+          <div class="rocket-hud">
+            <div class="skin">Skin · Nebula Frame</div>
+            <div class="dir">▼ DOWN −12.4%</div>
+            <div class="sub">sign matches · never +%</div>
+          </div>
+          <div class="pos-chip">OPEN · NEON · mark −$0.11</div>
+        </div>
+        <div class="bank">
+          <div class="stat equity">
+            <div class="lab">Equity</div>
+            <div class="val bad">$4.38</div>
+            <div class="hint">session red · quiet</div>
+          </div>
+          <div class="stat">
+            <div class="lab">Last tick</div>
+            <div class="val bad">−$0.11</div>
+            <div class="hint">♪ loss thud · not tick+</div>
+          </div>
+        </div>
+        <div class="chrome">
+          <div class="session-row">
+            <span class="sess down">ACTIVE · ▼ DOWN −12.4%</span>
+            <span class="clock-chip">CLOCK 18:42:11</span>
+          </div>
+          <div class="trade-row">
+            <div class="ticker">NEON · open EXAMPLE</div>
+            <span class="btn-buy">BUY</span>
+            <span class="btn-sell">SELL ALL</span>
+          </div>
+          <div class="tape">
+            <span class="r">mark</span> NEON −$0.11 · <span class="r">LOSS HIT</span> distinct thud · never DOWN +% · never tick+ reuse
+          </div>
+        </div>
+        <div class="ac-note">
+          <b>DOWN:</b> nose-down + smoke · <span class="ok">chip −12.4% matches red equity</span>.
+          <span class="no">Never ▼ DOWN +%</span>. <span class="ok">Distinct LOSS HIT</span> (AC-S02) — not silent, not tick+ reuse. Clock still live (ACTIVE).
+        </div>
+      </section>
+    </div>
+
+    <div class="func-strip">
+      <div class="func-card">
+        <div class="id">AC-F01</div>
+        <div class="t">One Start / Restart CTA</div>
+        <div class="d">When <b>Session ended</b>: one obvious <b>Start 24h ($5)</b>. No duplicate ghost Start. Restart only after end.</div>
+      </div>
+      <div class="func-card">
+        <div class="id">AC-F02</div>
+        <div class="t">Alive mid-run marks</div>
+        <div class="d">Open EXAMPLE position → Last tick + rocket mood update on mark. Not permanently dead $0.</div>
+      </div>
+      <div class="func-card">
+        <div class="id">AC-F03</div>
+        <div class="t">PnL chip sign match</div>
+        <div class="d"><b>▼ DOWN −%</b> with red equity. Never DOWN +positive%. UP only with green.</div>
+      </div>
+      <div class="func-card">
+        <div class="id">AC-F04</div>
+        <div class="t">Tape + high-score</div>
+        <div class="d">Event tape readable mid-run. Buy/Sell/shop stay. Dense QA footer <b>hidden</b> on AFTER.</div>
+      </div>
+    </div>
+
+
+    <div class="sfx-strip">
+      <div class="sfx-card win">
+        <div class="id">AC-S01</div>
+        <div class="t">♪♪ Punchy WIN / tick+</div>
+        <div class="d">Short <b>casino-energy</b> hit on positive mark — stacked chime / slot ding, <b>not</b> a sparse beep. Eyes: green WIN HIT flash + badge.</div>
+        <div class="wave">≈ ding-ding ↑ · &lt;180ms</div>
+      </div>
+      <div class="sfx-card loss">
+        <div class="id">AC-S02</div>
+        <div class="t">♪ Distinct LOSS / DOWN</div>
+        <div class="d">Own <b>thud / down-sweep</b> on loss — audible, different from tick+. Never silent. Never reuse win sample.</div>
+        <div class="wave">≈ thud ↓ · &lt;200ms</div>
+      </div>
+      <div class="sfx-card mute">
+        <div class="id">AC-S03</div>
+        <div class="t">Mute kills all new SFX</div>
+        <div class="d">Topbar <b>Sound on | Mute</b> toggle. Mute → no win/loss/settle hits. Unmute restores. No “NO SOUND” badge while Sound on.</div>
+        <div class="wave">toggle · no autoplay spam</div>
+      </div>
+    </div>
+
+    <div class="shop-thin">
+      <div class="lab">Shop · preview skins<span>hover/equip tints craft · EXAMPLE · AC-R05 R06</span></div>
+      <div class="skins">
+        <div class="sku eq">
+          <span class="tag2">Equipped</span>
+          <div class="mini">
+            <svg viewBox="0 0 72 24"><ellipse cx="40" cy="12" rx="22" ry="7" fill="#c84bff"/><polygon points="58,12 70,12 58,7 58,17" fill="#e8e0ff"/><ellipse cx="36" cy="11" rx="5" ry="3" fill="#5b8cff"/><ellipse cx="14" cy="12" rx="6" ry="3" fill="#3ecf8e" opacity=".6"/></svg>
+          </div>
+          <div class="swatch neb"></div>
+          <div class="t">Nebula Frame</div>
+          <div class="p free">Owned · hull tint</div>
+          <div class="prev">Preview</div>
+        </div>
+        <div class="sku">
+          <div class="mini">
+            <svg viewBox="0 0 72 24"><ellipse cx="40" cy="12" rx="22" ry="7" fill="#b0b4bc"/><polygon points="58,12 70,12 58,7 58,17" fill="#eee"/><ellipse cx="36" cy="11" rx="5" ry="3" fill="#8899aa"/><ellipse cx="14" cy="12" rx="6" ry="3" fill="#888" opacity=".5"/></svg>
+          </div>
+          <div class="swatch plain"></div>
+          <div class="t">Plain Booster</div>
+          <div class="p free">Default · 0</div>
+          <div class="prev">Preview</div>
+        </div>
+        <div class="sku">
+          <div class="mini">
+            <svg viewBox="0 0 72 24"><ellipse cx="40" cy="12" rx="22" ry="7" fill="#3ecf8e"/><polygon points="58,12 70,12 58,7 58,17" fill="#d8ffe8"/><ellipse cx="36" cy="11" rx="5" ry="3" fill="#1a5a3a"/><ellipse cx="14" cy="12" rx="6" ry="3" fill="#a8f5c8" opacity=".7"/></svg>
+          </div>
+          <div class="swatch acid"></div>
+          <div class="t">Acid Trail</div>
+          <div class="p">750 pts</div>
+          <div class="prev">Preview</div>
+        </div>
+        <div class="sku">
+          <div class="mini">
+            <svg viewBox="0 0 72 24"><ellipse cx="40" cy="12" rx="22" ry="7" fill="#f0a33a"/><polygon points="58,12 70,12 58,7 58,17" fill="#f0d9a0"/><ellipse cx="36" cy="11" rx="5" ry="3" fill="#6a5320"/><ellipse cx="14" cy="12" rx="6" ry="3" fill="#f0d9a0" opacity=".7"/></svg>
+          </div>
+          <div class="swatch crown"></div>
+          <div class="t">Crown Thrusters</div>
+          <div class="p">3,500 pts</div>
+          <div class="prev">Preview</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Ended-state CTA callout (functional) -->
+    <div class="shop-thin" style="grid-template-columns:1fr; margin-top:-4px;">
+      <div>
+        <div class="lab" style="margin-bottom:8px;">Ended → one CTA<span>AC-F01 · no duplicate Start jump</span></div>
+        <div class="session-row">
+          <span class="sess ended">Session ended</span>
+          <span class="cta">Start 24h ($5)</span>
+          <span class="badge quiet" style="margin-left:6px;">Topbar Sound on | Mute · AC-S03 · punchy hits when on</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="acs">
+      <h3>Locked ACs · SHIP G craft + chart-space + casino SFX (cut 2026-10-26)</h3>
+      <div class="acs-grid">
+        <ul>
+          <li><span class="id">AC-R01</span> — Craft silhouette (nose · body · fins · cockpit glass), <b>not</b> face blob</li>
+          <li><span class="id">AC-R02</span> — IDLE calm readable (soft hover, dim twin thruster)</li>
+          <li><span class="id">AC-R03</span> — TICK+ thruster + lift + +$ chip on positive mark</li>
+          <li><span class="id">AC-R04</span> — DOWN nose-down + smoke; no ♪ tick+ on loss</li>
+          <li><span class="id">AC-R05</span> — Nebula (or equipped skin) tints hull + fins; shop preview</li>
+          <li><span class="id">AC-R06</span> — Points / shop equip / Buy / Sell still present</li>
+        </ul>
+        <ul>
+          <li><span class="id">AC-F01</span> — Session ended → one obvious Start/Restart 24h CTA</li>
+          <li><span class="id">AC-F02</span> — Active run: Last tick / equity alive when marks move</li>
+          <li><span class="id">AC-F03</span> — Session PnL chip sign matches direction (no DOWN +%)</li>
+          <li><span class="id">AC-F04</span> — Event tape / high-score path readable; hide dense QA footer on AFTER</li>
+          <li><span class="id">AC-S01</span> — Tick+ / win hit short, punchy, casino-energy (not sparse beep)</li>
+          <li><span class="id">AC-S02</span> — Loss / DOWN distinct hit (not silent, not tick+ reuse)</li>
+          <li><span class="id">AC-S03</span> — Mute kills all new SFX; unmute restores</li>
+          <li><span class="id">Stage</span> — Rocket in interactive chart-space (not sticker on void)</li>
+        </ul>
+      </div>
+    </div>
+    <p class="foot">mock-game-polish-v2 · craft + chart-space + AC-R/F/S · EYES ONLY · NOT A PR · EXAMPLE · Pilot · Eng folds geometry + SFX pack</p>
+  </div>
+</body>
+</html>
