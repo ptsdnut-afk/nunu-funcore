@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Filter · SHIP F age-window (~5m drop) mock v1 · eyes only</title>
+  <style>
+    :root {
+      --bg: #050505;
+      --panel: #121212;
+      --panel2: #161616;
+      --border: #2a2a2a;
+      --text: #e7e9ea;
+      --muted: #8b98a5;
+      --good: #3ecf8e;
+      --amber: #f0a33a;
+      --warn: #e6b84d;
+      --bad: #f07178;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.35;
+      min-height: 100vh;
+      font-size: 15px;
+    }
+    .mock-banner {
+      background: linear-gradient(90deg, #141414, #0a0a0a);
+      border-bottom: 1px solid #6a5320;
+      padding: 10px 16px;
+      font-size: 0.82rem;
+      color: #f0d9a0;
+      font-weight: 650;
+      display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center;
+    }
+    .mock-banner code { font-family: var(--mono); color: var(--amber); }
+    .mock-banner .tag {
+      font-size: 0.68rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase;
+      padding: 3px 9px; border-radius: 999px;
+      background: #241e10; border: 1px solid #6a5320; color: var(--amber);
+    }
+    .mock-banner .tag.good {
+      background: #102018; border-color: #2a5a40; color: var(--good);
+    }
+    .app { max-width: 1480px; margin: 0 auto; padding: 14px 16px 28px; }
+    .intro {
+      margin: 0 0 14px; padding: 11px 14px; border-radius: 10px;
+      background: #102018; border: 1px solid #2a5a40;
+      font-size: 0.88rem; color: #b8e6c0;
+    }
+    .intro b { color: #d4f5d8; }
+    .intro .ex {
+      display: inline-block; margin-left: 4px;
+      font-size: 0.62rem; font-weight: 800; letter-spacing: .04em;
+      padding: 2px 7px; border-radius: 999px; vertical-align: middle;
+      background: #241e10; border: 1px solid #6a5320; color: var(--amber);
+    }
+    .compare {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      align-items: stretch;
+    }
+    @media (max-width: 1100px) { .compare { grid-template-columns: 1fr; } }
+    .col-label {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+    .col-label h2 {
+      margin: 0; font-size: 0.78rem; font-weight: 800;
+      letter-spacing: 0.06em; text-transform: uppercase;
+    }
+    .col-label .sub { font-size: 0.78rem; color: var(--muted); }
+    .pill-bad, .pill-good, .pill-amber {
+      font-size: 0.65rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+      padding: 2px 8px; border-radius: 999px;
+    }
+    .pill-bad { background: #241014; border: 1px solid #6a2030; color: var(--bad); }
+    .pill-good { background: #102018; border: 1px solid #2a5a40; color: var(--good); }
+    .pill-amber { background: #241e10; border: 1px solid #6a5320; color: var(--amber); }
+
+    .stage {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+      display: flex; flex-direction: column;
+      min-height: 640px;
+    }
+    .stage.bad { border-color: #6a2a32; }
+    .stage.good { border-color: #2a5a40; box-shadow: 0 0 0 1px rgba(62,207,142,.12); }
+
+    .filter-page { padding: 12px 14px 14px; flex: 1; display: flex; flex-direction: column; }
+    .topbar {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+      margin-bottom: 10px; padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .brand { display: flex; align-items: center; gap: 8px; }
+    .logo {
+      width: 28px; height: 28px; border-radius: 8px;
+      background: linear-gradient(135deg, #2a2a2a, #111);
+      display: grid; place-items: center;
+      font-weight: 800; font-size: 0.85rem;
+    }
+    .brand h1 { margin: 0; font-size: 0.92rem; }
+    .brand .sub { margin: 0; color: var(--muted); font-size: 0.65rem; }
+    .mode-tabs {
+      display: inline-flex; gap: 3px; padding: 2px;
+      background: #0e0e0e; border: 1px solid var(--border); border-radius: 999px;
+    }
+    .mode-tabs span {
+      padding: 4px 11px; border-radius: 999px;
+      font-size: 0.7rem; font-weight: 700; color: var(--muted);
+    }
+    .mode-tabs span.on { background: #e7e9ea; color: #0a0a0a; }
+    .live {
+      margin-left: auto;
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 3px 9px; border-radius: 999px;
+      background: #102018; border: 1px solid #2a5a40;
+      font-size: 0.68rem; color: var(--good); font-weight: 650;
+    }
+    .dot {
+      width: 7px; height: 7px; border-radius: 50%; background: var(--good);
+      box-shadow: 0 0 0 3px rgba(62,207,142,.25);
+    }
+
+    .board-meta {
+      display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center;
+      margin-bottom: 8px; font-size: 0.72rem; color: var(--muted);
+    }
+    .board-meta b { color: var(--text); }
+    .board-meta code { font-family: var(--mono); color: var(--amber); font-size: 0.68rem; }
+    .thresh {
+      font-size: 0.62rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+      padding: 2px 7px; border-radius: 999px;
+      background: #0e0e0e; border: 1px solid var(--border); color: var(--muted);
+    }
+    .thresh.on {
+      background: #102018; border-color: #2a5a40; color: var(--good);
+    }
+
+    .rows { display: flex; flex-direction: column; gap: 7px; }
+    .row {
+      display: grid;
+      grid-template-columns: 36px 1fr auto auto;
+      gap: 10px; align-items: center;
+      background: var(--panel2); border: 1px solid var(--border);
+      border-radius: 11px; padding: 9px 11px;
+    }
+    .row.sticky {
+      border-color: #6a2a32;
+      background: linear-gradient(160deg, #241418 0%, #161616 70%);
+      box-shadow: inset 0 0 0 1px rgba(240,113,120,.15);
+    }
+    .row.warn {
+      border-color: #6a5320;
+      background: linear-gradient(160deg, #241e10 0%, #161616 75%);
+    }
+    .row.gone-slot {
+      border-style: dashed; border-color: #3a3a3a;
+      background: #0e0e0e; opacity: 0.92;
+      min-height: 58px;
+    }
+    .ph {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: #1c1c1c; border: 1px solid var(--border);
+      display: grid; place-items: center; font-size: 1rem; flex-shrink: 0;
+    }
+    .row.sticky .ph { background: #241014; border-color: #6a2030; }
+    .row.warn .ph { background: #241e10; border-color: #6a5320; }
+    .meta .ticker { font-weight: 800; font-size: 0.95rem; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .meta .name { color: var(--muted); font-size: 0.68rem; margin-top: 1px; }
+    .ex-chip {
+      font-size: 0.55rem; font-weight: 800; letter-spacing: .04em;
+      padding: 1px 6px; border-radius: 999px;
+      background: #241e10; border: 1px solid #6a5320; color: var(--amber);
+    }
+    .score {
+      font-family: var(--mono); font-weight: 900; font-size: 1.2rem;
+      color: var(--amber); text-align: right; min-width: 42px;
+    }
+    .sitting {
+      text-align: right; min-width: 78px;
+    }
+    .sitting .lab {
+      font-size: 0.55rem; font-weight: 800; letter-spacing: .05em;
+      text-transform: uppercase; color: var(--muted);
+    }
+    .sitting .val {
+      font-family: var(--mono); font-weight: 900; font-size: 1.05rem;
+      color: var(--text); margin-top: 1px;
+    }
+    .sitting .val.over { color: var(--bad); }
+    .sitting .val.near { color: var(--amber); }
+    .sitting .val.ok { color: var(--good); }
+    .sitting .hint {
+      font-size: 0.58rem; color: var(--muted); margin-top: 1px;
+    }
+    .sitting .hint.bad { color: var(--bad); font-weight: 700; }
+    .sitting .hint.warn { color: var(--amber); font-weight: 700; }
+
+    .gone-inner {
+      grid-column: 1 / -1;
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      padding: 2px 4px;
+    }
+    .gone-x {
+      width: 28px; height: 28px; border-radius: 8px;
+      background: #102018; border: 1px solid #2a5a40;
+      display: grid; place-items: center;
+      color: var(--good); font-weight: 900; font-size: 0.95rem;
+    }
+    .gone-copy { font-size: 0.78rem; color: #b8e6c0; }
+    .gone-copy b { color: #d4f5d8; }
+    .gone-copy .muted { color: var(--muted); font-size: 0.7rem; display: block; margin-top: 2px; }
+
+    .callout {
+      margin-top: 10px; padding: 8px 10px; border-radius: 9px;
+      font-size: 0.74rem; line-height: 1.4;
+    }
+    .callout.bad {
+      background: #241014; border: 1px solid #6a2030; color: #f0b8bc;
+    }
+    .callout.good {
+      background: #102018; border: 1px solid #2a5a40; color: #b8e6c0;
+    }
+    .callout b { color: inherit; }
+
+    /* Social Tap (AFTER column) */
+    .social {
+      margin-top: 12px;
+      background: #0e0e0e;
+      border: 1px solid #2a5a40;
+      border-radius: 12px;
+      padding: 10px 12px;
+    }
+    .social.stale {
+      border-color: #3a3a3a;
+      opacity: 0.85;
+    }
+    .social-hd {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+    .social-hd h3 {
+      margin: 0; font-size: 0.78rem; font-weight: 800;
+      letter-spacing: .05em; text-transform: uppercase;
+    }
+    .fresh-pill {
+      font-size: 0.58rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+      padding: 2px 7px; border-radius: 999px;
+      background: #102018; border: 1px solid #2a5a40; color: var(--good);
+    }
+    .stale-pill {
+      font-size: 0.58rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+      padding: 2px 7px; border-radius: 999px;
+      background: #1a1a1a; border: 1px solid #3a3a3a; color: #666;
+    }
+    .social-hd .ago {
+      margin-left: auto; font-family: var(--mono); font-size: 0.65rem; color: var(--muted);
+    }
+    .social-hd .ago.fresh { color: var(--good); }
+    .tap-item {
+      display: grid; grid-template-columns: 28px 1fr auto;
+      gap: 8px; align-items: start;
+      padding: 7px 0; border-top: 1px solid #1c1c1c;
+    }
+    .tap-item:first-of-type { border-top: 0; padding-top: 0; }
+    .tap-av {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: #1c1c1c; border: 1px solid var(--border);
+      display: grid; place-items: center; font-size: 0.75rem;
+    }
+    .tap-body .who {
+      font-weight: 750; font-size: 0.72rem;
+      display: flex; align-items: center; gap: 5px; flex-wrap: wrap;
+    }
+    .tap-body .txt { font-size: 0.72rem; color: var(--text); margin-top: 2px; }
+    .tap-body .coin-tag {
+      font-size: 0.58rem; font-family: var(--mono); color: var(--amber);
+      margin-top: 2px;
+    }
+    .tap-ago { font-family: var(--mono); font-size: 0.62rem; color: var(--muted); white-space: nowrap; }
+    .tap-ago.fresh { color: var(--good); }
+    .tap-empty {
+      padding: 14px 8px; text-align: center;
+      font-size: 0.75rem; color: var(--muted);
+      border: 1px dashed #2a5a40; border-radius: 8px;
+      background: #0a120e;
+    }
+    .social-note {
+      margin-top: 8px; font-size: 0.68rem; color: #b8e6c0;
+    }
+    .social-note.stale-note { color: #888; }
+
+    .legend {
+      margin-top: 16px; padding: 12px 14px; border-radius: 10px;
+      background: #0e0e0e; border: 1px dashed #6a5320;
+      font-size: 0.8rem; color: #c9b888;
+    }
+    .legend b { color: var(--amber); }
+    .legend ul { margin: 6px 0 0; padding-left: 18px; }
+    .legend li { margin: 4px 0; }
+    .legend code { font-family: var(--mono); color: var(--good); font-size: 0.75rem; }
+
+    .eng-foot {
+      margin-top: 12px; padding: 12px 14px; border-radius: 10px;
+      background: var(--panel); border: 1px solid var(--border);
+      font-size: 0.78rem; color: var(--muted);
+    }
+    .eng-foot h3 {
+      margin: 0 0 8px; font-size: 0.72rem; font-weight: 800;
+      letter-spacing: .06em; text-transform: uppercase; color: var(--amber);
+    }
+    .eng-foot ol { margin: 0; padding-left: 18px; }
+    .eng-foot li { margin: 3px 0; }
+    .eng-foot code { font-family: var(--mono); color: var(--good); font-size: 0.72rem; }
+    .eng-foot .cut {
+      margin-top: 8px; font-size: 0.7rem;
+    }
+    .eng-foot .cut code { color: var(--amber); }
+  </style>
+</head>
+<body>
+  <div class="mock-banner">
+    <span class="tag">EYES ONLY</span>
+    <span class="tag">SHIP F</span>
+    <span class="tag good">NOT A PR</span>
+    <span>Age-window ~5m drop + Social Tap freshness · <code>qa/mock-filter-age-window-v1.html</code></span>
+    <span style="color:#8b98a5">EXAMPLE data only · accurate-or-omit</span>
+  </div>
+
+  <div class="app">
+    <p class="intro">
+      <b>Owner ask:</b> Filter used to feel frozen — same names past the window.
+      Drop coins that sit <b>~5m+</b> (<code style="font-family:var(--mono);color:var(--amber)">sitting_minutes</code> &gt; threshold) on the next scan.
+      Social Tap should feel current with the 5‑min feed — never invent posts.
+      All coin / viral rows below are <span class="ex">EXAMPLE</span> — not live truth.
+    </p>
+
+    <div class="compare">
+      <!-- ========== BEFORE ========== -->
+      <div>
+        <div class="col-label">
+          <span class="pill-bad">BEFORE</span>
+          <h2>Sticky linger</h2>
+          <span class="sub">Maya-style sitter still on board after 14m Sitting</span>
+        </div>
+        <div class="stage bad">
+          <div class="filter-page">
+            <div class="topbar">
+              <div class="brand">
+                <div class="logo">N</div>
+                <div>
+                  <h1>Nunu Filter</h1>
+                  <p class="sub">panel_v 63 · EXAMPLE board</p>
+                </div>
+              </div>
+              <div class="mode-tabs">
+                <span class="on">Filter</span>
+                <span>Game</span>
+              </div>
+              <div class="live"><span class="dot"></span> bot · 5m</div>
+            </div>
+
+            <div class="board-meta">
+              <span><b>4</b> flagged</span>
+              <span class="thresh">no sitting drop</span>
+              <span>scan @ <code>20:40Z</code> EXAMPLE</span>
+            </div>
+
+            <div class="rows">
+              <!-- sticky Maya -->
+              <div class="row sticky">
+                <div class="ph">🐢</div>
+                <div class="meta">
+                  <div class="ticker">MAYA <span class="ex-chip">EXAMPLE</span></div>
+                  <div class="name">Maya sitter · stuck past window</div>
+                </div>
+                <div class="score">72</div>
+                <div class="sitting">
+                  <div class="lab">Sitting</div>
+                  <div class="val over">14m</div>
+                  <div class="hint bad">past ~5m — still here</div>
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="ph">🐸</div>
+                <div class="meta">
+                  <div class="ticker">RIBBIT <span class="ex-chip">EXAMPLE</span></div>
+                  <div class="name">fresh flag · healthy sit</div>
+                </div>
+                <div class="score">81</div>
+                <div class="sitting">
+                  <div class="lab">Sitting</div>
+                  <div class="val ok">1.2m</div>
+                  <div class="hint">inside window</div>
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="ph">⚡</div>
+                <div class="meta">
+                  <div class="ticker">ZAPCOIN <span class="ex-chip">EXAMPLE</span></div>
+                  <div class="name">mid sit</div>
+                </div>
+                <div class="score">68</div>
+                <div class="sitting">
+                  <div class="lab">Sitting</div>
+                  <div class="val">3.1m</div>
+                  <div class="hint">inside window</div>
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="ph">🌙</div>
+                <div class="meta">
+                  <div class="ticker">LUNEX <span class="ex-chip">EXAMPLE</span></div>
+                  <div class="name">near drop — no warn yet</div>
+                </div>
+                <div class="score">75</div>
+                <div class="sitting">
+                  <div class="lab">Sitting</div>
+                  <div class="val">4.4m</div>
+                  <div class="hint">reads like any other row</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="callout bad">
+              <b>Pain:</b> MAYA at Sitting <b>14m</b> (also 12–18m cases) never leaves — board feels frozen even while feed is green.
+            </div>
+
+            <div class="social stale">
+              <div class="social-hd">
+                <h3>Social Tap</h3>
+                <span class="stale-pill">stale chrome</span>
+                <span class="ago">idle · ~42m ago</span>
+              </div>
+              <div class="tap-item">
+                <div class="tap-av">…</div>
+                <div class="tap-body">
+                  <div class="who">placeholder strip <span class="ex-chip">EXAMPLE</span></div>
+                  <div class="txt" style="color:#666">Same grey idle cards as when bot was asleep — not current.</div>
+                </div>
+                <div class="tap-ago">42m</div>
+              </div>
+              <div class="social-note stale-note">Looks like frozen chrome, not a live 5‑min feed.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== AFTER ========== -->
+      <div>
+        <div class="col-label">
+          <span class="pill-good">AFTER</span>
+          <h2>Next scan · age-window on</h2>
+          <span class="sub">sitter GONE · near-window amber · Social Tap current</span>
+        </div>
+        <div class="stage good">
+          <div class="filter-page">
+            <div class="topbar">
+              <div class="brand">
+                <div class="logo">N</div>
+                <div>
+                  <h1>Nunu Filter</h1>
+                  <p class="sub">panel_v 63+ · EXAMPLE board</p>
+                </div>
+              </div>
+              <div class="mode-tabs">
+                <span class="on">Filter</span>
+                <span>Game</span>
+              </div>
+              <div class="live"><span class="dot"></span> bot · 5m</div>
+            </div>
+
+            <div class="board-meta">
+              <span><b>3</b> flagged</span>
+              <span class="thresh on">SITTING_DROP_MIN ≈ 5</span>
+              <span>scan @ <code>20:45Z</code> EXAMPLE</span>
+            </div>
+
+            <div class="rows">
+              <!-- gone slot -->
+              <div class="row gone-slot">
+                <div class="gone-inner">
+                  <div class="gone-x">×</div>
+                  <div class="gone-copy">
+                    <b>MAYA dropped</b> — Sitting was 14m (&gt; ~5m threshold)
+                    <span class="muted">gone on this scan · no sticky linger · EXAMPLE</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="ph">🐸</div>
+                <div class="meta">
+                  <div class="ticker">RIBBIT <span class="ex-chip">EXAMPLE</span></div>
+                  <div class="name">fresh flag · healthy sit</div>
+                </div>
+                <div class="score">81</div>
+                <div class="sitting">
+                  <div class="lab">Sitting</div>
+                  <div class="val ok">1.8m</div>
+                  <div class="hint">inside window</div>
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="ph">⚡</div>
+                <div class="meta">
+                  <div class="ticker">ZAPCOIN <span class="ex-chip">EXAMPLE</span></div>
+                  <div class="name">mid sit</div>
+                </div>
+                <div class="score">68</div>
+                <div class="sitting">
+                  <div class="lab">Sitting</div>
+                  <div class="val">3.6m</div>
+                  <div class="hint">inside window</div>
+                </div>
+              </div>
+
+              <div class="row warn">
+                <div class="ph">🌙</div>
+                <div class="meta">
+                  <div class="ticker">LUNEX <span class="ex-chip">EXAMPLE</span></div>
+                  <div class="name">near window — readable warn</div>
+                </div>
+                <div class="score">75</div>
+                <div class="sitting">
+                  <div class="lab">Sitting</div>
+                  <div class="val near">4.0m</div>
+                  <div class="hint warn">near ~5m drop</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="callout good">
+              <b>Done feel:</b> old sitters leave within ~one scan after 5m. Remaining rows still show <b>Sitting</b>; near-window rows read amber before they drop. Score / quote chrome unchanged.
+            </div>
+
+            <div class="social">
+              <div class="social-hd">
+                <h3>Social Tap</h3>
+                <span class="fresh-pill">current · not stale idle</span>
+                <span class="ago fresh">~2m · feed loop 5m</span>
+              </div>
+              <div class="tap-item">
+                <div class="tap-av">🔥</div>
+                <div class="tap-body">
+                  <div class="who">viral-style item <span class="ex-chip">EXAMPLE</span></div>
+                  <div class="txt">Fresh mention tied to a flagged mint — from real source when available.</div>
+                  <div class="coin-tag">↔ RIBBIT EXAMPLE</div>
+                </div>
+                <div class="tap-ago fresh">2m</div>
+              </div>
+              <div class="tap-item">
+                <div class="tap-av">📡</div>
+                <div class="tap-body">
+                  <div class="who">viral-style item <span class="ex-chip">EXAMPLE</span></div>
+                  <div class="txt">Or honest empty / loading / error — never invent posts.</div>
+                  <div class="coin-tag">↔ ZAPCOIN EXAMPLE</div>
+                </div>
+                <div class="tap-ago fresh">4m</div>
+              </div>
+              <div class="social-note">
+                Polish only (Slice 5 already shipped): with <code style="font-family:var(--mono);color:var(--amber)">interval_min=5</code>, Tap shows current viral-style EXAMPLE items <b>or</b> honest empty — not stale idle chrome.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <b>Read the mock:</b>
+      <ul>
+        <li><b>BEFORE</b> — MAYA Sitting <code>14m</code> still on the board (sticky linger). Social Tap grey idle.</li>
+        <li><b>AFTER</b> — MAYA slot empty (dropped). LUNEX Sitting <code>4m</code> amber warn. Social Tap fresh (~2–4m EXAMPLE) or honest empty.</li>
+        <li>Metric name from SoT: <code>sitting_minutes</code> in <code>filter.py</code>. Tunable constant default <code>~5</code>. Pair-age <code>MAX_PAIR_AGE_HOURS=72</code> stays out of this cut.</li>
+        <li>All tickers / viral lines are <b>EXAMPLE</b> — not claims about live coins.</li>
+      </ul>
+    </div>
+
+    <div class="eng-foot">
+      <h3>Eng pointer — BLOCK AC-A01…A06</h3>
+      <ol>
+        <li><code>AC-A01</code> — sitting drop threshold ≈ 5 min (documented constant)</li>
+        <li><code>AC-A02</code> — coin with sitting_minutes past threshold <b>gone</b> after next scan</li>
+        <li><code>AC-A03</code> — Sitting still visible; near-window rows readable (amber warn)</li>
+        <li><code>AC-A04</code> — score / quote_sync / game_finish chrome not regressed</li>
+        <li><code>AC-A05</code> — Social Tap: current viral-style from real source <b>or</b> honest empty/loading/error — not stale idle chrome</li>
+        <li><code>AC-A06</code> — open/close Social Tap + Filter still snappy</li>
+      </ol>
+      <div class="cut">Locked cut: <code>qa/cut-2026-10-26-ship-f-age-window-viral.md</code> · unlock Eng after SHIP E T01–T07 PASS</div>
+    </div>
+  </div>
+</body>
+</html>

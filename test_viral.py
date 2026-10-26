@@ -354,14 +354,133 @@ class ViralParseTests(unittest.TestCase):
         self.assertNotIn("elonmusk", json.dumps(payload))
 
 
+class SocialTapFreshnessTests(unittest.TestCase):
+    def setUp(self):
+        viral.reset_cache()
+
+    def tearDown(self):
+        viral.reset_cache()
+
+    def _card(self, title: str) -> dict:
+        return {
+            "ok": True,
+            "feed": "viral_live",
+            "bias": "coin_relevant",
+            "live": True,
+            "stale": False,
+            "updated_at": "2026-10-26T08:00:00Z",
+            "posts": [
+                {
+                    "id": "live:" + title,
+                    "kind": "coin",
+                    "title": title,
+                    "text": title,
+                    "url": "https://example.test/" + title.replace(" ", "-"),
+                    "source_label": "Example",
+                    "created_at": "2026-10-26T08:00:00Z",
+                }
+            ],
+            "sources": [],
+            "error": None,
+            "note": None,
+        }
+
+    def test_fresh_window_constant_is_five_minutes(self):
+        self.assertEqual(viral.SOCIAL_TAP_FRESH_MIN, 5.0)
+        self.assertEqual(viral.SOCIAL_TAP_FRESH_SEC, 300.0)
+
+    def test_present_feed_keeps_posts_through_five_minutes(self):
+        card = self._card("fresh memecoin headline")
+        held = viral.present_feed(card, age_sec=viral.SOCIAL_TAP_FRESH_SEC)
+        self.assertFalse(held["stale"])
+        self.assertEqual(held["posts"][0]["title"], "fresh memecoin headline")
+        self.assertEqual(held["fresh_sec"], 300.0)
+        self.assertEqual(held["feed_loop_min"], 5.0)
+        self.assertEqual(card["posts"][0]["title"], "fresh memecoin headline")
+
+    def test_present_feed_past_loop_omits_idle_cards(self):
+        card = self._card("idle card from asleep bot")
+        held = viral.present_feed(card, age_sec=42 * 60)
+        self.assertTrue(held["stale"])
+        self.assertEqual(held["posts"], [])
+        self.assertIn("Nothing invented", held["note"])
+        self.assertNotIn("idle card", json.dumps(held["posts"]))
+        self.assertEqual(card["posts"][0]["title"], "idle card from asleep bot")
+
+    def test_cache_hit_past_loop_does_not_serve_idle_cards(self):
+        now = 2_000_000.0
+        with viral._lock:
+            viral._cache["payload"] = self._card("idle card from asleep bot")
+            viral._cache["at"] = now - 42 * 60
+            viral._cache["until"] = now + 30
+            viral._cache["refreshing"] = False
+
+        def fetch(_url):
+            raise AssertionError("fresh ttl hit must not fetch")
+
+        out = viral.feed_payload(fetch=fetch, now=now)
+        self.assertEqual(out["posts"], [])
+        self.assertTrue(out["stale"])
+        self.assertIn("Nothing invented", out["note"])
+
+    def test_cache_inside_loop_returns_copied_posts(self):
+        now = 2_000_000.0
+        with viral._lock:
+            viral._cache["payload"] = self._card("solana memecoin listing")
+            viral._cache["at"] = now - 90
+            viral._cache["until"] = now + 30
+            viral._cache["refreshing"] = False
+
+        def fetch(_url):
+            raise AssertionError("inside the loop a warm cache must not fetch")
+
+        out = viral.feed_payload(fetch=fetch, now=now)
+        self.assertFalse(out["stale"])
+        self.assertEqual(out["posts"][0]["title"], "solana memecoin listing")
+        self.assertEqual(out["feed_loop_min"], 5.0)
+
+    def test_expired_cache_past_loop_refresh_failure_is_honest(self):
+        now = 3_000_000.0
+        with viral._lock:
+            viral._cache["payload"] = self._card("old idle card")
+            viral._cache["at"] = now - 42 * 60
+            viral._cache["until"] = now - 1
+            viral._cache["refreshing"] = False
+
+        def fetch(_url):
+            raise OSError("sources down")
+
+        out = viral.feed_payload(fetch=fetch, now=now)
+        self.assertEqual(out["posts"], [])
+        self.assertTrue(out.get("error"))
+        self.assertNotIn("old idle card", json.dumps(out["posts"]))
+        self.assertNotIn("elonmusk", json.dumps(out))
+
+    def test_inflight_past_loop_withholds_cards(self):
+        now = 4_000_000.0
+        with viral._lock:
+            viral._cache["payload"] = self._card("still painting idle")
+            viral._cache["at"] = now - 42 * 60
+            viral._cache["until"] = now - 1
+            viral._cache["refreshing"] = True
+
+        def fetch(_url):
+            raise AssertionError("in-flight refresh must not be fetched again")
+
+        out = viral.feed_payload(fetch=fetch, now=now)
+        self.assertEqual(out["posts"], [])
+        self.assertTrue(out["refreshing"])
+        self.assertIn("Refreshing", out["note"])
+
+
 class PanelRouteTests(unittest.TestCase):
-    def test_health_is_v64_with_mcap_progress_flag(self):
+    def test_health_is_v65_with_mcap_progress_flag(self):
         import server
 
         res = server.app.test_client().get("/api/health")
         self.assertEqual(res.status_code, 200)
         data = res.get_json()
-        self.assertEqual(data["panel_v"], 64)
+        self.assertEqual(data["panel_v"], 65)
         self.assertEqual(data["qa_tick"], "page ?qa_tick=both|up|down")
         self.assertIn("game_finish", data["features"])
         self.assertIn("viral_live", data["features"])
@@ -410,12 +529,12 @@ class PanelRouteTests(unittest.TestCase):
             again = client.get("/api/tweets", headers={"If-None-Match": etag})
             self.assertEqual(again.status_code, 304)
 
-    def test_panel_labels_social_tap_v64(self):
+    def test_panel_labels_social_tap_v65(self):
         with open("static/index.html", encoding="utf-8") as fh:
             html = fh.read()
         self.assertIn(">Social Tap<", html)
-        self.assertIn("const PANEL_V = 64", html)
-        self.assertIn("paper only · v64", html)
+        self.assertIn("const PANEL_V = 65", html)
+        self.assertIn("paper only · v65", html)
         self.assertIn("Mcap · % max", html)
         self.assertIn("Market cap progress · paper research", html)
         self.assertIn("Ceiling math:", html)
@@ -441,7 +560,8 @@ class PanelRouteTests(unittest.TestCase):
         self.assertNotIn("?v=61", html)
         self.assertNotIn("?v=62", html)
         self.assertNotIn("?v=63", html)
-        self.assertIn("?v=64", html)
+        self.assertNotIn("?v=64", html)
+        self.assertIn("?v=65", html)
         self.assertIn("Where it’s at · DEX Screener", html)
         self.assertIn("data-quote-live", html)
         self.assertIn("quoteAgeOk", html)

@@ -62,6 +62,15 @@ LATE_CHASE_MIN_H1_PCT = 100.0
 SCORE_STABLE_DELTA = 1.0
 FLAG_HISTORY_TTL_H = 24.0
 
+# Sitting window (this cut). Pair age stays MAX_PAIR_AGE_HOURS (72h).
+# A flagged coin leaves the board on the scan where sitting_minutes exceeds this.
+SITTING_DROP_MIN = 5.0
+# Amber near-window cue while the coin is still on the board.
+# 4.0m of a 5m window reads near; 3.6m stays a normal row.
+SITTING_NEAR_LEAD_MIN = 1.0
+# Green "fresh" sit. Display only — does not change who stays on the board.
+SITTING_FRESH_MIN = 2.0
+
 # Rate limiting / fetch / cache (tuned for speed; fail soft)
 HTTP_TIMEOUT_S = 8
 SLEEP_BETWEEN_BATCH_S = 0.05
@@ -700,6 +709,61 @@ def update_flag_history(
     return keep
 
 
+def sitting_band(minutes: float | None) -> str:
+    """fresh / inside / near / over / unknown. `over` is past SITTING_DROP_MIN."""
+    if minutes is None:
+        return "unknown"
+    try:
+        mins = float(minutes)
+    except (TypeError, ValueError):
+        return "unknown"
+    if mins > SITTING_DROP_MIN:
+        return "over"
+    if mins >= SITTING_DROP_MIN - SITTING_NEAR_LEAD_MIN:
+        return "near"
+    if mins < SITTING_FRESH_MIN:
+        return "fresh"
+    return "inside"
+
+
+def drop_stale_sitters(
+    flagged: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split the board. sitting_minutes > SITTING_DROP_MIN leaves on this scan.
+
+    Comparison uses the rounded sitting_minutes already stored on the row
+    (one decimal), so the number QA reads and the drop decision match.
+    A row with no sitting_minutes stays — only a measured sit past the
+    window is removed. Score fields are left as evaluate() wrote them.
+    """
+    kept: list[dict[str, Any]] = []
+    dropped: list[dict[str, Any]] = []
+    for row in flagged:
+        raw = row.get("sitting_minutes")
+        try:
+            mins = float(raw) if raw is not None else None
+        except (TypeError, ValueError):
+            mins = None
+        band = sitting_band(mins)
+        row["sitting_drop_min"] = SITTING_DROP_MIN
+        row["sitting_band"] = band
+        if band == "over":
+            row["flagged"] = False
+            row["sitting_dropped"] = True
+            dropped.append(row)
+            continue
+        kept.append(row)
+    return kept, dropped
+
+
+def finalize_flagged(
+    flagged: list[dict[str, Any]], now_iso: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Attach sitting time, then drop coins that have sat past the window."""
+    update_flag_history(flagged, now_iso)
+    return drop_stale_sitters(flagged)
+
+
 def evaluate(
     mint: str,
     pair: dict[str, Any],
@@ -1021,10 +1085,19 @@ def main() -> int:
     flagged = [r for r in evaluated if r["flagged"]]
 
     finished = utc_now_iso()
-    update_flag_history(flagged, finished)
+    flagged, sitting_dropped = finalize_flagged(flagged, finished)
 
     trench_count = sum(1 for r in flagged if r.get("trench_band"))
     late_count = sum(1 for r in flagged if r.get("late_chase"))
+    dropped_summary = [
+        {
+            "ticker": r.get("ticker"),
+            "mint": r.get("mint"),
+            "sitting_minutes": r.get("sitting_minutes"),
+            "score": r.get("score"),
+        }
+        for r in sitting_dropped[:20]
+    ]
 
     latest = {
         "run_started": started,
@@ -1036,11 +1109,16 @@ def main() -> int:
         "flagged_count": len(flagged),
         "trench_band_count": trench_count,
         "late_chase_count": late_count,
+        "sitting_dropped_count": len(sitting_dropped),
+        "sitting_dropped": dropped_summary,
         "thresholds": {
             "min_liquidity_usd": MIN_LIQUIDITY_USD,
             "min_volume_h1_usd": MIN_VOLUME_H1_USD,
             "max_pair_age_hours": MAX_PAIR_AGE_HOURS,
             "min_score_to_flag": MIN_SCORE_TO_FLAG,
+            "sitting_drop_min": SITTING_DROP_MIN,
+            "sitting_near_lead_min": SITTING_NEAR_LEAD_MIN,
+            "sitting_fresh_min": SITTING_FRESH_MIN,
             "late_chase_min_age_h": LATE_CHASE_MIN_AGE_H,
             "late_chase_min_h1_pct": LATE_CHASE_MIN_H1_PCT,
             "trench_band_score_12_min": 10.0,
@@ -1081,6 +1159,7 @@ def main() -> int:
         f"{finished} scanned={len(mints)} pairs={len(pairs)} "
         f"evaluated={len(evaluated)} flagged={len(flagged)} "
         f"trench={trench_count} late={late_count} "
+        f"sitting_dropped={len(sitting_dropped)} "
         f"rug_ok={rug_ok} rug_fail={rug_fail} elapsed_s={elapsed:.2f}\n"
     )
     with RUNS_LOG.open("a", encoding="utf-8") as f:
