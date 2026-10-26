@@ -26,7 +26,10 @@ MAX_AGE_SEC = 36 * 3600
 FETCH_TIMEOUT = 4.0
 CACHE_TTL_SEC = 120
 FAIL_TTL_SEC = 45
-STALE_OK_SEC = 6 * 3600
+# Social Tap stays with the filter feed loop (INTERVAL_MIN default 5).
+# A cached payload older than this is not painted as current cards.
+SOCIAL_TAP_FRESH_MIN = 5.0
+SOCIAL_TAP_FRESH_SEC = SOCIAL_TAP_FRESH_MIN * 60.0
 READ_LIMIT = 1_000_000
 
 DISCLAIMER = (
@@ -734,30 +737,72 @@ def _refresh_bg(fetch) -> None:
                 _cache["until"] = _now() + FAIL_TTL_SEC
 
 
+_PAST_LOOP_NOTE = (
+    "Social Tap is past the 5-min feed loop. Nothing invented."
+)
+
+
+def present_feed(payload: dict, *, age_sec: float, refreshing: bool = False) -> dict:
+    """Public Social Tap body.
+
+    Inside the 5-min loop the copied posts are returned as-is.
+    Past that loop the old cards are omitted so an idle cache cannot
+    sit on screen as current chrome. Nothing is invented to fill the gap.
+    """
+    out = dict(payload)
+    posts = payload.get("posts") if isinstance(payload.get("posts"), list) else []
+    out["fresh_sec"] = SOCIAL_TAP_FRESH_SEC
+    out["feed_loop_min"] = SOCIAL_TAP_FRESH_MIN
+    out["refreshing"] = bool(refreshing)
+    over = age_sec > SOCIAL_TAP_FRESH_SEC or bool(payload.get("stale"))
+    if over:
+        out["stale"] = True
+        out["posts"] = []
+        out["ok"] = False
+        if refreshing and not payload.get("error"):
+            out["note"] = "Refreshing Social Tap…"
+            out["error"] = None
+        elif not payload.get("error"):
+            out["note"] = _PAST_LOOP_NOTE
+        return out
+    out["stale"] = False
+    out["posts"] = list(posts)
+    return out
+
+
 def feed_payload(*, fetch=None, now: float | None = None, use_cache: bool = True) -> dict:
-    """Cached live feed. Failed sources never fall back to tweets.json."""
+    """Cached live feed. Failed sources never fall back to tweets.json.
+
+    A cache older than SOCIAL_TAP_FRESH_SEC is not served as live cards.
+    """
     fetch = fetch or _http_get
     if not use_cache:
-        return collect(fetch=fetch)
+        return present_feed(collect(fetch=fetch), age_sec=0.0)
 
     clock = _now() if now is None else now
     with _lock:
         payload = _cache["payload"]
+        age = clock - _cache["at"] if payload else 1e12
+        age = max(0.0, age)
         fresh = payload is not None and clock < _cache["until"]
         if fresh:
-            return payload
+            return present_feed(payload, age_sec=age)
         has_posts = bool(payload and payload.get("posts"))
-        age = clock - _cache["at"] if payload else 1e12
-        if has_posts and age < STALE_OK_SEC:
+        if has_posts and age <= SOCIAL_TAP_FRESH_SEC:
             if not _cache["refreshing"]:
                 _cache["refreshing"] = True
                 threading.Thread(target=_refresh_bg, args=(fetch,), daemon=True).start()
-            return payload
+            return present_feed(payload, age_sec=age)
         if _cache["refreshing"] and payload is not None:
-            return payload
+            # In flight. Past the loop, withhold the idle cards.
+            return present_feed(
+                payload,
+                age_sec=age,
+                refreshing=age > SOCIAL_TAP_FRESH_SEC,
+            )
 
     try:
-        return _refresh(fetch, clock if now is not None else _now())
+        return present_feed(_refresh(fetch, clock if now is not None else _now()), age_sec=0.0)
     except Exception as exc:  # noqa: BLE001
         msg = str(exc).strip() or "live fetch failed"
         failed = assemble(
@@ -771,4 +816,4 @@ def feed_payload(*, fetch=None, now: float | None = None, use_cache: bool = True
         with _lock:
             _store(failed, FAIL_TTL_SEC, _now())
             _cache["refreshing"] = False
-        return failed
+        return present_feed(failed, age_sec=0.0)

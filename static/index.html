@@ -478,6 +478,16 @@
     .viral-pane .tweet .who .kind.event { color: var(--amber); border-color: #6a5320; }
     .viral-pane .tweet .who .kind.meme,
     .viral-pane .tweet .who .kind.coin { color: var(--good); border-color: #2a5a40; }
+    .fresh-pill {
+      font-size: 0.58rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+      padding: 2px 7px; border-radius: 999px; white-space: nowrap;
+    }
+    .fresh-pill.current { background: #102018; border: 1px solid #2a5a40; color: var(--good); }
+    .fresh-pill.past { background: #102018; border: 1px solid #2a5a40; color: #b8e6c0; }
+    .viral-list[data-state="stale"] .empty,
+    .viral-list[data-state="empty"] .empty {
+      border: 1px dashed #2a5a40; border-radius: 8px; background: #0a120e; color: #b8e6c0;
+    }
     .viral-pane .tweet .who .kind.game { color: var(--accent2); border-color: #2a3d5a; }
     .viral-pane .pane-body { min-height: 280px; }
     .panes.tweets-gone .viral-pane,
@@ -1164,7 +1174,7 @@
     #modeFilter .flow-legend,
     #modeFilter .tok {
       display: grid;
-      grid-template-columns: minmax(128px, 1.1fr) 72px minmax(156px, 1.15fr) repeat(5, minmax(52px, 0.52fr)) minmax(196px, 0.95fr);
+      grid-template-columns: minmax(120px, 1.05fr) 72px minmax(76px, 0.58fr) minmax(140px, 1.05fr) repeat(5, minmax(48px, 0.48fr)) minmax(168px, 0.9fr);
       gap: 4px 8px;
       align-items: center;
     }
@@ -1205,10 +1215,39 @@
     }
     #modeFilter .tok > .coin,
     #modeFilter .tok > .score-btn,
+    #modeFilter .tok > .sit,
     #modeFilter .tok > .mcap-prog,
     #modeFilter .tok > .metric,
     #modeFilter .tok > .links,
     #modeFilter .tok > .score-detail { grid-area: auto; }
+    #modeFilter .sit {
+      display: flex; flex-direction: column; gap: 1px; min-width: 0;
+    }
+    #modeFilter .sit .lab {
+      display: none;
+      font-size: 0.58rem; font-weight: 800; letter-spacing: 0.04em;
+      text-transform: uppercase; color: #8b98a5; line-height: 1.1;
+    }
+    #modeFilter .sit .val {
+      font-family: var(--mono); font-weight: 900; font-size: 0.95rem;
+      color: #e7e9ea; line-height: 1.15;
+    }
+    #modeFilter .sit .val.ok { color: #3ecf8e; }
+    #modeFilter .sit .val.near { color: #f0a33a; }
+    #modeFilter .sit .val.over { color: #f07178; }
+    #modeFilter .sit .hint {
+      font-size: 0.58rem; color: #8b98a5; line-height: 1.2; font-weight: 650;
+    }
+    #modeFilter .sit .hint.warn { color: #f0a33a; font-weight: 800; }
+    #modeFilter .sit .hint.bad { color: #f07178; font-weight: 800; }
+    #modeFilter .tok.sit-near {
+      border-color: #6a5320;
+      background: linear-gradient(160deg, #241e10 0%, #161616 78%);
+    }
+    #modeFilter .tok.sit-over {
+      border-color: #6a2a32;
+      background: linear-gradient(160deg, #241418 0%, #161616 72%);
+    }
     #modeFilter .mcap-prog {
       display: grid;
       grid-template-columns: minmax(58px, 0.72fr) minmax(78px, 1fr);
@@ -1860,6 +1899,8 @@
     @media (max-width: 980px) {
       #modeFilter .flow-legend { display: none; }
       #modeFilter .tok { grid-template-columns: minmax(0, 1fr) auto; }
+      #modeFilter .sit .lab { display: block; }
+      #modeFilter .tok > .sit,
       #modeFilter .tok > .mcap-prog,
       #modeFilter .tok > .metric,
       #modeFilter .tok > .links,
@@ -1876,7 +1917,7 @@
         <div class="logo">N</div>
         <div>
           <h1>Nunu Filter</h1>
-          <p class="sub">Solana Research Panel · paper only · v64</p>
+          <p class="sub">Solana Research Panel · paper only · v65</p>
         </div>
       </div>
       <div class="mode-tabs" role="tablist">
@@ -1931,7 +1972,7 @@
         <section class="pane token-pane">
           <div class="pane-head">
             <h2>Token flow</h2>
-            <span class="sub">Live · on-chain · filtered</span>
+            <span class="sub" id="filterSub">Live · on-chain · filtered · sitting drop 5m</span>
             <span class="muted" id="metaCompact">—</span>
             <span class="muted" id="tweetsCollapseReason" hidden></span>
             <span class="muted" id="sideTiming"></span>
@@ -1943,6 +1984,7 @@
           <div class="flow-legend" aria-hidden="true">
             <span>Coin</span>
             <span>Score</span>
+            <span>Sitting</span>
             <span>Mcap · % max</span>
             <span>1h %</span>
             <span>B / S</span>
@@ -1951,7 +1993,7 @@
             <span>Age</span>
             <span>Actions</span>
           </div>
-          <div class="pane-body" id="table-wrap" data-state="loading">
+          <div class="pane-body" id="table-wrap" data-state="loading" data-sitting-drop-min="5">
             <div class="empty">Loading <code>/api/flagged</code>…</div>
           </div>
           <div class="foot-pane">
@@ -1963,6 +2005,7 @@
         <section class="pane viral-pane viral" id="viral" aria-label="Social Tap">
           <div class="pane-head">
             <h2>Social Tap</h2>
+            <span class="fresh-pill" id="viralFresh" hidden></span>
             <span class="sub" id="viralUpdated">Loading Social Tap…</span>
             <button type="button" class="viral-toggle" id="viralToggle" aria-expanded="true">Collapse</button>
           </div>
@@ -2167,7 +2210,7 @@
 
     <footer class="app-foot">
       APIs: <code>/api/flagged</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>
-      <div style="margin-top:4px">Open with <code>?v=64</code>. Tokens left · Social Tap (coin, meme, and crypto viral from public sources — nothing invented) or Traders on the right (Filter stays primary). Traders is a side tab: watchlist add/remove, socials only when the snapshot has them. QA checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: add <code>&amp;mode=game</code>. <code>game-idle</code> then Start sends <code>POST /api/game/start</code> with <code>{"force":true}</code> (confirms first) so an already-active run can show idle, then a new $5 countdown. <code>game-ended</code> shows final cash, ended-at, and scores without waiting 24h. Live JSON stays unchanged until Start. Equity tick proof on an active run: <code>?qa_tick=both</code> (tick+ then nose-down), <code>?qa_tick=up</code>, or <code>?qa_tick=down</code>. Display offset only — the shared paper book is unchanged. Do not combine with <code>?fixture=</code>.</div>
+      <div style="margin-top:4px">Open with <code>?v=65</code>. Tokens left · Social Tap (coin, meme, and crypto viral from public sources — nothing invented) or Traders on the right (Filter stays primary). Traders is a side tab: watchlist add/remove, socials only when the snapshot has them. QA checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: add <code>&amp;mode=game</code>. <code>game-idle</code> then Start sends <code>POST /api/game/start</code> with <code>{"force":true}</code> (confirms first) so an already-active run can show idle, then a new $5 countdown. <code>game-ended</code> shows final cash, ended-at, and scores without waiting 24h. Live JSON stays unchanged until Start. Equity tick proof on an active run: <code>?qa_tick=both</code> (tick+ then nose-down), <code>?qa_tick=up</code>, or <code>?qa_tick=down</code>. Display offset only — the shared paper book is unchanged. Do not combine with <code>?fixture=</code>.</div>
     </footer>
   </div>
 
@@ -2205,7 +2248,11 @@
 
   <script>
 
-    const PANEL_V = 64;
+    const PANEL_V = 65;
+    const SITTING_DROP_MIN = 5;
+    const SITTING_NEAR_LEAD_MIN = 1;
+    const SITTING_FRESH_MIN = 2;
+    const SOCIAL_TAP_FRESH_MIN = 5;
     const QUOTE_SLA_S = 15;
     const UI_FIXTURES = [
       "flagged-loading", "flagged-empty", "flagged-error",
@@ -2357,6 +2404,59 @@
       const h = Math.floor(m / 60);
       const r = Math.round(m % 60);
       return h + "h " + r + "m";
+    }
+
+    function fmtSitting(m) {
+      if (m == null || Number.isNaN(Number(m))) return "—";
+      const v = Number(m);
+      if (v < 60) return (Math.round(v * 10) / 10).toFixed(1) + "m";
+      return fmtMins(v);
+    }
+
+    function sittingDropMin(r) {
+      const fromRow = Number(r && r.sitting_drop_min);
+      if (Number.isFinite(fromRow) && fromRow > 0) return fromRow;
+      const latest = state.latest && state.latest.thresholds;
+      const fromScan = Number(latest && latest.sitting_drop_min);
+      if (Number.isFinite(fromScan) && fromScan > 0) return fromScan;
+      return SITTING_DROP_MIN;
+    }
+
+    function sittingBand(r) {
+      const stamped = r && r.sitting_band;
+      if (stamped === "near" || stamped === "fresh" || stamped === "inside" || stamped === "unknown" || stamped === "over") {
+        return stamped;
+      }
+      const raw = r && r.sitting_minutes;
+      if (raw == null || raw === "") return "unknown";
+      const mins = Number(raw);
+      if (!Number.isFinite(mins)) return "unknown";
+      const drop = sittingDropMin(r);
+      if (mins > drop) return "over";
+      if (mins >= drop - SITTING_NEAR_LEAD_MIN) return "near";
+      if (mins < SITTING_FRESH_MIN) return "fresh";
+      return "inside";
+    }
+
+    function sittingHtml(r) {
+      const mins = r ? r.sitting_minutes : null;
+      const band = sittingBand(r);
+      const drop = sittingDropMin(r);
+      const val = fmtSitting(mins);
+      const hint = band === "near"
+        ? ("near ~" + drop + "m drop")
+        : (band === "over"
+          ? ("past ~" + drop + "m drop")
+          : (band === "unknown" ? "" : "inside window"));
+      const valCls = band === "over" ? "over" : (band === "near" ? "near" : (band === "fresh" ? "ok" : ""));
+      const hintCls = band === "over" ? "bad" : (band === "near" ? "warn" : "");
+      const aria = "Sitting " + val + (hint ? (", " + hint) : "");
+      return '<div class="sit" data-sitting-band="' + esc(band) + '" data-sitting-min="' +
+        esc(mins == null ? "" : String(mins)) + '" aria-label="' + esc(aria) + '">' +
+        '<span class="lab">Sitting</span>' +
+        '<span class="val ' + valCls + '">' + esc(val) + "</span>" +
+        (hint ? ('<span class="hint ' + hintCls + '">' + esc(hint) + "</span>") : "") +
+        "</div>";
     }
 
     function fmtClock(sec) {
@@ -2699,19 +2799,70 @@
       }
     }
 
+    function feedLoopMin(feed) {
+      const n = Number(feed && feed.feed_loop_min);
+      return Number.isFinite(n) && n > 0 ? n : SOCIAL_TAP_FRESH_MIN;
+    }
+
+    function feedFreshSec(feed) {
+      const n = Number(feed && feed.fresh_sec);
+      if (Number.isFinite(n) && n > 0) return n;
+      return feedLoopMin(feed) * 60;
+    }
+
+    function feedAgeSec(feed) {
+      const t = Date.parse((feed && feed.updated_at) || "");
+      if (Number.isNaN(t)) return null;
+      return Math.max(0, (Date.now() - t) / 1000);
+    }
+
+    function feedAgeLabel(feed) {
+      const sec = feedAgeSec(feed);
+      if (sec == null) return "";
+      if (sec < 60) return Math.floor(sec) + "s";
+      return Math.floor(sec / 60) + "m";
+    }
+
+    function socialTapPastLoop(feed) {
+      if (!feed) return false;
+      if (feed.stale) return true;
+      const age = feedAgeSec(feed);
+      if (age == null) return Array.isArray(feed.posts) && feed.posts.length > 0;
+      return age > feedFreshSec(feed);
+    }
+
+    function setViralFresh(mode, text) {
+      const el = document.getElementById("viralFresh");
+      const sec = document.getElementById("viral");
+      if (sec) sec.setAttribute("data-fresh", mode || "");
+      if (!el) return;
+      if (!mode) {
+        el.hidden = true;
+        el.textContent = "";
+        el.className = "fresh-pill";
+        return;
+      }
+      el.hidden = false;
+      el.className = "fresh-pill " + mode;
+      el.textContent = text;
+    }
+
     function viralSubtitle(feed, posts) {
       const sources = feed && Array.isArray(feed.sources) ? feed.sources : [];
       const okSrc = sources.filter((s) => s && s.ok && s.count && s.label).map((s) => s.label);
       const badSrc = sources.filter((s) => s && !s.ok && s.label).map((s) => s.label);
-      const when = feed && feed.updated_at ? fmtRel(feed.updated_at) : "";
-      if (feed && feed.stale) {
-        return "Cached " + fmtUtc(feed.updated_at) + " · live refresh failed";
-      }
+      const age = feedAgeLabel(feed);
       const head = okSrc.length ? okSrc.join(" · ") : "public sources";
       const miss = badSrc.length ? (" · " + badSrc.join(", ") + " unavailable") : "";
       const count = posts && posts.length ? (" · " + posts.length) : "";
       const bias = feed && feed.bias === "coin_relevant" ? "Coin-relevant · " : "";
-      return bias + "Live · " + head + miss + (when ? (" · " + when) : "") + count;
+      const loop = "feed loop " + feedLoopMin(feed) + "m";
+      return bias + head + miss + (age ? (" · " + age) : "") + " · " + loop + count;
+    }
+
+    function endTweetPaint(moreBtn) {
+      if (moreBtn) moreBtn.hidden = true;
+      if (typeof applyTweetsCollapse === "function") applyTweetsCollapse();
     }
 
     function renderTweets() {
@@ -2719,39 +2870,61 @@
       const upd = document.getElementById("viralUpdated");
       const moreBtn = document.getElementById("viralMore");
       if (!list) return;
+      // Feed freshness only. The filter bot's idle phase does not restyle this pane.
       if (state.tweetsError) {
+        setViralFresh("past", "unavailable");
         if (upd) upd.textContent = "Social Tap unavailable";
         list.innerHTML = '<div class="err">Could not load Social Tap.\n' + esc(state.tweetsError) + "</div>";
         list.setAttribute("data-state", "error");
-        if (moreBtn) moreBtn.hidden = true;
-        if (typeof applyTweetsCollapse === "function") applyTweetsCollapse();
+        endTweetPaint(moreBtn);
         return;
       }
       if (!state.tweetsLoaded) {
+        setViralFresh("", "");
         if (upd) upd.textContent = "Loading Social Tap…";
         list.innerHTML = '<div class="empty">Loading Social Tap…</div>';
         list.setAttribute("data-state", "loading");
-        if (moreBtn) moreBtn.hidden = true;
-        if (typeof applyTweetsCollapse === "function") applyTweetsCollapse();
+        endTweetPaint(moreBtn);
         return;
       }
       const feed = state.tweets || {};
       const posts = Array.isArray(feed.posts) ? feed.posts : [];
+      const loopMin = feedLoopMin(feed);
+      if (feed.refreshing && !posts.length && !feed.error) {
+        setViralFresh("current", "refreshing");
+        if (upd) upd.textContent = "Refreshing Social Tap…";
+        list.innerHTML = '<div class="empty">Refreshing Social Tap…</div>';
+        list.setAttribute("data-state", "loading");
+        endTweetPaint(moreBtn);
+        return;
+      }
+      if (socialTapPastLoop(feed)) {
+        setViralFresh("past", "past " + loopMin + "m loop");
+        if (upd) upd.textContent = "Past the " + loopMin + "m feed loop";
+        const note = (feed && feed.note) || "Social Tap is past the 5-min feed loop. Nothing invented.";
+        list.innerHTML = '<div class="empty">' + esc(note) + "</div>";
+        list.setAttribute("data-state", "stale");
+        list.removeAttribute("data-feed");
+        endTweetPaint(moreBtn);
+        return;
+      }
       if (!posts.length) {
         if (feed.error) {
+          setViralFresh("past", "unavailable");
           if (upd) upd.textContent = "Social Tap unavailable";
           list.innerHTML = '<div class="err">' + esc(feed.error) + "</div>";
           list.setAttribute("data-state", "error");
         } else {
-          if (upd) upd.textContent = "No coin-relevant viral";
+          setViralFresh("current", "current");
+          if (upd) upd.textContent = "No coin-relevant viral · feed loop " + loopMin + "m";
           const note = (feed && feed.note) || "No coin-relevant viral from public sources right now. Nothing invented.";
           list.innerHTML = '<div class="empty">' + esc(note) + "</div>";
           list.setAttribute("data-state", "empty");
         }
-        if (moreBtn) moreBtn.hidden = true;
-        if (typeof applyTweetsCollapse === "function") applyTweetsCollapse();
+        endTweetPaint(moreBtn);
         return;
       }
+      setViralFresh("current", "current");
       if (upd) upd.textContent = viralSubtitle(feed, posts);
       const PREVIEW = 4;
       const limit = state.viralShowAll ? Math.min(posts.length, 16) : Math.min(posts.length, PREVIEW);
@@ -3356,6 +3529,7 @@
       const selected = !!(mint && state.coinMint === mint);
       const watching = (state.watch || []).some((w) => w.mint === mint);
       const open = !!(mint && state.scoreOpenMint === mint);
+      const sitBand = sittingBand(r);
       const chgCls = chg == null ? "" : (Number(chg) >= 0 ? "chg-up" : "chg-dn");
       const bsMain = (buys != null || sells != null)
         ? (fmtCount(buys) + "/" + fmtCount(sells))
@@ -3364,7 +3538,7 @@
       const detailId = "sd-" + mint.replace(/[^A-Za-z0-9]/g, "").slice(0, 24);
       const metric = (lab, val, cls) =>
         '<div class="metric"><span class="lab">' + lab + '</span><span class="mval' + (cls ? (" " + cls) : "") + '">' + val + "</span></div>";
-      return '<article class="tok' + (late ? " late-row" : "") + (isCopy ? " copy-row" : "") + (open ? " open" : "") + (selected ? " selected" : "") + '" data-mint="' + esc(mint) + '">' +
+      return '<article class="tok' + (late ? " late-row" : "") + (isCopy ? " copy-row" : "") + (sitBand === "near" ? " sit-near" : "") + (sitBand === "over" ? " sit-over" : "") + (open ? " open" : "") + (selected ? " selected" : "") + '" data-mint="' + esc(mint) + '" data-sitting-band="' + esc(sitBand) + '">' +
         '<button type="button" class="coin coin-open" data-mint="' + esc(mint) + '" aria-haspopup="dialog" aria-label="Open ' + esc(r.ticker || "coin") + ' detail">' + imgHtml +
           "<div><div class=\"ticker\">" + esc(r.ticker) + " " + badge + "</div>" +
           '<div class="name" title="' + esc(r.name) + '">' + esc(r.name) + "</div>" +
@@ -3374,6 +3548,7 @@
           (scoreBand === "win" ? '<span class="win-dot"></span>' : "") +
           esc(scoreTxt) + '/12 <span class="chev">▾</span>' +
           '<span class="score-pop">' + scorePopHtml(r) + "</span></button>" +
+        sittingHtml(r) +
         mcapRowHtml(r) +
         metric("1h %", fmtPct(chg), chgCls) +
         metric("B/S", esc(bsMain)) +
@@ -3401,6 +3576,7 @@
 
     function render() {
       const wrap = document.getElementById("table-wrap");
+      if (wrap) wrap.setAttribute("data-sitting-drop-min", String(SITTING_DROP_MIN));
       const latest = state.latest || {};
       const flagged = Array.isArray(state.flagged) ? state.flagged : [];
       const status = state.status;
@@ -3435,7 +3611,8 @@
       const mc = document.getElementById("metaCompact");
       if (mc) {
         mc.innerHTML = "Flagged <strong>" + flagged.length + "</strong> · showing <strong>" +
-          visible.length + "</strong> · trench <strong>" + trenchN + "</strong> · " +
+          visible.length + "</strong> · trench <strong>" + trenchN + "</strong> · sitting drop <strong>" +
+          SITTING_DROP_MIN + "m</strong> · " +
           (botRunning ? '<span class="pill ok">bot on</span>' : '<span class="pill off">bot idle</span>');
       }
       const lu = document.getElementById("lastUpdated");
@@ -5316,7 +5493,10 @@
       const reason = document.getElementById("tweetsCollapseReason");
       const posts = state.tweets && Array.isArray(state.tweets.posts) ? state.tweets.posts : [];
       const feedErr = !!(state.tweets && state.tweets.error && posts.length === 0);
-      const empty = state.tweetsLoaded && !state.tweetsError && !feedErr && posts.length === 0;
+      const listState = document.getElementById("viralList");
+      const shownStale = !!(listState && listState.getAttribute("data-state") === "stale");
+      const staleHonest = !!(state.tweets && state.tweets.stale) || shownStale;
+      const empty = state.tweetsLoaded && !state.tweetsError && !feedErr && !staleHonest && posts.length === 0;
       const showFixture = state.fixture === "tweets-loading" || state.fixture === "tweets-error";
       const tradersOpen = state.side === "traders";
       let collapsed;
@@ -6193,6 +6373,18 @@
           if (dot) {
             dot.className = "live-dot " + (ageSec < 180 ? "" : ageSec < 600 ? "stale" : "dead");
           }
+        }
+      }
+      if (state.tweetsLoaded && state.fixture !== "tweets-loading" && state.fixture !== "tweets-empty" && state.fixture !== "tweets-error") {
+        const list = document.getElementById("viralList");
+        const feed = state.tweets || {};
+        const past = socialTapPastLoop(feed);
+        const st = list && list.getAttribute("data-state");
+        if (past && st === "ready") renderTweets();
+        else if (!past && st === "stale" && Array.isArray(feed.posts) && feed.posts.length && !feed.stale) renderTweets();
+        else if (st === "ready") {
+          const upd = document.getElementById("viralUpdated");
+          if (upd) upd.textContent = viralSubtitle(feed, feed.posts || []);
         }
       }
       const lr = document.getElementById("lastRefresh");
