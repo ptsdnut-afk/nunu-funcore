@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Game finish · tick+ / rocket · Nunu Filter mock v1</title>
+  <style>
+    :root {
+      --bg: #050505;
+      --panel: #121212;
+      --panel2: #161616;
+      --border: #2a2a2a;
+      --text: #e7e9ea;
+      --muted: #8b98a5;
+      --good: #3ecf8e;
+      --amber: #f0a33a;
+      --bad: #f07178;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      --glow-g: 0 0 24px rgba(62,207,142,.35);
+      --glow-a: 0 0 28px rgba(240,163,58,.4);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: var(--sans); background: var(--bg); color: var(--text);
+      min-height: 100vh; line-height: 1.35;
+    }
+    .banner {
+      background: linear-gradient(90deg, #1a1810, #0a0a0a);
+      border-bottom: 1px solid #6a5320;
+      padding: 9px 16px; font-size: 0.78rem; color: #f0d9a0; font-weight: 700;
+      display: flex; gap: 12px; flex-wrap: wrap; align-items: center;
+    }
+    .banner code { font-family: var(--mono); color: var(--amber); }
+    .banner .tag {
+      display: inline-block; padding: 2px 8px; border-radius: 999px;
+      background: #241e10; border: 1px solid #6a5320; color: var(--amber);
+      font-size: 0.65rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+    }
+    .app { max-width: 1440px; margin: 0 auto; padding: 14px 16px 40px; }
+    .claim {
+      margin: 0 0 6px; font-size: 1.45rem; font-weight: 900; letter-spacing: -0.03em;
+      background: linear-gradient(90deg, #fff, var(--good) 55%, var(--amber));
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .claim span {
+      display: block; font-size: 0.72rem; font-weight: 650; color: var(--muted);
+      letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 4px;
+      background: none; -webkit-background-clip: unset; color: var(--muted);
+    }
+    .lede {
+      margin: 0 0 14px; color: var(--muted); font-size: 0.82rem; max-width: 920px;
+    }
+    .lede b { color: var(--text); }
+
+    /* Topbar (kept from v2b — finished, not half) */
+    .topbar {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+      margin-bottom: 14px; padding: 10px 12px;
+      background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    }
+    .logo {
+      width: 34px; height: 34px; border-radius: 10px;
+      background: linear-gradient(135deg, #2a2a2a, #111);
+      display: grid; place-items: center; font-weight: 800; color: #fff;
+    }
+    .brand h1 { margin: 0; font-size: 1.05rem; }
+    .brand .sub { margin: 0; color: var(--muted); font-size: 0.72rem; }
+    .tabs {
+      display: inline-flex; gap: 4px; padding: 3px; margin-left: 8px;
+      background: #0e0e0e; border: 1px solid var(--border); border-radius: 999px;
+    }
+    .tabs span {
+      padding: 5px 14px; border-radius: 999px; font-size: 0.78rem; font-weight: 700; color: var(--muted);
+    }
+    .tabs span.on { background: #e7e9ea; color: #0a0a0a; }
+    .profile-chip {
+      margin-left: auto; display: inline-flex; align-items: center; gap: 10px;
+      padding: 5px 10px 5px 5px; border-radius: 999px;
+      background: var(--panel2); border: 1px solid var(--border);
+    }
+    .pf-av {
+      width: 32px; height: 32px; border-radius: 50%;
+      background: linear-gradient(135deg, #3a3a3a, #1a1a1a);
+      border: 2px solid var(--amber);
+      display: grid; place-items: center; font-weight: 900; font-size: 0.75rem;
+      box-shadow: 0 0 10px rgba(240,163,58,.35);
+    }
+    .pf-meta { line-height: 1.15; }
+    .pf-meta .name { font-weight: 800; font-size: 0.85rem; }
+    .pf-meta .pts {
+      font-family: var(--mono); font-size: 0.7rem; color: var(--amber); font-weight: 700;
+    }
+    .pf-edit {
+      font-size: 0.65rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+      padding: 4px 8px; border-radius: 999px; border: 1px solid var(--border);
+      background: #1c1c1c; color: var(--muted);
+    }
+    .live {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px; border-radius: 999px; background: #102018; border: 1px solid #2a5a40;
+      font-size: 0.75rem; color: var(--good); font-weight: 600;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; background: var(--good);
+      box-shadow: 0 0 0 4px rgba(62,207,142,.25);
+    }
+
+    /* Storyboard */
+    .story-label {
+      display: flex; align-items: baseline; gap: 10px; margin: 4px 0 10px;
+    }
+    .story-label h2 {
+      margin: 0; font-size: 0.78rem; text-transform: uppercase; letter-spacing: .08em; color: var(--amber);
+    }
+    .story-label .sub { color: var(--muted); font-size: 0.72rem; font-family: var(--mono); }
+    .story {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px;
+    }
+    .panel {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+      overflow: hidden; display: flex; flex-direction: column;
+    }
+    .panel.tick {
+      border-color: #2a5a40; box-shadow: var(--glow-g);
+    }
+    .panel.down {
+      border-color: #6a2a32;
+    }
+    .panel-head {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 10px 12px; border-bottom: 1px solid var(--border); background: #0e0e0e;
+    }
+    .panel-head .state {
+      font-size: 0.78rem; font-weight: 900; letter-spacing: .04em; text-transform: uppercase;
+    }
+    .panel.idle .panel-head .state { color: var(--muted); }
+    .panel.tick .panel-head .state { color: var(--good); }
+    .panel.down .panel-head .state { color: var(--bad); }
+    .badge {
+      font-size: 0.62rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+      padding: 2px 7px; border-radius: 999px; border: 1px solid var(--border);
+      color: var(--muted); background: #1a1a1a;
+    }
+    .badge.ex { border-color: #5a4a20; color: var(--amber); background: #241e10; }
+    .badge.sound {
+      border-color: #2a5a40; color: var(--good); background: #102018;
+      animation: soundpulse 1.1s ease-in-out infinite;
+    }
+    .badge.quiet { border-color: #333; color: #666; }
+    .panel-head .rule {
+      margin-left: auto; font-size: 0.65rem; color: var(--muted); font-family: var(--mono);
+    }
+
+    @keyframes soundpulse {
+      0%,100%{ box-shadow: 0 0 0 0 rgba(62,207,142,.35); }
+      50%{ box-shadow: 0 0 12px 2px rgba(62,207,142,.45); }
+    }
+    @keyframes thruster {
+      0%,100%{ opacity:.85; transform: scaleY(1) }
+      50%{ opacity:1; transform: scaleY(1.25) }
+    }
+    @keyframes thruster-hot {
+      0%,100%{ opacity:.9; transform: scaleY(1) translateX(0) }
+      50%{ opacity:1; transform: scaleY(1.45) translateX(-3px) }
+    }
+    @keyframes lift {
+      0%,100%{ transform: translateY(-50%) }
+      50%{ transform: translateY(calc(-50% - 10px)) }
+    }
+    @keyframes floaty {
+      0%,100%{ transform: translateY(-50%) }
+      50%{ transform: translateY(calc(-50% - 3px)) }
+    }
+    @keyframes smoke {
+      0%{ opacity:.5; transform: translateY(0) scale(1) }
+      100%{ opacity:0; transform: translateY(14px) scale(1.4) }
+    }
+    @keyframes flashg {
+      0%,100%{ background: linear-gradient(160deg, #102018 0%, #161616 70%); }
+      40%{ background: linear-gradient(160deg, #1a4030 0%, #102018 70%); }
+    }
+    @keyframes popdelta {
+      0%{ opacity:0; transform: translateY(8px) }
+      20%{ opacity:1; transform: translateY(0) }
+      80%{ opacity:1; transform: translateY(-10px) }
+      100%{ opacity:0; transform: translateY(-18px) }
+    }
+    @keyframes bankflash {
+      0%,100%{ color: var(--good); text-shadow: 0 0 12px rgba(62,207,142,.35); }
+      50%{ color: #b8f5d0; text-shadow: 0 0 22px rgba(62,207,142,.7); }
+    }
+
+    .rocket-strip {
+      position: relative; height: 128px;
+      overflow: hidden;
+      background: radial-gradient(ellipse at 30% 40%, #1a2030 0%, #050508 55%, #000 100%);
+    }
+    .panel.down .rocket-strip {
+      background: radial-gradient(ellipse at 40% 60%, #201010 0%, #0a0505 55%, #000 100%);
+    }
+    .panel.idle .rocket-strip {
+      background: radial-gradient(ellipse at 35% 45%, #141820 0%, #050508 60%, #000 100%);
+    }
+    .stars {
+      position: absolute; inset: 0;
+      background-image:
+        radial-gradient(1px 1px at 10% 20%, #fff 50%, transparent 51%),
+        radial-gradient(1px 1px at 30% 70%, #fff 50%, transparent 51%),
+        radial-gradient(1.5px 1.5px at 55% 30%, #fff 50%, transparent 51%),
+        radial-gradient(1px 1px at 75% 60%, #ccc 50%, transparent 51%),
+        radial-gradient(1px 1px at 90% 15%, #fff 50%, transparent 51%),
+        radial-gradient(1px 1px at 45% 85%, #fff 50%, transparent 51%),
+        radial-gradient(1px 1px at 20% 45%, #aaa 50%, transparent 51%);
+      opacity: .65;
+    }
+    .rocket-wrap {
+      position: absolute; left: 10%; top: 50%;
+      transform: translateY(-50%);
+      width: 200px; height: 80px;
+    }
+    .panel.idle .rocket-wrap { animation: floaty 3.2s ease-in-out infinite; }
+    .panel.tick .rocket-wrap { animation: lift .7s ease-in-out infinite; }
+    .panel.down .rocket-wrap {
+      transform: translateY(-38%) rotate(28deg);
+      animation: none; left: 14%;
+    }
+    .rocket-svg { width: 200px; height: 80px; display: block; }
+    .thrusters { transform-origin: 20px 40px; }
+    .panel.idle .thrusters { animation: thruster .9s ease-in-out infinite; opacity: .55; }
+    .panel.tick .thrusters { animation: thruster-hot .32s ease-in-out infinite; }
+    .panel.down .thrusters { display: none; }
+    .smoke-puffs { display: none; }
+    .panel.down .smoke-puffs { display: block; }
+    .smoke-puffs circle { animation: smoke 1.2s ease-out infinite; }
+    .smoke-puffs circle:nth-child(2) { animation-delay: .3s; }
+    .smoke-puffs circle:nth-child(3) { animation-delay: .6s; }
+
+    .float-delta {
+      position: absolute; left: 52%; top: 28%;
+      font-family: var(--mono); font-weight: 900; font-size: 1.15rem;
+      color: var(--good); pointer-events: none;
+      text-shadow: 0 0 14px rgba(62,207,142,.55);
+      animation: popdelta 1.6s ease-out infinite;
+    }
+    .panel:not(.tick) .float-delta { display: none; }
+
+    .rocket-hud {
+      position: absolute; right: 12px; top: 10px; text-align: right;
+    }
+    .rocket-hud .skin {
+      font-size: 0.62rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase;
+      color: var(--amber); margin-bottom: 3px;
+    }
+    .rocket-hud .dir {
+      font-family: var(--mono); font-size: 1.15rem; font-weight: 900;
+    }
+    .panel.idle .rocket-hud .dir { color: var(--muted); text-shadow: none; }
+    .panel.tick .rocket-hud .dir { color: var(--good); text-shadow: 0 0 16px rgba(62,207,142,.5); }
+    .panel.down .rocket-hud .dir { color: var(--bad); text-shadow: 0 0 16px rgba(240,113,120,.45); }
+    .rocket-hud .sub { font-size: 0.65rem; color: var(--muted); font-family: var(--mono); }
+
+    .bank {
+      display: grid; grid-template-columns: 1.2fr 1fr; gap: 8px;
+      padding: 10px 12px; border-top: 1px solid var(--border);
+      background: #0e0e0e;
+    }
+    .bank .stat {
+      background: var(--panel2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 8px 10px;
+    }
+    .panel.tick .bank .stat.equity {
+      border-color: #2a5a40;
+      animation: flashg 1.2s ease-in-out infinite;
+    }
+    .bank .lab {
+      color: var(--muted); font-size: 0.6rem; text-transform: uppercase;
+      letter-spacing: 0.06em; font-weight: 700;
+    }
+    .bank .val {
+      font-family: var(--mono); font-size: 1.15rem; font-weight: 900;
+      margin-top: 2px; letter-spacing: -0.02em;
+    }
+    .panel.tick .bank .stat.equity .val { animation: bankflash 1.2s ease-in-out infinite; }
+    .panel.idle .bank .val { color: var(--text); }
+    .panel.tick .bank .val.good { color: var(--good); }
+    .panel.down .bank .val.bad { color: var(--bad); }
+    .bank .hint { margin-top: 2px; font-size: 0.62rem; color: var(--muted); font-family: var(--mono); }
+    .ac-note {
+      padding: 8px 12px 12px; font-size: 0.7rem; color: var(--muted); line-height: 1.4;
+      border-top: 1px dashed #2a2a2a;
+    }
+    .ac-note b { color: var(--text); }
+    .ac-note .ok { color: var(--good); font-weight: 800; }
+    .ac-note .no { color: var(--bad); font-weight: 800; }
+
+    /* Bottom: points + shop (finished, real-looking) */
+    .meta-row {
+      display: grid; grid-template-columns: 1.1fr 1.4fr; gap: 12px; margin-bottom: 12px;
+    }
+    .pane {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 14px; overflow: hidden;
+    }
+    .pane-head {
+      display: flex; align-items: baseline; gap: 10px;
+      padding: 11px 14px; border-bottom: 1px solid var(--border); background: #0e0e0e;
+    }
+    .pane-head h2 { margin: 0; font-size: 0.78rem; text-transform: uppercase; letter-spacing: .06em; }
+    .pane-head .sub { color: var(--muted); font-size: 0.68rem; font-family: var(--mono); }
+    .pane-body { padding: 12px 14px; }
+    .pts-bal {
+      display: flex; justify-content: space-between; align-items: baseline;
+      padding: 10px 12px; margin-bottom: 10px; border-radius: 10px;
+      background: #1a1810; border: 1px solid #5a4a20;
+    }
+    .pts-bal .lab { font-size: 0.7rem; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+    .pts-bal .num { font-family: var(--mono); font-size: 1.55rem; font-weight: 900; color: var(--amber); }
+    .real-tag {
+      display: inline-block; margin-left: 6px; font-size: 0.58rem; font-weight: 800;
+      padding: 2px 6px; border-radius: 999px; background: #102018; border: 1px solid #2a5a40; color: var(--good);
+      vertical-align: middle; letter-spacing: .04em;
+    }
+    .rules table { width: 100%; border-collapse: collapse; font-size: 0.74rem; }
+    .rules td { padding: 5px 0; border-bottom: 1px solid #222; color: var(--muted); }
+    .rules td:last-child {
+      text-align: right; font-family: var(--mono); font-weight: 800; color: var(--text); white-space: nowrap;
+    }
+    .rules td.harsh { color: var(--bad); }
+    .rules .note {
+      margin-top: 8px; font-size: 0.68rem; color: var(--muted); line-height: 1.4;
+      padding: 8px; border-radius: 8px; background: #0e0e0e; border: 1px dashed #333;
+    }
+    .shop-strip {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+    }
+    .sku {
+      background: var(--panel2); border: 1px solid var(--border); border-radius: 12px;
+      padding: 10px; position: relative; min-height: 108px;
+    }
+    .sku.equipped { border-color: var(--amber); box-shadow: 0 0 12px rgba(240,163,58,.25); }
+    .sku.owned { border-color: #2a5a40; }
+    .sku.locked { opacity: .72; }
+    .sku .preview {
+      height: 32px; border-radius: 8px; margin-bottom: 6px;
+      display: grid; place-items: center; font-size: 1.1rem;
+      background: #0e0e0e; border: 1px solid #222;
+    }
+    .sku .title { font-weight: 800; font-size: 0.76rem; }
+    .sku .price {
+      font-family: var(--mono); font-size: 0.72rem; font-weight: 800;
+      color: var(--amber); margin-top: 2px;
+    }
+    .sku .price.free { color: var(--good); }
+    .sku .badge2 {
+      position: absolute; top: 8px; right: 8px;
+      font-size: 0.55rem; font-weight: 800; letter-spacing: .04em;
+      padding: 2px 6px; border-radius: 999px; text-transform: uppercase;
+    }
+    .sku .badge2.eq { background: #241e10; border: 1px solid #6a5320; color: var(--amber); }
+    .sku .badge2.own { background: #102018; border: 1px solid #2a5a40; color: var(--good); }
+    .sku .badge2.lock { background: #1a1a1a; border: 1px solid #333; color: var(--muted); }
+    .sku .cta {
+      margin-top: 7px; width: 100%; padding: 5px; border-radius: 8px;
+      font-size: 0.68rem; font-weight: 800; border: 1px solid var(--border);
+      background: #1c1c1c; color: var(--text);
+    }
+    .sku.equipped .cta { border-color: #6a5320; color: var(--amber); background: #241e10; }
+    .sku.locked .cta { color: var(--muted); }
+
+    .sounds {
+      margin-top: 4px; padding: 14px 16px;
+      background: #0e0e0e; border: 1px dashed #333; border-radius: 12px;
+    }
+    .sounds h3 {
+      margin: 0 0 8px; font-size: 0.75rem; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--amber);
+    }
+    .sounds ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 0.8rem; }
+    .sounds li { margin-bottom: 3px; }
+    .sounds b { color: var(--text); }
+    .sounds .new { color: var(--good); font-weight: 800; }
+    .foot { margin-top: 10px; font-size: 0.68rem; color: var(--muted); text-align: center; }
+
+    @media (max-width: 1100px) {
+      .story { grid-template-columns: 1fr; }
+      .meta-row { grid-template-columns: 1fr; }
+      .shop-strip { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="banner">
+    <span class="tag">Eyes only</span>
+    <span class="tag">SHIP E draft</span>
+    <span class="tag">Not a PR</span>
+    MOCK · Game finish · tick+ sound + rocket react · extends v2b ·
+    <code>qa/mock-game-finish-tick-v1.html</code>
+  </div>
+  <div class="app">
+    <p class="claim"><span>Proto Bot · SHIP E · Game finish cut draft</span>Every positive tick → sound + rocket</p>
+    <p class="lede">
+      Owner: stop half-assing Game. <b>Every paper PnL tick that goes up</b> plays a short ♪ tick+ and the rocket dude pulses/lifts.
+      Flat = calm. Down = quiet / nose-down + smoke — <b>no spam up-sound</b>. Numbers below are <b>EXAMPLE</b>. Accurate-only elsewhere.
+    </p>
+
+    <div class="topbar">
+      <div class="logo">N</div>
+      <div class="brand">
+        <h1>Nunu Filter</h1>
+        <p class="sub">Game finish mock · profile + points + shop kept</p>
+      </div>
+      <div class="tabs">
+        <span>Filter</span>
+        <span class="on">Game</span>
+      </div>
+      <div class="live"><span class="dot"></span> PAPER · marks ~2s</div>
+      <div class="profile-chip" title="Profile chip — opens edit on ship">
+        <div class="pf-av">J</div>
+        <div class="pf-meta">
+          <div class="name">Joao</div>
+          <div class="pts">1,240 pts</div>
+        </div>
+        <span class="pf-edit">Edit</span>
+      </div>
+    </div>
+
+    <div class="story-label">
+      <h2>Storyboard · rocket states</h2>
+      <span class="sub">IDLE · TICK+ · DOWN — same strip, three behaviors</span>
+    </div>
+
+    <div class="story">
+      <!-- IDLE -->
+      <section class="panel idle">
+        <div class="panel-head">
+          <span class="state">1 · Idle / flat</span>
+          <span class="badge quiet">No sound</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">AC: silence on 0Δ</span>
+        </div>
+        <div class="rocket-strip">
+          <div class="stars"></div>
+          <div class="rocket-wrap">
+            <svg class="rocket-svg" viewBox="0 0 200 80" xmlns="http://www.w3.org/2000/svg" aria-label="Rocket idle">
+              <g class="thrusters">
+                <ellipse cx="28" cy="40" rx="14" ry="8" fill="#3ecf8e" opacity=".45"/>
+                <ellipse cx="18" cy="40" rx="9" ry="5" fill="#a8f5c8" opacity=".4"/>
+              </g>
+              <g class="smoke-puffs">
+                <circle cx="30" cy="48" r="8" fill="#666" opacity=".4"/>
+                <circle cx="22" cy="55" r="10" fill="#555" opacity=".35"/>
+                <circle cx="14" cy="62" r="12" fill="#444" opacity=".3"/>
+              </g>
+              <defs>
+                <linearGradient id="nebula1" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="#7aa2ff"/>
+                  <stop offset="50%" stop-color="#c9a0ff"/>
+                  <stop offset="100%" stop-color="#5b8cff"/>
+                </linearGradient>
+              </defs>
+              <ellipse cx="100" cy="40" rx="52" ry="22" fill="url(#nebula1)" stroke="#e7e9ea" stroke-width="1.5"/>
+              <polygon points="152,40 178,32 178,48" fill="#e7e9ea"/>
+              <rect x="70" y="28" width="22" height="24" rx="6" fill="#0a0a0a" stroke="#f0a33a" stroke-width="1.5"/>
+              <circle cx="81" cy="36" r="2.2" fill="#e7e9ea"/>
+              <circle cx="89" cy="36" r="2.2" fill="#e7e9ea"/>
+              <path d="M80 44 Q85 46 90 44" stroke="#e7e9ea" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+              <polygon points="60,28 48,12 72,26" fill="#c9a0ff"/>
+              <polygon points="60,52 48,68 72,54" fill="#c9a0ff"/>
+            </svg>
+          </div>
+          <div class="rocket-hud">
+            <div class="skin">Skin · Nebula Frame</div>
+            <div class="dir">— FLAT</div>
+            <div class="sub">mark hold · no Δ</div>
+          </div>
+        </div>
+        <div class="bank">
+          <div class="stat equity">
+            <div class="lab">Equity</div>
+            <div class="val">$18.42</div>
+            <div class="hint">unchanged this mark</div>
+          </div>
+          <div class="stat">
+            <div class="lab">Last tick</div>
+            <div class="val">$0.00</div>
+            <div class="hint">no cue · rocket calm</div>
+          </div>
+        </div>
+        <div class="ac-note">
+          <b>IDLE:</b> soft hover only. <span class="no">No ♪ tick+</span>. Thrusters dim. Profile / points unchanged.
+        </div>
+      </section>
+
+      <!-- TICK+ -->
+      <section class="panel tick">
+        <div class="panel-head">
+          <span class="state">2 · Tick+</span>
+          <span class="badge sound">♪ tick+</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">AC: sound + lift</span>
+        </div>
+        <div class="rocket-strip">
+          <div class="stars"></div>
+          <div class="float-delta">+$0.12</div>
+          <div class="rocket-wrap">
+            <svg class="rocket-svg" viewBox="0 0 200 80" xmlns="http://www.w3.org/2000/svg" aria-label="Rocket tick up">
+              <g class="thrusters">
+                <ellipse cx="28" cy="40" rx="18" ry="10" fill="#3ecf8e" opacity=".95"/>
+                <ellipse cx="16" cy="40" rx="13" ry="7" fill="#a8f5c8" opacity=".9"/>
+                <ellipse cx="7" cy="40" rx="8" ry="4" fill="#fff" opacity=".8"/>
+              </g>
+              <g class="smoke-puffs">
+                <circle cx="30" cy="48" r="8" fill="#666" opacity=".4"/>
+              </g>
+              <defs>
+                <linearGradient id="nebula2" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="#7aa2ff"/>
+                  <stop offset="50%" stop-color="#c9a0ff"/>
+                  <stop offset="100%" stop-color="#5b8cff"/>
+                </linearGradient>
+              </defs>
+              <ellipse cx="100" cy="40" rx="52" ry="22" fill="url(#nebula2)" stroke="#e7e9ea" stroke-width="1.5"/>
+              <polygon points="152,40 178,32 178,48" fill="#e7e9ea"/>
+              <rect x="70" y="28" width="22" height="24" rx="6" fill="#0a0a0a" stroke="#f0a33a" stroke-width="1.5"/>
+              <circle cx="81" cy="36" r="2.2" fill="#e7e9ea"/>
+              <circle cx="89" cy="36" r="2.2" fill="#e7e9ea"/>
+              <path d="M80 44 Q85 49 90 44" stroke="#e7e9ea" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+              <polygon points="60,28 48,12 72,26" fill="#c9a0ff"/>
+              <polygon points="60,52 48,68 72,54" fill="#c9a0ff"/>
+              <circle cx="42" cy="28" r="1.6" fill="#fff" opacity=".9"/>
+              <circle cx="50" cy="52" r="1.3" fill="#a8f5c8" opacity=".95"/>
+              <circle cx="36" cy="44" r="1.1" fill="#3ecf8e" opacity=".9"/>
+            </svg>
+          </div>
+          <div class="rocket-hud">
+            <div class="skin">Skin · Nebula Frame</div>
+            <div class="dir">▲ UP +270%</div>
+            <div class="sub">gain mark · thruster pulse</div>
+          </div>
+        </div>
+        <div class="bank">
+          <div class="stat equity">
+            <div class="lab">Equity · flash</div>
+            <div class="val good">$18.54</div>
+            <div class="hint">was $18.42 · green flash</div>
+          </div>
+          <div class="stat">
+            <div class="lab">Last tick</div>
+            <div class="val good">+$0.12</div>
+            <div class="hint">♪ short up-chirp · once</div>
+          </div>
+        </div>
+        <div class="ac-note">
+          <b>TICK+:</b> <span class="ok">♪ tick+ once per positive Δ</span> + thruster pulse / lift + floating <b>+$0.12</b> EXAMPLE. Bank/PnL flashes green. Not buy/sell only — <b>every gain mark</b>.
+        </div>
+      </section>
+
+      <!-- DOWN -->
+      <section class="panel down">
+        <div class="panel-head">
+          <span class="state">3 · Down / loss</span>
+          <span class="badge quiet">No ♪ tick+</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">AC: no spam</span>
+        </div>
+        <div class="rocket-strip">
+          <div class="stars"></div>
+          <div class="rocket-wrap">
+            <svg class="rocket-svg" viewBox="0 0 200 80" xmlns="http://www.w3.org/2000/svg" aria-label="Rocket down">
+              <g class="thrusters">
+                <ellipse cx="28" cy="40" rx="18" ry="10" fill="#3ecf8e" opacity=".9"/>
+              </g>
+              <g class="smoke-puffs">
+                <circle cx="30" cy="48" r="8" fill="#666" opacity=".4"/>
+                <circle cx="22" cy="55" r="10" fill="#555" opacity=".35"/>
+                <circle cx="14" cy="62" r="12" fill="#444" opacity=".3"/>
+              </g>
+              <defs>
+                <linearGradient id="nebula3" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="#7aa2ff"/>
+                  <stop offset="50%" stop-color="#c9a0ff"/>
+                  <stop offset="100%" stop-color="#5b8cff"/>
+                </linearGradient>
+              </defs>
+              <ellipse cx="100" cy="40" rx="52" ry="22" fill="url(#nebula3)" stroke="#e7e9ea" stroke-width="1.5"/>
+              <polygon points="152,40 178,32 178,48" fill="#e7e9ea"/>
+              <rect x="70" y="28" width="22" height="24" rx="6" fill="#0a0a0a" stroke="#f0a33a" stroke-width="1.5"/>
+              <circle cx="81" cy="36" r="2.2" fill="#e7e9ea"/>
+              <circle cx="89" cy="36" r="2.2" fill="#e7e9ea"/>
+              <path d="M80 46 Q85 42 90 46" stroke="#e7e9ea" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+              <polygon points="60,28 48,12 72,26" fill="#c9a0ff"/>
+              <polygon points="60,52 48,68 72,54" fill="#c9a0ff"/>
+            </svg>
+          </div>
+          <div class="rocket-hud">
+            <div class="skin">Skin · Nebula Frame</div>
+            <div class="dir">▼ DOWN −8%</div>
+            <div class="sub">nose-down · smoke</div>
+          </div>
+        </div>
+        <div class="bank">
+          <div class="stat equity">
+            <div class="lab">Equity</div>
+            <div class="val bad">$4.62</div>
+            <div class="hint">session red · quiet</div>
+          </div>
+          <div class="stat">
+            <div class="lab">Last tick</div>
+            <div class="val bad">−$0.09</div>
+            <div class="hint">optional dull thump · never ♪+</div>
+          </div>
+        </div>
+        <div class="ac-note">
+          <b>DOWN:</b> nose-down + smoke. <span class="no">Never play ♪ tick+</span>. Optional subtle down cue only — no spam, no green thrusters.
+        </div>
+      </section>
+    </div>
+
+    <!-- Points + shop — finished strip -->
+    <div class="meta-row">
+      <section class="pane rules">
+        <div class="pane-head">
+          <h2>Points <span class="real-tag">SHIP E · real</span></h2>
+          <span class="sub">not proposed-only · balance updates on settle</span>
+        </div>
+        <div class="pane-body">
+          <div class="pts-bal">
+            <div>
+              <div class="lab">Live balance</div>
+              <div style="font-size:0.68rem;color:var(--muted);margin-top:2px">EXAMPLE · earn/lose per locked table</div>
+            </div>
+            <div class="num">1,240</div>
+          </div>
+          <table>
+            <tr><td>Finish 24h run in profit</td><td>+80</td></tr>
+            <tr><td>New personal peak equity</td><td>+120</td></tr>
+            <tr><td>Board #1 at settle</td><td>+250</td></tr>
+            <tr><td>Early sell &lt;5m hold</td><td class="harsh">−25</td></tr>
+            <tr><td>Blow up (&lt;$1 equity)</td><td class="harsh">−100</td></tr>
+            <tr><td>Daily earn cap</td><td class="harsh">400 max</td></tr>
+          </table>
+          <div class="note">
+            <b style="color:var(--text)">Finish bar:</b> chip shows real balance; settle events move it. Shop spends from this pool. Owner may tweak table numbers before Eng unlock.
+          </div>
+        </div>
+      </section>
+
+      <section class="pane">
+        <div class="pane-head">
+          <h2>Shop</h2>
+          <span class="sub">cosmetics · equip tints rocket · finished strip</span>
+        </div>
+        <div class="pane-body">
+          <div class="shop-strip">
+            <div class="sku owned equipped">
+              <span class="badge2 eq">Equipped</span>
+              <div class="preview">🚀💜</div>
+              <div class="title">Nebula Frame</div>
+              <div class="price free">Owned</div>
+              <button class="cta" type="button">Equipped</button>
+            </div>
+            <div class="sku owned">
+              <span class="badge2 own">Owned</span>
+              <div class="preview">🚀⚪</div>
+              <div class="title">Plain Booster</div>
+              <div class="price free">Default · 0</div>
+              <button class="cta" type="button">Equip</button>
+            </div>
+            <div class="sku">
+              <div class="preview">🚀🟢</div>
+              <div class="title">Acid Trail</div>
+              <div class="price">750 pts</div>
+              <button class="cta" type="button">Buy</button>
+            </div>
+            <div class="sku locked">
+              <span class="badge2 lock">Locked</span>
+              <div class="preview">🚀👑</div>
+              <div class="title">Crown Thrusters</div>
+              <div class="price">3,500 pts</div>
+              <button class="cta" type="button">Need 2,260</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="sounds">
+      <h3>Sound + motion ACs (SHIP E)</h3>
+      <ul>
+        <li><span class="new">NEW · ♪ tick+</span> — short ascending chirp <b>once per positive paper PnL mark</b> (not only buy/sell)</li>
+        <li><span class="new">NEW · rocket react</span> — thruster pulse + lift on tick+; idle = calm hover; down = nose-down + smoke, <b>no up-sound</b></li>
+        <li><b>Buy ding / Sell thump</b> — keep from Slice 2 · separate from tick+</li>
+        <li><b>Points ping</b> — soft coin on settle credit · dull clack on tax</li>
+        <li><b>Shop unlock</b> — short shimmer when a locked skin opens</li>
+      </ul>
+    </div>
+    <p class="foot">mock-game-finish-tick-v1 · extends mock-game-dopamine-v2b · EYES ONLY · SHIP E draft · NOT A PR · EXAMPLE data · Game palette near-black + green/amber</p>
+  </div>
+</body>
+</html>

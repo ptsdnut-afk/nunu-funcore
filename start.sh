@@ -14,7 +14,7 @@ set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$DIR"
 
-INTERVAL_MIN="${INTERVAL_MIN:-15}"
+INTERVAL_MIN="${INTERVAL_MIN:-5}"
 PORT="${PORT:-8765}"
 HOST="${HOST:-0.0.0.0}"
 # bot.py's own default skip is 240s based on latest.json mtime. A fresh

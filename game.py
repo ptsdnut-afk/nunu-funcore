@@ -609,6 +609,323 @@ def save_scores(scores: list) -> None:
     _write_json(SCORES_PATH, scores[:MAX_SCORES])
 
 
+# —— Points, profile, shop (paper cosmetics — no wallets) ——
+
+PROFILE_PATH = DIR / "game_profile.json"
+POINTS_FINISH_PROFIT = 80
+POINTS_NEW_PEAK = 120
+POINTS_BOARD_FIRST = 250
+POINTS_EARLY_SELL = -25
+POINTS_BLOW_UP = -100
+POINTS_DAILY_CAP = 400
+EARLY_SELL_SEC = 5 * 60
+BLOW_EQUITY_USD = 1.0
+PFPS = ("rocket", "star", "flame", "moon")
+_MISSING = object()
+
+# Prices match the dopamine v2b shop. Nebula + Plain are owned starters.
+SHOP = (
+    {"id": "nebula", "name": "Nebula Frame", "price": 0, "tint": "nebula"},
+    {"id": "plain", "name": "Plain Booster", "price": 0, "tint": "plain"},
+    {"id": "acid", "name": "Acid Trail", "price": 750, "tint": "acid"},
+    {"id": "ember", "name": "Ember Skin", "price": 1500, "tint": "ember"},
+    {"id": "crown", "name": "Crown Thrusters", "price": 3500, "tint": "crown"},
+    {"id": "void", "name": "Void Ghost", "price": 5000, "tint": "void"},
+)
+_SHOP_BY_ID = {row["id"]: row for row in SHOP}
+STARTER_OWNED = ("nebula", "plain")
+DEFAULT_EQUIPPED = "nebula"
+
+POINT_RULES = (
+    {"id": "finish_profit", "label": "Finish 24h run in profit", "points": POINTS_FINISH_PROFIT},
+    {"id": "new_peak", "label": "New personal peak equity", "points": POINTS_NEW_PEAK},
+    {"id": "board_first", "label": "Board #1 at settle", "points": POINTS_BOARD_FIRST},
+    {"id": "early_sell", "label": "Early sell <5m hold", "points": POINTS_EARLY_SELL},
+    {"id": "blow_up", "label": "Blow up (<$1 equity)", "points": POINTS_BLOW_UP},
+    {"id": "daily_cap", "label": "Daily earn cap", "points": POINTS_DAILY_CAP, "cap": True},
+)
+
+
+def _today() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def empty_profile() -> dict:
+    return {
+        "name": "Pilot",
+        "pfp": "rocket",
+        "points": 0,
+        "owned": list(STARTER_OWNED),
+        "equipped": DEFAULT_EQUIPPED,
+        "personal_peak": START_BANKROLL,
+        "earned_today": 0,
+        "earned_day": "",
+        "settled_sessions": [],
+        "ledger": [],
+    }
+
+
+def _clean_profile(raw: dict) -> dict:
+    base = empty_profile()
+    profile = dict(base)
+    if isinstance(raw, dict):
+        profile.update({k: raw.get(k) for k in base})
+    name = " ".join(str(profile.get("name") or "").split())
+    profile["name"] = name[:24] if name else "Pilot"
+    pfp = str(profile.get("pfp") or "")
+    profile["pfp"] = pfp if pfp in PFPS else "rocket"
+    try:
+        profile["points"] = int(profile.get("points") or 0)
+    except (TypeError, ValueError):
+        profile["points"] = 0
+    owned = []
+    for skin_id in profile.get("owned") or []:
+        if skin_id in _SHOP_BY_ID and skin_id not in owned:
+            owned.append(skin_id)
+    for skin_id in STARTER_OWNED:
+        if skin_id not in owned:
+            owned.append(skin_id)
+    profile["owned"] = owned
+    equipped = str(profile.get("equipped") or "")
+    profile["equipped"] = equipped if equipped in owned else DEFAULT_EQUIPPED
+    try:
+        profile["personal_peak"] = float(profile.get("personal_peak") if profile.get("personal_peak") is not None else START_BANKROLL)
+    except (TypeError, ValueError):
+        profile["personal_peak"] = START_BANKROLL
+    try:
+        profile["earned_today"] = int(profile.get("earned_today") or 0)
+    except (TypeError, ValueError):
+        profile["earned_today"] = 0
+    profile["earned_day"] = str(profile.get("earned_day") or "")
+    settled = [str(s) for s in (profile.get("settled_sessions") or []) if s][-40:]
+    profile["settled_sessions"] = settled
+    ledger = profile.get("ledger") if isinstance(profile.get("ledger"), list) else []
+    profile["ledger"] = [row for row in ledger if isinstance(row, dict)][:30]
+    return profile
+
+
+def load_profile() -> dict:
+    with _lock:
+        raw = _read_json(PROFILE_PATH, None)
+        if not isinstance(raw, dict):
+            return empty_profile()
+        return _clean_profile(raw)
+
+
+def save_profile(profile: dict) -> None:
+    with _lock:
+        _write_json(PROFILE_PATH, _clean_profile(profile))
+
+
+def _roll_cap(profile: dict, day: str | None = None) -> None:
+    day = day or _today()
+    if profile.get("earned_day") != day:
+        profile["earned_day"] = day
+        profile["earned_today"] = 0
+
+
+def apply_points(profile: dict, amount: int, reason: str, detail: str = "") -> dict | None:
+    """Grant or tax points. Positive grants stop at the daily cap. Does not save."""
+    _roll_cap(profile)
+    try:
+        requested = int(amount)
+    except (TypeError, ValueError):
+        return None
+    applied = requested
+    capped = False
+    if requested > 0:
+        room = POINTS_DAILY_CAP - int(profile.get("earned_today") or 0)
+        if room < 0:
+            room = 0
+        if requested > room:
+            capped = True
+            applied = room
+        profile["earned_today"] = int(profile.get("earned_today") or 0) + applied
+    if applied == 0:
+        return None
+    profile["points"] = int(profile.get("points") or 0) + applied
+    row = {
+        "at": _utc(),
+        "reason": reason,
+        "requested": requested,
+        "applied": applied,
+        "capped": capped,
+        "balance": profile["points"],
+        "detail": detail,
+    }
+    ledger = list(profile.get("ledger") or [])
+    ledger.insert(0, row)
+    profile["ledger"] = ledger[:30]
+    return row
+
+
+def _maybe_early_sell_points(pos: dict, reason: str) -> None:
+    """Manual close held under 5 minutes. Stop / TP / 24h force are not this tax."""
+    if reason != "manual":
+        return
+    opened = _parse_utc(pos.get("opened_at"))
+    if opened is None:
+        return
+    held = (datetime.now(timezone.utc) - opened).total_seconds()
+    if held >= EARLY_SELL_SEC:
+        return
+    profile = load_profile()
+    apply_points(
+        profile,
+        POINTS_EARLY_SELL,
+        "early_sell",
+        f"{pos.get('symbol') or 'position'} held {int(max(0, held))}s",
+    )
+    save_profile(profile)
+
+
+def settle_run_points(st: dict) -> list[dict]:
+    """Award the locked table once when a 24h run ends. Safe to call again."""
+    sid = str(st.get("session_id") or "")
+    profile = load_profile()
+    settled = list(profile.get("settled_sessions") or [])
+    if st.get("points_settled") or (sid and sid in settled):
+        st["points_settled"] = True
+        return []
+    events: list[dict] = []
+    final = float(st.get("final_cash") if st.get("final_cash") is not None else st.get("cash_usd") or 0)
+    start = float(st.get("start_bankroll") or START_BANKROLL)
+    if final > start + 1e-9:
+        row = apply_points(profile, POINTS_FINISH_PROFIT, "finish_profit", f"Finished ${final:.2f}")
+        if row:
+            events.append(row)
+    try:
+        peak = float(st.get("peak_equity") or 0)
+    except (TypeError, ValueError):
+        peak = 0.0
+    best = float(profile.get("personal_peak") or START_BANKROLL)
+    if peak > best + 1e-6:
+        row = apply_points(profile, POINTS_NEW_PEAK, "new_peak", f"Peak ${peak:.2f}")
+        profile["personal_peak"] = peak
+        if row:
+            events.append(row)
+    scores = load_scores()
+    if sid and scores and str(scores[0].get("session_id") or "") == sid:
+        row = apply_points(profile, POINTS_BOARD_FIRST, "board_first", "Board #1 at settle")
+        if row:
+            events.append(row)
+    if final < BLOW_EQUITY_USD:
+        row = apply_points(profile, POINTS_BLOW_UP, "blow_up", f"Equity ${final:.2f}")
+        if row:
+            events.append(row)
+    if sid:
+        settled.append(sid)
+        profile["settled_sessions"] = settled[-40:]
+    save_profile(profile)
+    st["points_settled"] = True
+    return events
+
+
+def public_profile(profile: dict | None = None) -> dict:
+    profile = _clean_profile(profile) if isinstance(profile, dict) else load_profile()
+    bal = int(profile.get("points") or 0)
+    owned = set(profile.get("owned") or [])
+    equipped = str(profile.get("equipped") or DEFAULT_EQUIPPED)
+    shop = []
+    for skin in SHOP:
+        have = skin["id"] in owned
+        price = int(skin["price"])
+        shop.append({
+            "id": skin["id"],
+            "name": skin["name"],
+            "price": price,
+            "tint": skin["tint"],
+            "owned": have,
+            "equipped": have and skin["id"] == equipped,
+            "locked": (not have) and bal < price,
+            "need": 0 if have or bal >= price else price - bal,
+        })
+    skin = _SHOP_BY_ID.get(equipped) or _SHOP_BY_ID[DEFAULT_EQUIPPED]
+    return {
+        "name": profile.get("name") or "Pilot",
+        "pfp": profile.get("pfp") or "rocket",
+        "points": bal,
+        "owned": [row["id"] for row in SHOP if row["id"] in owned],
+        "equipped": equipped,
+        "equipped_name": skin["name"],
+        "tint": skin["tint"],
+        "personal_peak": profile.get("personal_peak"),
+        "earned_today": int(profile.get("earned_today") or 0),
+        "daily_cap": POINTS_DAILY_CAP,
+        "rules": [dict(row) for row in POINT_RULES],
+        "shop": shop,
+        "ledger": list(profile.get("ledger") or [])[:12],
+        "pfps": list(PFPS),
+    }
+
+
+def update_profile(name=_MISSING, pfp=_MISSING) -> dict:
+    if name is _MISSING and pfp is _MISSING:
+        return _fail("name or pfp required")
+    with _lock:
+        profile = load_profile()
+        if name is not _MISSING:
+            clean = " ".join(str(name or "").split())
+            if not clean or len(clean) > 24:
+                return _fail("Name must be 1–24 characters", profile=public_profile(profile))
+            profile["name"] = clean
+        if pfp is not _MISSING:
+            if str(pfp or "") not in PFPS:
+                return _fail("Pick a picture", profile=public_profile(profile))
+            profile["pfp"] = str(pfp)
+        save_profile(profile)
+        return {"ok": True, "profile": public_profile(profile)}
+
+
+def buy_cosmetic(skin_id: str) -> dict:
+    skin = _SHOP_BY_ID.get(str(skin_id or "").strip())
+    if not skin:
+        return _fail("Unknown cosmetic")
+    with _lock:
+        profile = load_profile()
+        if skin["id"] in (profile.get("owned") or []):
+            return _fail("Already owned", profile=public_profile(profile))
+        price = int(skin["price"])
+        bal = int(profile.get("points") or 0)
+        if bal < price:
+            return _fail(
+                f"Need {price - bal:,} more pts",
+                profile=public_profile(profile),
+                need=price - bal,
+            )
+        profile["points"] = bal - price
+        owned = list(profile.get("owned") or [])
+        owned.append(skin["id"])
+        profile["owned"] = owned
+        row = {
+            "at": _utc(),
+            "reason": "shop_unlock",
+            "requested": -price,
+            "applied": -price,
+            "capped": False,
+            "balance": profile["points"],
+            "detail": skin["name"],
+        }
+        ledger = list(profile.get("ledger") or [])
+        ledger.insert(0, row)
+        profile["ledger"] = ledger[:30]
+        save_profile(profile)
+        return {"ok": True, "sound": "unlock", "skin": skin["id"], "profile": public_profile(profile)}
+
+
+def equip_cosmetic(skin_id: str) -> dict:
+    skin = _SHOP_BY_ID.get(str(skin_id or "").strip())
+    if not skin:
+        return _fail("Unknown cosmetic")
+    with _lock:
+        profile = load_profile()
+        if skin["id"] not in (profile.get("owned") or []):
+            return _fail("Locked — buy it first", profile=public_profile(profile))
+        profile["equipped"] = skin["id"]
+        save_profile(profile)
+        return {"ok": True, "sound": "equip", "skin": skin["id"], "profile": public_profile(profile)}
+
+
 def equity(st: dict) -> float:
     eq = float(st.get("cash_usd") or 0)
     for p in st.get("positions") or []:
@@ -686,6 +1003,7 @@ def _close_position(st: dict, pos: dict, price: float, reason: str) -> None:
         position_id=pos.get("id"),
         pnl_usd=pnl,
     )
+    _maybe_early_sell_points(pos, reason)
 
 
 def tick_session(st: dict | None = None) -> dict:
@@ -777,6 +1095,7 @@ def tick_session(st: dict | None = None) -> dict:
             st["final_cash"] = round(float(st.get("cash_usd") or 0), 6)
             st["ended_at"] = _utc()
             _record_score(st)
+            settle_run_points(st)
             _push_event(st, "end", f"24h over — final ${st['final_cash']:.3f}")
 
         save_state(st)
@@ -1021,6 +1340,7 @@ def public_state(st: dict | None = None) -> dict:
     out["positions"] = enriched
     out["open_count"] = len(enriched)
     out["server_time"] = _utc()
+    out["profile"] = public_profile()
     return out
 
 

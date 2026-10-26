@@ -1686,6 +1686,176 @@
     .coin-sheet-note { color: #8b98a5; }
     @media (prefers-reduced-motion: reduce) {
       .coin-sheet, .coin-back { transition: none; }
+      .rocket-live .rocket-wrap,
+      .rocket-live .thrusters,
+      .rocket-live .float-delta,
+      .rocket-live .smoke-puffs circle,
+      .rocket-live[data-mood="tick"] .rocket-bank .stat.equity,
+      .gain-flash { animation: none !important; }
+    }
+
+    /* SHIP E — rocket strip, points, shop */
+    .profile-chip {
+      display: none; align-items: center; gap: 8px;
+      padding: 4px 8px 4px 4px; border-radius: 999px; cursor: pointer;
+      background: #161616; border: 1px solid #2a2a2a; color: var(--text);
+    }
+    body.mode-game .profile-chip { display: inline-flex; }
+    .profile-chip .pf-av {
+      width: 28px; height: 28px; border-radius: 50%;
+      display: grid; place-items: center; font-weight: 900; font-size: 0.85rem;
+      background: #1a1a1a; border: 2px solid var(--amber); color: var(--text);
+    }
+    .profile-chip .pf-av.star { background: #241e10; }
+    .profile-chip .pf-av.flame { background: #2a140c; }
+    .profile-chip .pf-av.moon { background: #141820; }
+    .profile-chip .pf-meta { display: flex; flex-direction: column; line-height: 1.15; text-align: left; }
+    .profile-chip .name { font-weight: 800; font-size: 0.78rem; }
+    .profile-chip .pts { font-family: var(--mono); font-size: 0.68rem; color: var(--amber); font-weight: 700; }
+    .profile-chip .pf-edit {
+      font-size: 0.62rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+      padding: 3px 7px; border-radius: 999px; border: 1px solid #2a2a2a; color: var(--muted);
+    }
+    .rocket-live {
+      position: relative; margin: 0 0 12px; border: 1px solid #2a2a2a; border-radius: 14px;
+      overflow: hidden; background: #121212;
+      --hull1: #7aa2ff; --hull2: #c9a0ff; --fin: #c9a0ff;
+    }
+    .rocket-live[data-skin="plain"] { --hull1: #d5d8de; --hull2: #8b939e; --fin: #c5cad1; }
+    .rocket-live[data-skin="acid"] { --hull1: #7dffb0; --hull2: #3ecf8e; --fin: #b6ff3a; }
+    .rocket-live[data-skin="ember"] { --hull1: #ffb020; --hull2: #ff5a3c; --fin: #ff7a3c; }
+    .rocket-live[data-skin="crown"] { --hull1: #ffe08a; --hull2: #f0a33a; --fin: #ffd76a; }
+    .rocket-live[data-skin="void"] { --hull1: #6a4cff; --hull2: #1a1030; --fin: #b9a6ff; }
+    .rocket-live[data-mood="tick"] { border-color: #2a5a40; box-shadow: 0 0 24px rgba(62,207,142,.35); }
+    .rocket-live[data-mood="down"] { border-color: #6a2a32; }
+    .rocket-live .rocket-head {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 8px 12px; border-bottom: 1px solid #2a2a2a; background: #0e0e0e;
+    }
+    .rocket-live .rocket-head .state { font-size: 0.75rem; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+    .rocket-live[data-mood="tick"] .rocket-head .state,
+    .rocket-live[data-mood="up"] .rocket-head .state { color: var(--good); }
+    .rocket-live[data-mood="down"] .rocket-head .state { color: var(--bad); }
+    .rocket-live .sound-pill {
+      font-size: 0.62rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+      padding: 2px 7px; border-radius: 999px; border: 1px solid #333; color: #666; background: #1a1a1a;
+    }
+    .rocket-live[data-mood="tick"] .sound-pill { border-color: #2a5a40; color: var(--good); background: #102018; }
+    .rocket-strip {
+      position: relative; height: 128px; overflow: hidden;
+      background: radial-gradient(ellipse at 30% 40%, #1a2030 0%, #050508 55%, #000 100%);
+    }
+    .rocket-live[data-mood="down"] .rocket-strip {
+      background: radial-gradient(ellipse at 40% 60%, #201010 0%, #0a0505 55%, #000 100%);
+    }
+    .rocket-live .stars {
+      position: absolute; inset: 0; opacity: .65;
+      background-image:
+        radial-gradient(1px 1px at 12% 30%, #fff 50%, transparent 51%),
+        radial-gradient(1px 1px at 28% 70%, #fff 50%, transparent 51%),
+        radial-gradient(1.5px 1.5px at 58% 24%, #fff 50%, transparent 51%),
+        radial-gradient(1px 1px at 80% 62%, #ccc 50%, transparent 51%),
+        radial-gradient(1px 1px at 90% 18%, #fff 50%, transparent 51%);
+    }
+    .rocket-wrap { position: absolute; left: 8%; top: 50%; width: 220px; height: 88px; transform: translateY(-50%); }
+    .rocket-live[data-mood="idle"] .rocket-wrap,
+    .rocket-live[data-mood="up"] .rocket-wrap { animation: rocket-float 3.2s ease-in-out infinite; }
+    .rocket-live[data-mood="tick"] .rocket-wrap { animation: rocket-lift .7s ease-in-out infinite; }
+    .rocket-live[data-mood="down"] .rocket-wrap { transform: translateY(-38%) rotate(28deg); animation: none; left: 12%; }
+    .rocket-svg { width: 220px; height: 88px; display: block; }
+    .rocket-live .thrusters { transform-origin: 28px 44px; }
+    .rocket-live[data-mood="idle"] .thrusters { animation: rocket-thrust .9s ease-in-out infinite; opacity: .55; }
+    .rocket-live[data-mood="up"] .thrusters { animation: rocket-thrust .8s ease-in-out infinite; opacity: .8; }
+    .rocket-live[data-mood="tick"] .thrusters { animation: rocket-hot .32s ease-in-out infinite; }
+    .rocket-live[data-mood="down"] .thrusters { display: none; }
+    .rocket-live .smoke-puffs { display: none; }
+    .rocket-live[data-mood="down"] .smoke-puffs { display: block; }
+    .rocket-live .smoke-puffs circle { animation: rocket-smoke 1.2s ease-out infinite; }
+    .rocket-live .smoke-puffs circle:nth-child(2) { animation-delay: .3s; }
+    .rocket-live .smoke-puffs circle:nth-child(3) { animation-delay: .6s; }
+    @keyframes rocket-thrust { 0%,100% { opacity: .75; transform: scaleY(1); } 50% { opacity: 1; transform: scaleY(1.25); } }
+    @keyframes rocket-hot { 0%,100% { opacity: .9; transform: scaleY(1); } 50% { opacity: 1; transform: scaleY(1.45) translateX(-3px); } }
+    @keyframes rocket-lift { 0%,100% { transform: translateY(-50%); } 50% { transform: translateY(calc(-50% - 10px)); } }
+    @keyframes rocket-float { 0%,100% { transform: translateY(-50%); } 50% { transform: translateY(calc(-50% - 3px)); } }
+    @keyframes rocket-smoke { 0% { opacity: .5; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(14px) scale(1.4); } }
+    @keyframes rocket-pop { 0% { opacity: 0; transform: translateY(8px); } 20% { opacity: 1; transform: translateY(0); } 80% { opacity: 1; transform: translateY(-10px); } 100% { opacity: 0; transform: translateY(-18px); } }
+    @keyframes rocket-bank { 0%,100% { color: var(--good); } 50% { color: #b8f5d0; } }
+    .rocket-live .float-delta {
+      display: none; position: absolute; left: 46%; top: 22%;
+      font-family: var(--mono); font-weight: 900; font-size: 1.15rem; color: var(--good);
+      text-shadow: 0 0 14px rgba(62,207,142,.55); animation: rocket-pop 1.4s ease-out infinite;
+    }
+    .rocket-live[data-mood="tick"] .float-delta { display: block; }
+    .rocket-hud { position: absolute; right: 12px; top: 10px; text-align: right; }
+    .rocket-hud .skin { font-size: 0.62rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--amber); }
+    .rocket-hud .dir { font-family: var(--mono); font-size: 1.15rem; font-weight: 900; color: var(--muted); }
+    .rocket-live[data-mood="tick"] .rocket-hud .dir,
+    .rocket-live[data-mood="up"] .rocket-hud .dir { color: var(--good); text-shadow: 0 0 16px rgba(62,207,142,.45); }
+    .rocket-live[data-mood="down"] .rocket-hud .dir { color: var(--bad); text-shadow: 0 0 16px rgba(240,113,120,.45); }
+    .rocket-hud .sub { font-size: 0.65rem; color: var(--muted); font-family: var(--mono); }
+    .rocket-bank {
+      display: grid; grid-template-columns: 1.2fr 1fr; gap: 8px;
+      padding: 10px 12px; border-top: 1px solid #2a2a2a; background: #0e0e0e;
+    }
+    .rocket-bank .stat { background: #161616; border: 1px solid #2a2a2a; border-radius: 10px; padding: 8px 10px; }
+    .rocket-live[data-mood="tick"] .rocket-bank .stat.equity { border-color: #2a5a40; animation: rocket-bank 1.2s ease-in-out infinite; }
+    .rocket-bank .lab { color: var(--muted); font-size: 0.6rem; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
+    .rocket-bank .val { font-family: var(--mono); font-size: 1.15rem; font-weight: 900; margin-top: 2px; }
+    .rocket-bank .val.good { color: var(--good); }
+    .rocket-bank .val.bad { color: var(--bad); }
+    .rocket-bank .hint { margin-top: 2px; font-size: 0.62rem; color: var(--muted); font-family: var(--mono); }
+    .gain-flash { animation: rocket-bank 1.2s ease-in-out infinite; }
+    .finish-row { display: grid; grid-template-columns: 1.05fr 1.35fr; gap: 12px; margin-top: 12px; }
+    .pts-bal {
+      display: flex; justify-content: space-between; align-items: baseline;
+      padding: 10px 12px; margin-bottom: 10px; border-radius: 10px;
+      background: #1a1810; border: 1px solid #5a4a20;
+    }
+    .pts-bal .lab { font-size: 0.7rem; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+    .pts-bal .num { font-family: var(--mono); font-size: 1.55rem; font-weight: 900; color: var(--amber); }
+    .real-tag {
+      display: inline-block; margin-left: 6px; font-size: 0.58rem; font-weight: 800;
+      padding: 2px 6px; border-radius: 999px; background: #102018; border: 1px solid #2a5a40; color: var(--good);
+      letter-spacing: .04em; vertical-align: middle;
+    }
+    .point-rules { width: 100%; border-collapse: collapse; font-size: 0.74rem; }
+    .point-rules td { padding: 5px 0; border-bottom: 1px solid #222; color: var(--muted); }
+    .point-rules td:last-child { text-align: right; font-family: var(--mono); font-weight: 800; color: var(--text); white-space: nowrap; }
+    .point-rules td.harsh { color: var(--bad); }
+    .point-note { margin-top: 8px; font-size: 0.68rem; color: var(--muted); line-height: 1.4; padding: 8px; border-radius: 8px; background: #0e0e0e; border: 1px dashed #333; }
+    .shop-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .sku { background: #161616; border: 1px solid #2a2a2a; border-radius: 12px; padding: 10px; position: relative; min-height: 112px; }
+    .sku.equipped { border-color: var(--amber); box-shadow: 0 0 12px rgba(240,163,58,.25); }
+    .sku.owned { border-color: #2a5a40; }
+    .sku.locked { opacity: .78; }
+    .sku .preview { height: 28px; border-radius: 8px; margin-bottom: 6px; background: #0e0e0e; border: 1px solid #222; }
+    .sku[data-skin="nebula"] .preview { background: linear-gradient(90deg, #7aa2ff, #c9a0ff); }
+    .sku[data-skin="plain"] .preview { background: linear-gradient(90deg, #d5d8de, #8b939e); }
+    .sku[data-skin="acid"] .preview { background: linear-gradient(90deg, #7dffb0, #3ecf8e); }
+    .sku[data-skin="ember"] .preview { background: linear-gradient(90deg, #ffb020, #ff5a3c); }
+    .sku[data-skin="crown"] .preview { background: linear-gradient(90deg, #ffe08a, #f0a33a); }
+    .sku[data-skin="void"] .preview { background: linear-gradient(90deg, #6a4cff, #1a1030); }
+    .sku .title { font-weight: 800; font-size: 0.76rem; }
+    .sku .price { font-family: var(--mono); font-size: 0.72rem; font-weight: 800; color: var(--amber); margin-top: 2px; }
+    .sku .price.free { color: var(--good); }
+    .sku .badge2 {
+      position: absolute; top: 8px; right: 8px; font-size: 0.55rem; font-weight: 800;
+      letter-spacing: .04em; padding: 2px 6px; border-radius: 999px; text-transform: uppercase;
+      background: #1a1a1a; border: 1px solid #333; color: var(--muted);
+    }
+    .sku .badge2.eq { background: #241e10; border: 1px solid #6a5320; color: var(--amber); }
+    .sku .badge2.own { background: #102018; border: 1px solid #2a5a40; color: var(--good); }
+    .sku .cta { margin-top: 7px; width: 100%; display: block; }
+    .pf-picks { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 10px 0; }
+    .pf-picks button {
+      border: 1px solid #2a2a2a; background: #161616; color: var(--text);
+      border-radius: 12px; padding: 10px 0; cursor: pointer; font-size: 1.3rem;
+    }
+    .pf-picks button.on { border-color: var(--amber); box-shadow: 0 0 12px rgba(240,163,58,.3); }
+    .pf-picks button span { display: block; font-size: 0.62rem; font-weight: 800; letter-spacing: .04em; color: var(--muted); margin-top: 4px; }
+    @media (max-width: 960px) {
+      .finish-row { grid-template-columns: 1fr; }
+      .shop-strip { grid-template-columns: 1fr 1fr; }
     }
     @media (max-width: 980px) {
       #modeFilter .flow-legend { display: none; }
@@ -1706,7 +1876,7 @@
         <div class="logo">N</div>
         <div>
           <h1>Nunu Filter</h1>
-          <p class="sub">Solana Research Panel · paper only · v62</p>
+          <p class="sub">Solana Research Panel · paper only · v63</p>
         </div>
       </div>
       <div class="mode-tabs" role="tablist">
@@ -1715,6 +1885,14 @@
       </div>
       <span class="net-pill"><span class="live-dot" id="liveDot"></span>Solana Mainnet</span>
       <div class="top-actions">
+        <button type="button" class="profile-chip" id="profileChip" title="Edit name and picture">
+          <span class="pf-av" id="pfAv">P</span>
+          <span class="pf-meta">
+            <span class="name" id="pfNameLabel">Pilot</span>
+            <span class="pts" id="pfPts">0 pts</span>
+          </span>
+          <span class="pf-edit">Edit</span>
+        </button>
         <span class="age-pill" id="dataAge">data age —</span>
         <button class="refresh" type="button" id="btnRefresh" title="Force refresh">Refresh</button>
       </div>
@@ -1822,6 +2000,61 @@
     </div>
 
     <div id="modeGame">
+      <section class="rocket-live" id="gRocket" data-mood="idle" data-skin="nebula" aria-label="Rocket">
+        <div class="rocket-head">
+          <span class="state" id="gRocketState">Idle / flat</span>
+          <span class="sound-pill" id="gRocketSound">No sound</span>
+        </div>
+        <div class="rocket-strip">
+          <div class="stars"></div>
+          <div class="float-delta" id="gFloatDelta"></div>
+          <div class="rocket-wrap">
+            <svg class="rocket-svg" viewBox="0 0 220 88" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <defs>
+                <linearGradient id="hullGrad" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="var(--hull1)"/>
+                  <stop offset="100%" stop-color="var(--hull2)"/>
+                </linearGradient>
+              </defs>
+              <g class="thrusters">
+                <ellipse cx="34" cy="44" rx="16" ry="9" fill="#3ecf8e" opacity=".9"/>
+                <ellipse cx="20" cy="44" rx="11" ry="6" fill="#a8f5c8" opacity=".85"/>
+                <ellipse cx="10" cy="44" rx="6" ry="3.5" fill="#fff" opacity=".75"/>
+              </g>
+              <g class="smoke-puffs">
+                <circle cx="36" cy="54" r="8" fill="#666" opacity=".4"/>
+                <circle cx="26" cy="62" r="10" fill="#555" opacity=".35"/>
+                <circle cx="16" cy="70" r="12" fill="#444" opacity=".3"/>
+              </g>
+              <ellipse cx="112" cy="44" rx="54" ry="22" fill="var(--hull1)" stroke="var(--hull2)" stroke-width="3"/>
+              <polygon points="166,44 196,34 196,54" fill="#e7e9ea"/>
+              <rect x="82" y="30" width="24" height="26" rx="6" fill="#0a0a0a" stroke="#f0a33a" stroke-width="1.5"/>
+              <circle cx="92" cy="40" r="2.2" fill="#e7e9ea"/>
+              <circle cx="100" cy="40" r="2.2" fill="#e7e9ea"/>
+              <path d="M90 50 Q96 54 102 50" stroke="#e7e9ea" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+              <polygon points="70,30 56,12 84,28" fill="var(--fin)"/>
+              <polygon points="70,58 56,76 84,60" fill="var(--fin)"/>
+            </svg>
+          </div>
+          <div class="rocket-hud">
+            <div class="skin" id="gRocketSkin">Skin · Nebula Frame</div>
+            <div class="dir" id="gRocketDir">— FLAT</div>
+            <div class="sub" id="gRocketSub">mark hold · no Δ</div>
+          </div>
+        </div>
+        <div class="rocket-bank">
+          <div class="stat equity" id="gRocketEqCard">
+            <div class="lab">Equity</div>
+            <div class="val" id="gRocketEquity">—</div>
+            <div class="hint" id="gRocketEqHint">mark</div>
+          </div>
+          <div class="stat">
+            <div class="lab">Last tick</div>
+            <div class="val" id="gLastTick">$0.00</div>
+            <div class="hint" id="gLastTickHint">no cue · rocket calm</div>
+          </div>
+        </div>
+      </section>
       <div class="game-hero">
         <div class="stat equity" id="gEquityCard">
           <span class="streak-pill" id="gStreak" hidden>LIVE</span>
@@ -1901,11 +2134,40 @@
           <div class="foot-pane"><span>Paper only · force-sell at 24h</span></div>
         </section>
       </div>
+
+      <div class="finish-row">
+        <section class="pane" id="gPointsPane">
+          <div class="pane-head">
+            <h2>Points <span class="real-tag">Real</span></h2>
+            <span class="sub">balance updates on settle</span>
+          </div>
+          <div class="pane-body">
+            <div class="pts-bal">
+              <div>
+                <div class="lab">Live balance</div>
+                <div class="hint" id="gPointsCap">earn today 0 / 400</div>
+              </div>
+              <div class="num" id="gPointsBal">0</div>
+            </div>
+            <table class="point-rules" id="gPointRules"></table>
+            <div class="point-note" id="gPointsNote">Settle a run or an early sell to move this balance. Shop spends from the same pool.</div>
+          </div>
+        </section>
+        <section class="pane" id="gShopPane">
+          <div class="pane-head">
+            <h2>Shop</h2>
+            <span class="sub">cosmetics · equip tints rocket</span>
+          </div>
+          <div class="pane-body">
+            <div class="shop-strip" id="gShop"></div>
+          </div>
+        </section>
+      </div>
     </div>
 
     <footer class="app-foot">
       APIs: <code>/api/flagged</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>
-      <div style="margin-top:4px">Open with <code>?v=62</code>. Tokens left · Social Tap (coin, meme, and crypto viral from public sources — nothing invented) or Traders on the right (Filter stays primary). Traders is a side tab: watchlist add/remove, socials only when the snapshot has them. QA checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: add <code>&amp;mode=game</code>. <code>game-idle</code> then Start sends <code>POST /api/game/start</code> with <code>{"force":true}</code> (confirms first) so an already-active run can show idle, then a new $5 countdown. <code>game-ended</code> shows final cash, ended-at, and scores without waiting 24h. Live JSON stays unchanged until Start.</div>
+      <div style="margin-top:4px">Open with <code>?v=63</code>. Tokens left · Social Tap (coin, meme, and crypto viral from public sources — nothing invented) or Traders on the right (Filter stays primary). Traders is a side tab: watchlist add/remove, socials only when the snapshot has them. QA checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: add <code>&amp;mode=game</code>. <code>game-idle</code> then Start sends <code>POST /api/game/start</code> with <code>{"force":true}</code> (confirms first) so an already-active run can show idle, then a new $5 countdown. <code>game-ended</code> shows final cash, ended-at, and scores without waiting 24h. Live JSON stays unchanged until Start.</div>
     </footer>
   </div>
 
@@ -1921,9 +2183,29 @@
 
   <div class="toast" id="toast"></div>
 
+  <div class="modal-bg" id="profileModal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="profileTitle">
+      <h3 id="profileTitle">Edit profile</h3>
+      <p class="muted" style="margin:0 0 8px">Name and picture only. Points stay on this browser’s paper profile.</p>
+      <label>Name
+        <input id="pfName" maxlength="24" autocomplete="nickname" />
+      </label>
+      <div class="pf-picks" id="pfPicks">
+        <button type="button" data-pfp="rocket" class="on">🚀<span>Rocket</span></button>
+        <button type="button" data-pfp="star">⭐<span>Star</span></button>
+        <button type="button" data-pfp="flame">🔥<span>Flame</span></button>
+        <button type="button" data-pfp="moon">🌙<span>Moon</span></button>
+      </div>
+      <div class="actions">
+        <button type="button" class="gbtn" id="pfCancel">Cancel</button>
+        <button type="button" class="gbtn primary" id="pfSave">Save</button>
+      </div>
+    </div>
+  </div>
+
   <script>
 
-    const PANEL_V = 62;
+    const PANEL_V = 63;
     const QUOTE_SLA_S = 15;
     const UI_FIXTURES = [
       "flagged-loading", "flagged-empty", "flagged-error",
@@ -1973,6 +2255,15 @@
       lastQuoteMint: null,
       lastQuotePrice: null,
       lastPosPrices: {},
+      lastEquity: null,
+      rocketSession: null,
+      rocketPulse: "",
+      rocketPulseUntil: 0,
+      rocketFloat: 0,
+      lastTickDir: "",
+      pointsReady: false,
+      seenPointAt: "",
+      pfpDraft: "rocket",
       GAME_POLL_MS: 2000,
       filterScanBusy: false,
       scoreOpenMint: "",
@@ -2165,12 +2456,21 @@
       high: [[523, 0.06], [784, 0.07], [1046, 0.12]],
       start: [[392, 0.05], [523, 0.06], [784, 0.09]],
       ready: [[880, 0.07]],
+      tick: [[880, 0.035], [1175, 0.04], [1568, 0.07]],
+      down: [[140, 0.09]],
+      points: [[988, 0.04], [1318, 0.07]],
+      tax: [[196, 0.05], [98, 0.09]],
+      unlock: [[740, 0.04], [988, 0.045], [1568, 0.08]],
     };
     const SOUND_WAVE = {
       buy: "square", sell: "sine", fail: "sawtooth", stop: "triangle",
       tp: "square", high: "triangle", start: "triangle", ready: "sine",
+      tick: "sine", down: "sine", points: "triangle", tax: "square", unlock: "triangle",
     };
-    const SOUND_GAIN = { buy: 0.07, sell: 0.11, fail: 0.045, high: 0.06, ready: 0.05 };
+    const SOUND_GAIN = {
+      buy: 0.07, sell: 0.11, fail: 0.045, high: 0.06, ready: 0.05,
+      tick: 0.05, down: 0.04, points: 0.045, tax: 0.04, unlock: 0.05,
+    };
 
     function soundLabel(kind, outcome) {
       if (kind === "mute" || (kind === "ready" && outcome === "silent")) return "Muted — no audio";
@@ -2184,6 +2484,11 @@
         high: "sound: high",
         start: "sound: start",
         ready: "Sound on",
+        tick: "♪ tick+",
+        down: "dull thump",
+        points: "points",
+        tax: "points tax",
+        unlock: "shop unlock",
       }[kind] || (kind ? ("sound: " + kind) : "Sound");
       if (outcome === "silent") return base + " · muted";
       if (outcome === "blocked") return base + " · audio blocked";
@@ -3386,6 +3691,8 @@
         }
         setGameLine("Fixture session ended. Final cash $5.00. Live /api JSON is unchanged.", "ok");
       }
+      paintRocket({ equity_usd: null, pnl_pct: 0 }, "idle", 0);
+      paintFinish(state.game);
     }
 
     function applyUiFixture() {
@@ -3590,6 +3897,343 @@
         const el = document.getElementById(id);
         if (el) el.disabled = !!busy;
       });
+    }
+
+    const TICK_EPS = 0.005;
+
+    function equityTickDecision(prev, next, status) {
+      if (status !== "active" || prev == null || next == null) {
+        return { sound: "", moodPulse: "", delta: null };
+      }
+      const a = Number(prev);
+      const b = Number(next);
+      if (!Number.isFinite(a) || !Number.isFinite(b)) {
+        return { sound: "", moodPulse: "", delta: null };
+      }
+      const delta = b - a;
+      if (delta >= TICK_EPS) return { sound: "tick", moodPulse: "tick", delta: delta };
+      if (delta <= -TICK_EPS) return { sound: "down", moodPulse: "down", delta: delta };
+      return { sound: "", moodPulse: "", delta: delta };
+    }
+
+    function restingRocketMood(openPnl, sessionPnl, hasOpen) {
+      const bias = hasOpen ? Number(openPnl) : Number(sessionPnl);
+      if (!Number.isFinite(bias)) return "idle";
+      if (bias >= TICK_EPS) return "up";
+      if (bias <= -TICK_EPS) return "down";
+      return "idle";
+    }
+
+    function fmtSignedTick(n) {
+      const x = Number(n);
+      if (!Number.isFinite(x)) return "$0.00";
+      const body = "$" + Math.abs(x).toFixed(2);
+      if (x > 0) return "+" + body;
+      if (x < 0) return "−" + body;
+      return body;
+    }
+
+    function fmtPts(n) {
+      const v = Math.round(Number(n) || 0);
+      const body = Math.abs(v).toLocaleString("en-US");
+      return v < 0 ? ("−" + body) : body;
+    }
+
+    function fmtRulePts(row) {
+      if (row && row.cap) return fmtPts(row.points) + " max";
+      const n = Number(row && row.points) || 0;
+      if (n < 0) return "−" + fmtPts(Math.abs(n));
+      return "+" + fmtPts(n);
+    }
+
+    function paintRocket(g, mood, floatDelta) {
+      const rocket = document.getElementById("gRocket");
+      if (!rocket) return;
+      g = g || {};
+      const profile = g.profile || {};
+      rocket.setAttribute("data-mood", mood || "idle");
+      rocket.setAttribute("data-skin", profile.tint || "nebula");
+      const set = (id, text) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = text;
+      };
+      const labels = { idle: "Idle / flat", up: "Up", tick: "Tick+", down: "Down / loss" };
+      set("gRocketState", labels[mood] || "Idle / flat");
+      const downPulse = state.rocketPulse === "down" && Date.now() < state.rocketPulseUntil;
+      set("gRocketSound", mood === "tick" ? "♪ tick+" : (mood === "down" && downPulse ? "Dull thump" : "No sound"));
+      set("gRocketSkin", "Skin · " + (profile.equipped_name || "Nebula Frame"));
+      const pct = g.pnl_pct != null && Number.isFinite(Number(g.pnl_pct)) ? fmtPct(Number(g.pnl_pct)) : "";
+      let dir = "— FLAT";
+      let sub = "mark hold · no Δ";
+      if (mood === "tick") {
+        dir = "▲ UP" + (pct ? (" " + pct) : "");
+        sub = "gain mark · thruster pulse";
+      } else if (mood === "up") {
+        dir = "▲ UP" + (pct ? (" " + pct) : "");
+        sub = "session green · calm";
+      } else if (mood === "down") {
+        dir = "▼ DOWN" + (pct ? (" " + pct) : "");
+        sub = downPulse ? "nose-down · smoke" : "nose-down · quiet";
+      }
+      set("gRocketDir", dir);
+      set("gRocketSub", sub);
+      const floatEl = document.getElementById("gFloatDelta");
+      if (floatEl) floatEl.textContent = mood === "tick" ? fmtSignedTick(floatDelta) : "";
+      const eqEl = document.getElementById("gRocketEquity");
+      if (eqEl) {
+        eqEl.textContent = fmtGameUsd(g.equity_usd);
+        eqEl.className = "val" + (mood === "tick" || mood === "up" ? " good" : (mood === "down" ? " bad" : ""));
+      }
+      set("gRocketEqHint", mood === "tick" ? "green flash" : (mood === "down" ? "session red · quiet" : "unchanged this mark"));
+      const last = document.getElementById("gLastTick");
+      if (last) {
+        if (mood === "tick" || downPulse) {
+          last.textContent = fmtSignedTick(floatDelta != null ? floatDelta : state.rocketFloat);
+          last.className = "val " + (mood === "tick" ? "good" : "bad");
+        } else {
+          last.textContent = "$0.00";
+          last.className = "val";
+        }
+      }
+      set("gLastTickHint", mood === "tick" ? "♪ short up-chirp · once" : (mood === "down" ? "never ♪ tick+" : "no cue · rocket calm"));
+      const eqCard = document.getElementById("gEquityCard");
+      if (eqCard) eqCard.classList.toggle("gain-flash", mood === "tick");
+    }
+
+    function noteEquityTick(g, eq, status) {
+      const sid = g && g.session_id;
+      if (sid !== state.rocketSession) {
+        state.rocketSession = sid || null;
+        state.lastEquity = null;
+        state.rocketPulse = "";
+        state.rocketPulseUntil = 0;
+        state.lastTickDir = "";
+      }
+      const decision = equityTickDecision(state.lastEquity, eq, status);
+      if (decision.sound === "tick") {
+        beep("tick");
+        state.lastTickDir = "up";
+        state.rocketPulse = "tick";
+        state.rocketPulseUntil = Date.now() + 1400;
+        state.rocketFloat = decision.delta;
+      } else if (decision.sound === "down") {
+        if (state.lastTickDir !== "down") beep("down");
+        state.lastTickDir = "down";
+        state.rocketPulse = "down";
+        state.rocketPulseUntil = Date.now() + 1400;
+        state.rocketFloat = decision.delta;
+      } else if (decision.delta != null) {
+        state.lastTickDir = "flat";
+      }
+      if (eq != null && Number.isFinite(Number(eq))) state.lastEquity = Number(eq);
+      const pulsing = !!(state.rocketPulse && Date.now() < state.rocketPulseUntil);
+      let openPnl = 0;
+      let hasOpen = false;
+      (g.positions || []).forEach((p) => {
+        if (p && p.pnl_usd != null && Number.isFinite(Number(p.pnl_usd))) {
+          hasOpen = true;
+          openPnl += Number(p.pnl_usd);
+        }
+      });
+      const sessionPnl = g.pnl_usd != null ? Number(g.pnl_usd) : 0;
+      const mood = pulsing ? state.rocketPulse : restingRocketMood(openPnl, sessionPnl, hasOpen);
+      paintRocket(g, mood, pulsing ? state.rocketFloat : 0);
+    }
+
+    function notePointSounds(profile) {
+      const ledger = (profile && profile.ledger) || [];
+      const top = (ledger[0] && ledger[0].at) || "";
+      if (!state.pointsReady) {
+        state.pointsReady = true;
+        state.seenPointAt = top;
+        return;
+      }
+      if (!top || top <= state.seenPointAt) return;
+      const fresh = [];
+      for (const row of ledger) {
+        if (!row || !row.at || row.at <= state.seenPointAt) break;
+        fresh.push(row);
+      }
+      state.seenPointAt = top;
+      for (const row of fresh) {
+        if (row.reason === "shop_unlock" && row.applied) { beep("unlock"); return; }
+        if (row.applied > 0) { beep("points"); return; }
+        if (row.applied < 0) { beep("tax"); return; }
+      }
+    }
+
+    function paintFinish(g) {
+      const profile = (g && g.profile) || null;
+      const name = (profile && profile.name) || "Pilot";
+      const pts = profile ? profile.points : 0;
+      const chipName = document.getElementById("pfNameLabel");
+      const chipPts = document.getElementById("pfPts");
+      const chipAv = document.getElementById("pfAv");
+      if (chipName) chipName.textContent = name;
+      if (chipPts) chipPts.textContent = fmtPts(pts) + " pts";
+      if (chipAv) {
+        const pfp = (profile && profile.pfp) || "rocket";
+        const glyph = { rocket: "🚀", star: "⭐", flame: "🔥", moon: "🌙" }[pfp] || name.slice(0, 1).toUpperCase();
+        chipAv.textContent = glyph;
+        chipAv.className = "pf-av " + pfp;
+      }
+      const cap = document.getElementById("gPointsCap");
+      if (cap) {
+        const earned = profile ? profile.earned_today : 0;
+        const daily = profile && profile.daily_cap != null ? profile.daily_cap : 400;
+        cap.textContent = "earn today " + fmtPts(earned) + " / " + fmtPts(daily);
+      }
+      const bal = document.getElementById("gPointsBal");
+      if (bal) bal.textContent = fmtPts(pts);
+      const rules = document.getElementById("gPointRules");
+      const ruleRows = (profile && profile.rules) || [
+        { label: "Finish 24h run in profit", points: 80 },
+        { label: "New personal peak equity", points: 120 },
+        { label: "Board #1 at settle", points: 250 },
+        { label: "Early sell <5m hold", points: -25 },
+        { label: "Blow up (<$1 equity)", points: -100 },
+        { label: "Daily earn cap", points: 400, cap: true },
+      ];
+      if (rules) {
+        rules.innerHTML = ruleRows.map((row) => {
+          const harsh = !!row.cap || Number(row.points) < 0;
+          return "<tr><td>" + esc(row.label) + '</td><td class="' + (harsh ? "harsh" : "") + '">' + esc(fmtRulePts(row)) + "</td></tr>";
+        }).join("");
+      }
+      const note = document.getElementById("gPointsNote");
+      if (note) {
+        const latest = profile && profile.ledger && profile.ledger[0];
+        note.textContent = latest && latest.detail
+          ? (latest.detail + " · balance " + fmtPts(latest.balance))
+          : "Settle a run or an early sell to move this balance. Shop spends from the same pool.";
+      }
+      const shop = document.getElementById("gShop");
+      const items = (profile && profile.shop) || [];
+      if (shop) {
+        shop.innerHTML = items.map((sku) => {
+          let badge = "";
+          let cls = "sku";
+          let cta = "Buy";
+          let action = "buy";
+          if (sku.equipped) {
+            cls += " owned equipped";
+            badge = '<span class="badge2 eq">Equipped</span>';
+            cta = "Equipped";
+            action = "";
+          } else if (sku.owned) {
+            cls += " owned";
+            badge = '<span class="badge2 own">Owned</span>';
+            cta = "Equip";
+            action = "equip";
+          } else if (sku.locked) {
+            cls += " locked";
+            badge = '<span class="badge2 lock">Locked</span>';
+            cta = "Need " + fmtPts(sku.need);
+            action = "";
+          }
+          const price = sku.owned
+            ? '<div class="price free">' + (sku.id === "plain" ? "Default · 0" : "Owned") + "</div>"
+            : '<div class="price">' + fmtPts(sku.price) + " pts</div>";
+          return '<div class="' + cls + '" data-skin="' + esc(sku.tint || sku.id) + '" data-id="' + esc(sku.id) + '">' +
+            badge +
+            '<div class="preview"></div>' +
+            '<div class="title">' + esc(sku.name) + "</div>" +
+            price +
+            '<button type="button" class="gbtn cta" data-shop="' + esc(action) + '" data-id="' + esc(sku.id) + '"' +
+            (action ? "" : " disabled") + ">" + esc(cta) + "</button></div>";
+        }).join("") || '<div class="empty">Shop loads with the game.</div>';
+      }
+      if (profile) notePointSounds(profile);
+    }
+
+    function openProfile() {
+      const profile = (state.game && state.game.profile) || {};
+      const input = document.getElementById("pfName");
+      if (input) input.value = profile.name || "Pilot";
+      state.pfpDraft = profile.pfp || "rocket";
+      document.querySelectorAll("#pfPicks button").forEach((btn) => {
+        btn.classList.toggle("on", btn.getAttribute("data-pfp") === state.pfpDraft);
+      });
+      const modal = document.getElementById("profileModal");
+      if (modal) modal.classList.add("on");
+      if (input) input.focus();
+    }
+
+    function closeProfile() {
+      const modal = document.getElementById("profileModal");
+      if (modal) modal.classList.remove("on");
+    }
+
+    async function saveProfile() {
+      const input = document.getElementById("pfName");
+      const name = input ? input.value : "";
+      try {
+        const res = await fetch("/api/game/profile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: name, pfp: state.pfpDraft }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data || data.ok === false) {
+          toast((data && data.error) || "Could not save profile", true);
+          return;
+        }
+        if (data.state) {
+          state.game = data.state;
+          state.gameLoaded = true;
+        } else if (data.profile) {
+          state.game = state.game || {};
+          state.game.profile = data.profile;
+        }
+        const led = state.game && state.game.profile && state.game.profile.ledger;
+        state.seenPointAt = (led && led[0] && led[0].at) || state.seenPointAt;
+        state.pointsReady = true;
+        closeProfile();
+        renderGame();
+        toast("Profile saved");
+      } catch (e) {
+        toast("Could not save profile", true);
+      }
+    }
+
+    async function gameShop(action, id) {
+      if (!action || !id || state.gameBusy) return;
+      setGameBusy(true);
+      try {
+        const res = await fetch("/api/game/shop", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: action, id: id }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data || data.ok === false) {
+          beep("fail");
+          toast((data && data.error) || "Shop failed", true);
+          if (data && data.profile && state.game) {
+            state.game.profile = data.profile;
+            paintFinish(state.game);
+          }
+          return;
+        }
+        if (data.state) {
+          state.game = data.state;
+          state.gameLoaded = true;
+        } else if (data.profile && state.game) {
+          state.game = state.game || {};
+          state.game.profile = data.profile;
+        }
+        const led = state.game && state.game.profile && state.game.profile.ledger;
+        state.seenPointAt = (led && led[0] && led[0].at) || state.seenPointAt;
+        state.pointsReady = true;
+        renderGame();
+        playResponseSound(data);
+        toast(action === "buy" ? "Skin unlocked" : "Skin equipped");
+      } catch (e) {
+        beep("fail");
+        toast("Shop failed: " + ((e && e.message) || e), true);
+      } finally {
+        setGameBusy(false);
+      }
     }
 
     function renderGame() {
@@ -3797,6 +4441,9 @@
         ? ("Live · " + openN + " open · poll 2s · server " + ((g.server_time || "").slice(11, 19) || "—"))
         : "Start a run (or just Buy — auto-starts)";
 
+      noteEquityTick(g, eq, status);
+      paintFinish(g);
+
       // Keep quote-card live price ticking when a quote is on screen
       if (state.lastQuoteMint && status === "active") {
         refreshQuoteLive(state.lastQuoteMint);
@@ -3966,6 +4613,11 @@
         state.gameLoaded = true;
         state.lastPeak = 0;
         state.seenEventAt = null;
+        state.lastEquity = null;
+        state.rocketPulse = "";
+        state.rocketPulseUntil = 0;
+        state.rocketSession = null;
+        state.lastTickDir = "";
         if (fromIdleFixture) clearGameFixture();
         renderGame();
         playResponseSound(data);
@@ -4514,6 +5166,8 @@
       }
     })();
 
+    let coinCloseTimer = 0;
+
     document.getElementById("tabFilter").addEventListener("click", () => setMode("filter"));
     document.getElementById("tabGame").addEventListener("click", () => setMode("game"));
     try {
@@ -4547,6 +5201,36 @@
       if (ev.key === "Enter") { ev.preventDefault(); filterScan(); }
     });
     document.getElementById("fSearch").addEventListener("input", debounceRender);
+    const profileChip = document.getElementById("profileChip");
+    if (profileChip) profileChip.addEventListener("click", openProfile);
+    const pfCancel = document.getElementById("pfCancel");
+    if (pfCancel) pfCancel.addEventListener("click", closeProfile);
+    const pfSave = document.getElementById("pfSave");
+    if (pfSave) pfSave.addEventListener("click", saveProfile);
+    const profileModal = document.getElementById("profileModal");
+    if (profileModal) {
+      profileModal.addEventListener("click", (ev) => {
+        if (ev.target === profileModal) closeProfile();
+      });
+    }
+    document.querySelectorAll("#pfPicks button").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.pfpDraft = btn.getAttribute("data-pfp") || "rocket";
+        document.querySelectorAll("#pfPicks button").forEach((el) => {
+          el.classList.toggle("on", el === btn);
+        });
+      });
+    });
+    const gShop = document.getElementById("gShop");
+    if (gShop) {
+      gShop.addEventListener("click", (ev) => {
+        const btn = ev.target.closest("[data-shop]");
+        if (!btn || btn.disabled) return;
+        const action = btn.getAttribute("data-shop") || "";
+        const id = btn.getAttribute("data-id") || "";
+        if (action && id) gameShop(action, id);
+      });
+    }
     document.getElementById("gMute").addEventListener("change", (e) => {
       setMuteUi(!!e.target.checked);
       if (state.mute) markSound("mute", "silent");
@@ -4933,12 +5617,44 @@
         '<div class="signal-row">' + cell(whale) + cell(pump) + "</div>");
     }
 
+    function plainFlagLabel(raw) {
+      const s = String(raw || "").trim();
+      const low = s.toLowerCase();
+      if (!low) return "";
+      if (low === "late_chase" || low === "late chase") return "Late chase";
+      if (low.startsWith("lp_weak") || low === "lp_unlocked") return "LP weak";
+      if (low.startsWith("lp_partial")) return "LP partial";
+      if (low === "lp_unknown") return "LP unknown";
+      if (low === "high_vol_liq" || low.includes("wash")) return "Wash";
+      if (low === "sell_heavy" || low === "sell-heavy") return "Sell-heavy";
+      if (low.includes("copycat") || low === "copy") return "Copycat";
+      if (low.startsWith("rug_elevated")) return "Rug elevated";
+      if (low.startsWith("rug_danger")) return "Rug danger";
+      if (low.startsWith("risks_x")) return "Extra risks";
+      if (low.indexOf("_") >= 0) {
+        return low.split("_").filter(Boolean).map((word) => {
+          if (/^[0-9.]+$/.test(word)) return "";
+          return word.charAt(0).toUpperCase() + word.slice(1);
+        }).filter(Boolean).join(" ");
+      }
+      return s.charAt(0).toUpperCase() + s.slice(1);
+    }
+
     function flagStrip(row) {
       const flags = [];
-      (row && row.red_flags || []).forEach((rf) => {
-        if (rf) flags.push({ cls: "warn", t: String(rf) });
-      });
-      if (row && row.late_chase) flags.push({ cls: "bad", t: "late chase" });
+      const seen = new Set();
+      const push = (raw) => {
+        const label = plainFlagLabel(raw);
+        if (!label) return;
+        const key = label.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        const low = String(raw || "").toLowerCase();
+        const cls = (low === "late_chase" || low.startsWith("rug_danger")) ? "bad" : "warn";
+        flags.push({ cls: cls, t: label });
+      };
+      (row && row.red_flags || []).forEach((rf) => { if (rf) push(rf); });
+      if (row && row.late_chase) push("late_chase");
       if (!flags.length) return "";
       return '<section class="cd-sec" data-section="flags"><div class="cd-top"><h3>Flags</h3></div><div class="flags">' +
         flags.map((f) => '<span class="flag ' + f.cls + '">' + esc(f.t) + "</span>").join("") +
@@ -4973,8 +5689,6 @@
       sheet.setAttribute("data-live", phase || "snapshot");
       if (note) note.textContent = "Paper research. No target, wallet, or order.";
     }
-
-    let coinCloseTimer = 0;
 
     function closeCoinDetail() {
       const t0 = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
@@ -5082,7 +5796,14 @@
     const coinBack = document.getElementById("coinBack");
     if (coinBack) coinBack.addEventListener("click", () => closeCoinDetail());
     document.addEventListener("keydown", (ev) => {
-      if (ev.key === "Escape" && state.coinMint) {
+      if (ev.key !== "Escape") return;
+      const modal = document.getElementById("profileModal");
+      if (modal && modal.classList.contains("on")) {
+        ev.preventDefault();
+        closeProfile();
+        return;
+      }
+      if (state.coinMint) {
         ev.preventDefault();
         closeCoinDetail();
       }
