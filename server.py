@@ -126,9 +126,9 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 62,
+            "panel_v": 63,
             "time": _utc(),
-            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync"],
+            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish"],
             "quote_sla_s": game_mod.QUOTE_FRESH_SLA_S,
             "quote_band": game_mod.QUOTE_BAND,
             "disclaimer": "Paper research only. Not financial advice. No trades placed.",
@@ -408,6 +408,38 @@ def api_game_quote():
 @app.get("/api/game/scores")
 def api_game_scores():
     return jsonify({"ok": True, "scores": game_mod.load_scores()})
+
+
+@app.post("/api/game/profile")
+def api_game_profile():
+    body = request.get_json(silent=True) or {}
+    kwargs = {}
+    if "name" in body:
+        kwargs["name"] = body.get("name")
+    if "pfp" in body:
+        kwargs["pfp"] = body.get("pfp")
+    result = game_mod.update_profile(**kwargs)
+    code = 200 if result.get("ok") else 400
+    if result.get("ok"):
+        result["state"] = game_mod.public_state()
+    return jsonify(result), code
+
+
+@app.post("/api/game/shop")
+def api_game_shop():
+    body = request.get_json(silent=True) or {}
+    action = str(body.get("action") or "").strip().lower()
+    skin = str(body.get("id") or body.get("skin") or "").strip()
+    if action == "buy":
+        result = game_mod.buy_cosmetic(skin)
+    elif action == "equip":
+        result = game_mod.equip_cosmetic(skin)
+    else:
+        return jsonify({"ok": False, "error": "action must be buy or equip"}), 400
+    code = 200 if result.get("ok") else 400
+    if result.get("ok"):
+        result["state"] = game_mod.public_state()
+    return jsonify(result), code
 
 
 @app.after_request
