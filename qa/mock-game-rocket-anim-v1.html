@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Game rocket redesign · Nunu Filter mock v1</title>
+  <style>
+    :root {
+      --bg: #050505;
+      --panel: #121212;
+      --panel2: #161616;
+      --border: #2a2a2a;
+      --text: #e7e9ea;
+      --muted: #8b98a5;
+      --good: #3ecf8e;
+      --amber: #f0a33a;
+      --bad: #f07178;
+      --nebula-a: #9b6dff;
+      --nebula-b: #c84bff;
+      --nebula-c: #5b8cff;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      --glow-g: 0 0 24px rgba(62,207,142,.35);
+      --glow-a: 0 0 28px rgba(240,163,58,.4);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: var(--sans); background: var(--bg); color: var(--text);
+      min-height: 100vh; line-height: 1.35;
+    }
+    .banner {
+      background: linear-gradient(90deg, #1a1810, #0a0a0a);
+      border-bottom: 1px solid #6a5320;
+      padding: 9px 16px; font-size: 0.78rem; color: #f0d9a0; font-weight: 700;
+      display: flex; gap: 12px; flex-wrap: wrap; align-items: center;
+    }
+    .banner code { font-family: var(--mono); color: var(--amber); }
+    .banner .tag {
+      display: inline-block; padding: 2px 8px; border-radius: 999px;
+      background: #241e10; border: 1px solid #6a5320; color: var(--amber);
+      font-size: 0.65rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+    }
+    .app { max-width: 1480px; margin: 0 auto; padding: 14px 16px 36px; }
+    .claim {
+      margin: 0 0 6px; font-size: 1.4rem; font-weight: 900; letter-spacing: -0.03em;
+      background: linear-gradient(90deg, #fff, var(--nebula-b) 45%, var(--good));
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .claim span {
+      display: block; font-size: 0.72rem; font-weight: 650; color: var(--muted);
+      letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 4px;
+      background: none; -webkit-background-clip: unset; color: var(--muted);
+    }
+    .lede {
+      margin: 0 0 14px; color: var(--muted); font-size: 0.82rem; max-width: 980px;
+    }
+    .lede b { color: var(--text); }
+
+    .topbar {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+      margin-bottom: 14px; padding: 10px 12px;
+      background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    }
+    .logo {
+      width: 34px; height: 34px; border-radius: 10px;
+      background: linear-gradient(135deg, #2a2a2a, #111);
+      display: grid; place-items: center; font-weight: 800; color: #fff;
+    }
+    .brand h1 { margin: 0; font-size: 1.05rem; }
+    .brand .sub { margin: 0; color: var(--muted); font-size: 0.72rem; }
+    .tabs {
+      display: inline-flex; gap: 4px; padding: 3px; margin-left: 8px;
+      background: #0e0e0e; border: 1px solid var(--border); border-radius: 999px;
+    }
+    .tabs span {
+      padding: 5px 14px; border-radius: 999px; font-size: 0.78rem; font-weight: 700; color: var(--muted);
+    }
+    .tabs span.on { background: #e7e9ea; color: #0a0a0a; }
+    .live {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px; border-radius: 999px; background: #102018; border: 1px solid #2a5a40;
+      font-size: 0.75rem; color: var(--good); font-weight: 600;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; background: var(--good);
+      box-shadow: 0 0 0 4px rgba(62,207,142,.25);
+    }
+    .profile-chip {
+      margin-left: auto; display: inline-flex; align-items: center; gap: 10px;
+      padding: 5px 10px 5px 5px; border-radius: 999px;
+      background: var(--panel2); border: 1px solid var(--border);
+    }
+    .pf-av {
+      width: 32px; height: 32px; border-radius: 50%;
+      background: linear-gradient(135deg, #3a3a3a, #1a1a1a);
+      border: 2px solid var(--amber);
+      display: grid; place-items: center; font-weight: 900; font-size: 0.75rem;
+      box-shadow: 0 0 10px rgba(240,163,58,.35);
+    }
+    .pf-meta { line-height: 1.15; }
+    .pf-meta .name { font-weight: 800; font-size: 0.85rem; }
+    .pf-meta .pts {
+      font-family: var(--mono); font-size: 0.7rem; color: var(--amber); font-weight: 700;
+    }
+
+    .story-label {
+      display: flex; align-items: baseline; gap: 10px; margin: 4px 0 10px; flex-wrap: wrap;
+    }
+    .story-label h2 {
+      margin: 0; font-size: 0.78rem; text-transform: uppercase; letter-spacing: .08em; color: var(--amber);
+    }
+    .story-label .sub { color: var(--muted); font-size: 0.72rem; font-family: var(--mono); }
+
+    .story {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px;
+    }
+    .panel {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+      overflow: hidden; display: flex; flex-direction: column;
+    }
+    .panel.before { border-color: #5a3030; }
+    .panel.tick { border-color: #2a5a40; box-shadow: var(--glow-g); }
+    .panel.down { border-color: #6a2a32; }
+    .panel.after-idle { border-color: #3a2a5a; box-shadow: 0 0 18px rgba(155,109,255,.18); }
+
+    .panel-head {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 10px 12px; border-bottom: 1px solid var(--border); background: #0e0e0e;
+    }
+    .panel-head .state {
+      font-size: 0.74rem; font-weight: 900; letter-spacing: .04em; text-transform: uppercase;
+    }
+    .panel.before .panel-head .state { color: var(--bad); }
+    .panel.after-idle .panel-head .state { color: var(--nebula-a); }
+    .panel.tick .panel-head .state { color: var(--good); }
+    .panel.down .panel-head .state { color: var(--bad); }
+    .badge {
+      font-size: 0.6rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+      padding: 2px 7px; border-radius: 999px; border: 1px solid var(--border);
+      color: var(--muted); background: #1a1a1a;
+    }
+    .badge.ex { border-color: #5a4a20; color: var(--amber); background: #241e10; }
+    .badge.ass { border-color: #6a2a32; color: var(--bad); background: #241018; }
+    .badge.sound {
+      border-color: #2a5a40; color: var(--good); background: #102018;
+      animation: soundpulse 1.1s ease-in-out infinite;
+    }
+    .badge.quiet { border-color: #333; color: #666; }
+    .badge.new { border-color: #5a3a8a; color: #d0b0ff; background: #1a1028; }
+    .panel-head .rule {
+      margin-left: auto; font-size: 0.62rem; color: var(--muted); font-family: var(--mono);
+    }
+
+    @keyframes soundpulse {
+      0%,100%{ box-shadow: 0 0 0 0 rgba(62,207,142,.35); }
+      50%{ box-shadow: 0 0 12px 2px rgba(62,207,142,.45); }
+    }
+    @keyframes thruster-dim {
+      0%,100%{ opacity:.45; transform: scaleX(1) }
+      50%{ opacity:.7; transform: scaleX(1.08) }
+    }
+    @keyframes thruster-hot {
+      0%,100%{ opacity:.92; transform: scaleX(1) translateX(0) }
+      50%{ opacity:1; transform: scaleX(1.22) translateX(-4px) }
+    }
+    @keyframes lift {
+      0%,100%{ transform: translateY(-50%) rotate(-6deg) }
+      50%{ transform: translateY(calc(-50% - 12px)) rotate(-10deg) }
+    }
+    @keyframes floaty {
+      0%,100%{ transform: translateY(-50%) }
+      50%{ transform: translateY(calc(-50% - 4px)) }
+    }
+    @keyframes blob-float {
+      0%,100%{ transform: translateY(-50%) }
+      50%{ transform: translateY(calc(-50% - 2px)) }
+    }
+    @keyframes smoke {
+      0%{ opacity:.55; transform: translateY(0) scale(1) }
+      100%{ opacity:0; transform: translateY(16px) scale(1.5) }
+    }
+    @keyframes flashg {
+      0%,100%{ background: linear-gradient(160deg, #102018 0%, #161616 70%); }
+      40%{ background: linear-gradient(160deg, #1a4030 0%, #102018 70%); }
+    }
+    @keyframes popdelta {
+      0%{ opacity:0; transform: translateY(8px) }
+      20%{ opacity:1; transform: translateY(0) }
+      80%{ opacity:1; transform: translateY(-10px) }
+      100%{ opacity:0; transform: translateY(-18px) }
+    }
+    @keyframes bankflash {
+      0%,100%{ color: var(--good); text-shadow: 0 0 12px rgba(62,207,142,.35); }
+      50%{ color: #b8f5d0; text-shadow: 0 0 22px rgba(62,207,142,.7); }
+    }
+    @keyframes cockpit {
+      0%,100%{ opacity:.85 }
+      50%{ opacity:1 }
+    }
+
+    .rocket-strip {
+      position: relative; height: 148px;
+      overflow: hidden;
+      background: radial-gradient(ellipse at 30% 40%, #1a2030 0%, #050508 55%, #000 100%);
+    }
+    .panel.before .rocket-strip {
+      background: radial-gradient(ellipse at 35% 45%, #1a1520 0%, #080508 60%, #000 100%);
+    }
+    .panel.after-idle .rocket-strip {
+      background: radial-gradient(ellipse at 35% 45%, #181428 0%, #050508 60%, #000 100%);
+    }
+    .panel.down .rocket-strip {
+      background: radial-gradient(ellipse at 40% 60%, #201010 0%, #0a0505 55%, #000 100%);
+    }
+    .stars {
+      position: absolute; inset: 0;
+      background-image:
+        radial-gradient(1px 1px at 10% 20%, #fff 50%, transparent 51%),
+        radial-gradient(1px 1px at 30% 70%, #fff 50%, transparent 51%),
+        radial-gradient(1.5px 1.5px at 55% 30%, #fff 50%, transparent 51%),
+        radial-gradient(1px 1px at 75% 60%, #ccc 50%, transparent 51%),
+        radial-gradient(1px 1px at 90% 15%, #fff 50%, transparent 51%),
+        radial-gradient(1px 1px at 45% 85%, #fff 50%, transparent 51%),
+        radial-gradient(1px 1px at 20% 45%, #aaa 50%, transparent 51%),
+        radial-gradient(1px 1px at 65% 18%, #fff 50%, transparent 51%);
+      opacity: .65;
+    }
+
+    .craft-wrap {
+      position: absolute; left: 8%; top: 50%;
+      transform: translateY(-50%);
+      width: 220px; height: 100px;
+    }
+    .panel.before .craft-wrap { animation: blob-float 3.2s ease-in-out infinite; left: 12%; }
+    .panel.after-idle .craft-wrap { animation: floaty 3.2s ease-in-out infinite; }
+    .panel.tick .craft-wrap { animation: lift .7s ease-in-out infinite; left: 10%; }
+    .panel.down .craft-wrap {
+      transform: translateY(-36%) rotate(26deg);
+      animation: none; left: 16%;
+    }
+    .craft-svg { width: 220px; height: 100px; display: block; overflow: visible; }
+
+    .flame { transform-origin: 28px 50px; }
+    .panel.after-idle .flame { animation: thruster-dim 1.1s ease-in-out infinite; opacity: .55; }
+    .panel.tick .flame { animation: thruster-hot .3s ease-in-out infinite; }
+    .panel.down .flame { display: none; }
+    .panel.before .flame { display: none; }
+
+    .smoke-puffs { display: none; }
+    .panel.down .smoke-puffs { display: block; }
+    .smoke-puffs circle { animation: smoke 1.25s ease-out infinite; }
+    .smoke-puffs circle:nth-child(2) { animation-delay: .28s; }
+    .smoke-puffs circle:nth-child(3) { animation-delay: .55s; }
+
+    .cockpit-glow { animation: cockpit 2.4s ease-in-out infinite; }
+
+    .blob-trail { opacity: .7; }
+    .panel.before .blob-trail { display: block; }
+
+    .float-delta {
+      position: absolute; left: 54%; top: 22%;
+      font-family: var(--mono); font-weight: 900; font-size: 1.1rem;
+      color: var(--good); pointer-events: none;
+      text-shadow: 0 0 14px rgba(62,207,142,.55);
+      animation: popdelta 1.6s ease-out infinite;
+    }
+    .panel:not(.tick) .float-delta { display: none; }
+
+    .rocket-hud {
+      position: absolute; right: 10px; top: 10px; text-align: right;
+    }
+    .rocket-hud .skin {
+      font-size: 0.58rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase;
+      color: var(--amber); margin-bottom: 3px;
+    }
+    .rocket-hud .dir {
+      font-family: var(--mono); font-size: 1.05rem; font-weight: 900;
+    }
+    .panel.before .rocket-hud .dir { color: var(--muted); }
+    .panel.after-idle .rocket-hud .dir { color: var(--good); text-shadow: 0 0 10px rgba(62,207,142,.3); }
+    .panel.tick .rocket-hud .dir { color: var(--good); text-shadow: 0 0 16px rgba(62,207,142,.5); }
+    .panel.down .rocket-hud .dir { color: var(--bad); text-shadow: 0 0 16px rgba(240,113,120,.45); }
+    .rocket-hud .sub { font-size: 0.62rem; color: var(--muted); font-family: var(--mono); }
+
+    .bank {
+      display: grid; grid-template-columns: 1.2fr 1fr; gap: 8px;
+      padding: 10px 12px; border-top: 1px solid var(--border);
+      background: #0e0e0e;
+    }
+    .bank .stat {
+      background: var(--panel2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 8px 10px;
+    }
+    .panel.tick .bank .stat.equity {
+      border-color: #2a5a40;
+      animation: flashg 1.2s ease-in-out infinite;
+    }
+    .bank .lab {
+      color: var(--muted); font-size: 0.58rem; text-transform: uppercase;
+      letter-spacing: 0.06em; font-weight: 700;
+    }
+    .bank .val {
+      font-family: var(--mono); font-size: 1.05rem; font-weight: 900;
+      margin-top: 2px; letter-spacing: -0.02em;
+    }
+    .panel.tick .bank .stat.equity .val { animation: bankflash 1.2s ease-in-out infinite; }
+    .panel.after-idle .bank .val.good,
+    .panel.tick .bank .val.good { color: var(--good); }
+    .panel.down .bank .val.bad { color: var(--bad); }
+    .bank .hint { margin-top: 2px; font-size: 0.6rem; color: var(--muted); font-family: var(--mono); }
+
+    .ac-note {
+      padding: 8px 12px 12px; font-size: 0.68rem; color: var(--muted); line-height: 1.4;
+      border-top: 1px dashed #2a2a2a;
+    }
+    .ac-note b { color: var(--text); }
+    .ac-note .ok { color: var(--good); font-weight: 800; }
+    .ac-note .no { color: var(--bad); font-weight: 800; }
+
+    .shop-thin {
+      display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: center;
+      margin-bottom: 12px; padding: 12px 14px;
+      background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    }
+    .shop-thin .lab {
+      font-size: 0.7rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+      color: var(--amber);
+    }
+    .shop-thin .lab span { display: block; font-family: var(--mono); font-weight: 600; color: var(--muted); font-size: 0.62rem; letter-spacing: 0; text-transform: none; margin-top: 2px; }
+    .skins {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+    }
+    .sku {
+      background: var(--panel2); border: 1px solid var(--border); border-radius: 10px;
+      padding: 8px 10px; position: relative; min-height: 64px;
+    }
+    .sku.eq { border-color: var(--amber); box-shadow: 0 0 10px rgba(240,163,58,.22); }
+    .sku .t { font-weight: 800; font-size: 0.72rem; }
+    .sku .p { font-family: var(--mono); font-size: 0.65rem; color: var(--amber); margin-top: 2px; }
+    .sku .p.free { color: var(--good); }
+    .sku .swatch {
+      height: 14px; border-radius: 4px; margin-bottom: 6px;
+      border: 1px solid #333;
+    }
+    .sku .swatch.neb { background: linear-gradient(90deg, #5b8cff, #c84bff, #9b6dff); }
+    .sku .swatch.plain { background: linear-gradient(90deg, #888, #ddd, #666); }
+    .sku .swatch.acid { background: linear-gradient(90deg, #1a5a3a, #3ecf8e, #a8f5c8); }
+    .sku .swatch.crown { background: linear-gradient(90deg, #6a5320, #f0a33a, #f0d9a0); }
+    .sku .tag2 {
+      position: absolute; top: 6px; right: 6px;
+      font-size: 0.52rem; font-weight: 800; letter-spacing: .04em;
+      padding: 1px 5px; border-radius: 999px; text-transform: uppercase;
+      background: #241e10; border: 1px solid #6a5320; color: var(--amber);
+    }
+
+    .acs {
+      margin-top: 4px; padding: 14px 16px;
+      background: #0e0e0e; border: 1px dashed #333; border-radius: 12px;
+    }
+    .acs h3 {
+      margin: 0 0 8px; font-size: 0.75rem; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--amber);
+    }
+    .acs ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 0.78rem; }
+    .acs li { margin-bottom: 3px; }
+    .acs b { color: var(--text); }
+    .acs .id { color: var(--good); font-weight: 800; font-family: var(--mono); font-size: 0.72rem; }
+    .foot { margin-top: 10px; font-size: 0.68rem; color: var(--muted); text-align: center; }
+
+    @media (max-width: 1200px) {
+      .story { grid-template-columns: 1fr 1fr; }
+      .skins { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="banner">
+    <span class="tag">Eyes only</span>
+    <span class="tag">Not a PR</span>
+    <span class="tag">Visual cut</span>
+    MOCK · Game rocket redesign · blob → craft ·
+    <code>qa/mock-game-rocket-anim-v1.html</code>
+  </div>
+  <div class="app">
+    <p class="claim"><span>Proto Bot · Game animation redesign draft</span>Kill the fish blob. Ship a real rocket.</p>
+    <p class="lede">
+      Owner on live v65 Game: sprite <b>“lwk is ass”</b>. This mock keeps SHIP E state language
+      (<b>IDLE / TICK+ / DOWN</b>) but replaces the oval blob with a finished craft — nose, body, fins, cockpit glow, Nebula tint.
+      All $ / % figures are <b>EXAMPLE</b>. No production code. No PR.
+    </p>
+
+    <div class="topbar">
+      <div class="logo">N</div>
+      <div class="brand">
+        <h1>Nunu Filter</h1>
+        <p class="sub">Game rocket anim mock · visual only</p>
+      </div>
+      <div class="tabs">
+        <span>Filter</span>
+        <span class="on">Game</span>
+      </div>
+      <div class="live"><span class="dot"></span> PAPER · EXAMPLE</div>
+      <div class="profile-chip">
+        <div class="pf-av">J</div>
+        <div class="pf-meta">
+          <div class="name">Pilot</div>
+          <div class="pts">1,240 pts</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="story-label">
+      <h2>Storyboard · BEFORE → craft states</h2>
+      <span class="sub">CURRENT ASS · AFTER IDLE · AFTER TICK+ · AFTER DOWN</span>
+    </div>
+
+    <div class="story">
+      <!-- 1 BEFORE -->
+      <section class="panel before">
+        <div class="panel-head">
+          <span class="state">1 · Before</span>
+          <span class="badge ass">Current · ass</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">live v65 blob</span>
+        </div>
+        <div class="rocket-strip">
+          <div class="stars"></div>
+          <div class="craft-wrap">
+            <svg class="craft-svg" viewBox="0 0 220 100" xmlns="http://www.w3.org/2000/svg" aria-label="Current blob sprite">
+              <!-- green bubble trail -->
+              <g class="blob-trail">
+                <circle cx="42" cy="50" r="9" fill="#3ecf8e" opacity=".55"/>
+                <circle cx="28" cy="50" r="6" fill="#3ecf8e" opacity=".4"/>
+                <circle cx="16" cy="50" r="4" fill="#3ecf8e" opacity=".28"/>
+              </g>
+              <!-- purple oval blob -->
+              <ellipse cx="118" cy="50" rx="58" ry="26" fill="url(#blobGrad)" stroke="#e7e9ea" stroke-width="1.2"/>
+              <polygon points="48,50 62,42 62,58" fill="#e7e9ea"/>
+              <rect x="96" y="36" width="28" height="28" rx="7" fill="#0a0a0a"/>
+              <circle cx="106" cy="46" r="2.4" fill="#f0a33a"/>
+              <circle cx="116" cy="46" r="2.4" fill="#f0a33a"/>
+              <path d="M104 56 Q111 60 118 56" stroke="#f0a33a" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+              <defs>
+                <linearGradient id="blobGrad" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="#7a4dff"/>
+                  <stop offset="55%" stop-color="#c84bff"/>
+                  <stop offset="100%" stop-color="#5b3a9a"/>
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+          <div class="rocket-hud">
+            <div class="skin">Skin · Nebula Frame</div>
+            <div class="dir">▲ UP +11.4%</div>
+            <div class="sub">session green · fish blob</div>
+          </div>
+        </div>
+        <div class="bank">
+          <div class="stat equity">
+            <div class="lab">Equity</div>
+            <div class="val">$5.57</div>
+            <div class="hint">live-ish EXAMPLE</div>
+          </div>
+          <div class="stat">
+            <div class="lab">Last tick</div>
+            <div class="val">$0.00</div>
+            <div class="hint">no cue · blob calm</div>
+          </div>
+        </div>
+        <div class="ac-note">
+          <b>CURRENT:</b> lo-fi purple oval + smiley. Reads as a fish, not a craft. <span class="no">Replace this silhouette.</span>
+        </div>
+      </section>
+
+      <!-- 2 AFTER IDLE -->
+      <section class="panel after-idle">
+        <div class="panel-head">
+          <span class="state">2 · After Idle</span>
+          <span class="badge quiet">No sound</span>
+          <span class="badge new">Craft</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">AC-R02</span>
+        </div>
+        <div class="rocket-strip">
+          <div class="stars"></div>
+          <div class="craft-wrap">
+            <svg class="craft-svg" viewBox="0 0 220 100" xmlns="http://www.w3.org/2000/svg" aria-label="Rocket idle">
+              <defs>
+                <linearGradient id="hull1" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stop-color="#6a3dff"/>
+                  <stop offset="45%" stop-color="#c84bff"/>
+                  <stop offset="100%" stop-color="#8ab0ff"/>
+                </linearGradient>
+                <linearGradient id="nose1" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stop-color="#d0b8ff"/>
+                  <stop offset="100%" stop-color="#ffffff"/>
+                </linearGradient>
+                <linearGradient id="flame1" x1="1" y1="0" x2="0" y2="0">
+                  <stop offset="0%" stop-color="#3ecf8e"/>
+                  <stop offset="55%" stop-color="#a8f5c8"/>
+                  <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+                </linearGradient>
+                <radialGradient id="cock1" cx="50%" cy="45%" r="55%">
+                  <stop offset="0%" stop-color="#b8f5ff"/>
+                  <stop offset="55%" stop-color="#5b8cff"/>
+                  <stop offset="100%" stop-color="#1a2040"/>
+                </radialGradient>
+                <filter id="glow1" x="-40%" y="-40%" width="180%" height="180%">
+                  <feGaussianBlur stdDeviation="2.2" result="b"/>
+                  <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+                </filter>
+              </defs>
+              <!-- dim thruster -->
+              <g class="flame">
+                <ellipse cx="34" cy="50" rx="22" ry="9" fill="url(#flame1)" opacity=".7"/>
+                <ellipse cx="26" cy="50" rx="12" ry="5" fill="#a8f5c8" opacity=".45"/>
+              </g>
+              <!-- rear engine ring -->
+              <ellipse cx="58" cy="50" rx="7" ry="14" fill="#1a1028" stroke="#c84bff" stroke-width="2"/>
+              <ellipse cx="58" cy="50" rx="3.5" ry="8" fill="#3ecf8e" opacity=".35"/>
+              <!-- lower fin -->
+              <path d="M78 62 L62 88 L96 68 Z" fill="#7a4dff" stroke="#e7e9ea" stroke-width="1"/>
+              <!-- upper fin -->
+              <path d="M78 38 L62 12 L96 32 Z" fill="#7a4dff" stroke="#e7e9ea" stroke-width="1"/>
+              <!-- main hull -->
+              <path d="M60 38 C78 26, 120 22, 158 34 L176 50 L158 66 C120 78, 78 74, 60 62 Z"
+                    fill="url(#hull1)" stroke="#e7e9ea" stroke-width="1.6" filter="url(#glow1)"/>
+              <!-- hull panel line -->
+              <path d="M78 42 C110 36, 140 38, 164 48" stroke="#ffffff" stroke-opacity=".25" stroke-width="1.2" fill="none"/>
+              <!-- nose cone -->
+              <path d="M158 34 L196 50 L158 66 Z" fill="url(#nose1)" stroke="#e7e9ea" stroke-width="1.2"/>
+              <!-- cockpit canopy -->
+              <ellipse class="cockpit-glow" cx="118" cy="48" rx="16" ry="11" fill="url(#cock1)" stroke="#f0a33a" stroke-width="1.6"/>
+              <ellipse cx="122" cy="45" rx="6" ry="3.5" fill="#fff" opacity=".35"/>
+              <!-- wing strut accents -->
+              <rect x="86" y="46" width="18" height="3" rx="1.5" fill="#1a1028" opacity=".55"/>
+              <!-- tiny antenna -->
+              <line x1="148" y1="36" x2="148" y2="24" stroke="#e7e9ea" stroke-width="1.2"/>
+              <circle cx="148" cy="22" r="2.2" fill="#f0a33a"/>
+            </svg>
+          </div>
+          <div class="rocket-hud">
+            <div class="skin">Skin · Nebula Frame</div>
+            <div class="dir">— FLAT</div>
+            <div class="sub">calm hover · dim flame</div>
+          </div>
+        </div>
+        <div class="bank">
+          <div class="stat equity">
+            <div class="lab">Equity</div>
+            <div class="val good">$18.42</div>
+            <div class="hint">session green · calm</div>
+          </div>
+          <div class="stat">
+            <div class="lab">Last tick</div>
+            <div class="val">$0.00</div>
+            <div class="hint">no cue · craft idle</div>
+          </div>
+        </div>
+        <div class="ac-note">
+          <b>IDLE:</b> readable craft silhouette, soft hover, dim thruster. <span class="no">No ♪ tick+</span>. Nebula tint on hull + fins.
+        </div>
+      </section>
+
+      <!-- 3 AFTER TICK+ -->
+      <section class="panel tick">
+        <div class="panel-head">
+          <span class="state">3 · After Tick+</span>
+          <span class="badge sound">♪ tick+</span>
+          <span class="badge new">Lift</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">AC-R03</span>
+        </div>
+        <div class="rocket-strip">
+          <div class="stars"></div>
+          <div class="float-delta">+$0.12</div>
+          <div class="craft-wrap">
+            <svg class="craft-svg" viewBox="0 0 220 100" xmlns="http://www.w3.org/2000/svg" aria-label="Rocket tick up">
+              <defs>
+                <linearGradient id="hull2" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stop-color="#6a3dff"/>
+                  <stop offset="45%" stop-color="#c84bff"/>
+                  <stop offset="100%" stop-color="#8ab0ff"/>
+                </linearGradient>
+                <linearGradient id="nose2" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stop-color="#d0b8ff"/>
+                  <stop offset="100%" stop-color="#ffffff"/>
+                </linearGradient>
+                <linearGradient id="flame2" x1="1" y1="0" x2="0" y2="0">
+                  <stop offset="0%" stop-color="#3ecf8e"/>
+                  <stop offset="40%" stop-color="#a8f5c8"/>
+                  <stop offset="75%" stop-color="#ffffff"/>
+                  <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+                </linearGradient>
+                <radialGradient id="cock2" cx="50%" cy="45%" r="55%">
+                  <stop offset="0%" stop-color="#d8fff0"/>
+                  <stop offset="50%" stop-color="#3ecf8e"/>
+                  <stop offset="100%" stop-color="#1a4030"/>
+                </radialGradient>
+                <filter id="glow2" x="-40%" y="-40%" width="180%" height="180%">
+                  <feGaussianBlur stdDeviation="2.4" result="b"/>
+                  <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+                </filter>
+              </defs>
+              <!-- hot thruster -->
+              <g class="flame">
+                <ellipse cx="28" cy="50" rx="32" ry="12" fill="url(#flame2)" opacity=".95"/>
+                <ellipse cx="18" cy="50" rx="18" ry="7" fill="#ffffff" opacity=".75"/>
+                <ellipse cx="10" cy="50" rx="8" ry="3.5" fill="#fff" opacity=".9"/>
+                <circle cx="44" cy="40" r="1.6" fill="#a8f5c8" opacity=".9"/>
+                <circle cx="36" cy="58" r="1.3" fill="#3ecf8e" opacity=".95"/>
+                <circle cx="22" cy="44" r="1.1" fill="#fff" opacity=".85"/>
+              </g>
+              <ellipse cx="58" cy="50" rx="7" ry="14" fill="#1a1028" stroke="#3ecf8e" stroke-width="2.2"/>
+              <ellipse cx="58" cy="50" rx="3.5" ry="8" fill="#3ecf8e" opacity=".75"/>
+              <path d="M78 62 L62 88 L96 68 Z" fill="#7a4dff" stroke="#e7e9ea" stroke-width="1"/>
+              <path d="M78 38 L62 12 L96 32 Z" fill="#7a4dff" stroke="#e7e9ea" stroke-width="1"/>
+              <path d="M60 38 C78 26, 120 22, 158 34 L176 50 L158 66 C120 78, 78 74, 60 62 Z"
+                    fill="url(#hull2)" stroke="#e7e9ea" stroke-width="1.6" filter="url(#glow2)"/>
+              <path d="M78 42 C110 36, 140 38, 164 48" stroke="#ffffff" stroke-opacity=".3" stroke-width="1.2" fill="none"/>
+              <path d="M158 34 L196 50 L158 66 Z" fill="url(#nose2)" stroke="#e7e9ea" stroke-width="1.2"/>
+              <ellipse class="cockpit-glow" cx="118" cy="48" rx="16" ry="11" fill="url(#cock2)" stroke="#3ecf8e" stroke-width="1.8"/>
+              <ellipse cx="122" cy="45" rx="6" ry="3.5" fill="#fff" opacity=".45"/>
+              <rect x="86" y="46" width="18" height="3" rx="1.5" fill="#1a1028" opacity=".55"/>
+              <line x1="148" y1="36" x2="148" y2="24" stroke="#e7e9ea" stroke-width="1.2"/>
+              <circle cx="148" cy="22" r="2.2" fill="#3ecf8e"/>
+            </svg>
+          </div>
+          <div class="rocket-hud">
+            <div class="skin">Skin · Nebula Frame</div>
+            <div class="dir">▲ UP +270%</div>
+            <div class="sub">thruster pulse · lift</div>
+          </div>
+        </div>
+        <div class="bank">
+          <div class="stat equity">
+            <div class="lab">Equity · flash</div>
+            <div class="val good">$18.54</div>
+            <div class="hint">was $18.42 · green</div>
+          </div>
+          <div class="stat">
+            <div class="lab">Last tick</div>
+            <div class="val good">+$0.12</div>
+            <div class="hint">♪ once · flame long</div>
+          </div>
+        </div>
+        <div class="ac-note">
+          <b>TICK+:</b> <span class="ok">nose lift + long green flame</span> + floating +$ chip. Still Nebula-tinted hull. Motion readable in a still.
+        </div>
+      </section>
+
+      <!-- 4 AFTER DOWN -->
+      <section class="panel down">
+        <div class="panel-head">
+          <span class="state">4 · After Down</span>
+          <span class="badge quiet">No ♪ tick+</span>
+          <span class="badge new">Smoke</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">AC-R04</span>
+        </div>
+        <div class="rocket-strip">
+          <div class="stars"></div>
+          <div class="craft-wrap">
+            <svg class="craft-svg" viewBox="0 0 220 100" xmlns="http://www.w3.org/2000/svg" aria-label="Rocket down">
+              <defs>
+                <linearGradient id="hull3" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stop-color="#5a38aa"/>
+                  <stop offset="45%" stop-color="#9a3acc"/>
+                  <stop offset="100%" stop-color="#5a70a0"/>
+                </linearGradient>
+                <linearGradient id="nose3" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stop-color="#a090b8"/>
+                  <stop offset="100%" stop-color="#d8d0e0"/>
+                </linearGradient>
+                <radialGradient id="cock3" cx="50%" cy="45%" r="55%">
+                  <stop offset="0%" stop-color="#ffb0b8"/>
+                  <stop offset="55%" stop-color="#a04050"/>
+                  <stop offset="100%" stop-color="#301018"/>
+                </radialGradient>
+                <filter id="glow3" x="-40%" y="-40%" width="180%" height="180%">
+                  <feGaussianBlur stdDeviation="1.8" result="b"/>
+                  <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+                </filter>
+              </defs>
+              <!-- smoke instead of flame -->
+              <g class="smoke-puffs">
+                <circle cx="40" cy="56" r="10" fill="#777" opacity=".45"/>
+                <circle cx="26" cy="64" r="13" fill="#666" opacity=".38"/>
+                <circle cx="14" cy="74" r="15" fill="#555" opacity=".3"/>
+              </g>
+              <ellipse cx="58" cy="50" rx="7" ry="14" fill="#1a1028" stroke="#666" stroke-width="2"/>
+              <ellipse cx="58" cy="50" rx="3.5" ry="8" fill="#444" opacity=".5"/>
+              <path d="M78 62 L62 88 L96 68 Z" fill="#5a38aa" stroke="#c0b0d0" stroke-width="1"/>
+              <path d="M78 38 L62 12 L96 32 Z" fill="#5a38aa" stroke="#c0b0d0" stroke-width="1"/>
+              <path d="M60 38 C78 26, 120 22, 158 34 L176 50 L158 66 C120 78, 78 74, 60 62 Z"
+                    fill="url(#hull3)" stroke="#c0b0d0" stroke-width="1.6" filter="url(#glow3)"/>
+              <path d="M78 42 C110 36, 140 38, 164 48" stroke="#ffffff" stroke-opacity=".15" stroke-width="1.2" fill="none"/>
+              <path d="M158 34 L196 50 L158 66 Z" fill="url(#nose3)" stroke="#c0b0d0" stroke-width="1.2"/>
+              <ellipse class="cockpit-glow" cx="118" cy="48" rx="16" ry="11" fill="url(#cock3)" stroke="#f07178" stroke-width="1.6"/>
+              <ellipse cx="122" cy="45" rx="6" ry="3.5" fill="#fff" opacity=".2"/>
+              <rect x="86" y="46" width="18" height="3" rx="1.5" fill="#1a1028" opacity=".55"/>
+              <line x1="148" y1="36" x2="148" y2="24" stroke="#c0b0d0" stroke-width="1.2"/>
+              <circle cx="148" cy="22" r="2.2" fill="#f07178"/>
+            </svg>
+          </div>
+          <div class="rocket-hud">
+            <div class="skin">Skin · Nebula Frame</div>
+            <div class="dir">▼ DOWN −8%</div>
+            <div class="sub">nose-down · smoke</div>
+          </div>
+        </div>
+        <div class="bank">
+          <div class="stat equity">
+            <div class="lab">Equity</div>
+            <div class="val bad">$4.62</div>
+            <div class="hint">session red · quiet</div>
+          </div>
+          <div class="stat">
+            <div class="lab">Last tick</div>
+            <div class="val bad">−$0.09</div>
+            <div class="hint">never ♪ tick+</div>
+          </div>
+        </div>
+        <div class="ac-note">
+          <b>DOWN:</b> nose pitched down + grey smoke from engine. <span class="no">No green flame · no ♪ tick+</span>. Nebula hull still readable.
+        </div>
+      </section>
+    </div>
+
+    <div class="shop-thin">
+      <div class="lab">Shop · skins<span>equip tints the craft · EXAMPLE</span></div>
+      <div class="skins">
+        <div class="sku eq">
+          <span class="tag2">Equipped</span>
+          <div class="swatch neb"></div>
+          <div class="t">Nebula Frame</div>
+          <div class="p free">Owned · tints hull</div>
+        </div>
+        <div class="sku">
+          <div class="swatch plain"></div>
+          <div class="t">Plain Booster</div>
+          <div class="p free">Default · 0</div>
+        </div>
+        <div class="sku">
+          <div class="swatch acid"></div>
+          <div class="t">Acid Trail</div>
+          <div class="p">750 pts</div>
+        </div>
+        <div class="sku">
+          <div class="swatch crown"></div>
+          <div class="t">Crown Thrusters</div>
+          <div class="p">3,500 pts</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="acs">
+      <h3>Draft ACs · rocket redesign (for PM cut)</h3>
+      <ul>
+        <li><span class="id">AC-R01</span> — Rocket silhouette clearly a craft (nose · body · fins · cockpit), <b>not</b> oval blob</li>
+        <li><span class="id">AC-R02</span> — IDLE calm readable (soft hover, dim thruster, no scream)</li>
+        <li><span class="id">AC-R03</span> — TICK+ thruster pulse + lift readable (longer flame, nose up, optional +$ chip)</li>
+        <li><span class="id">AC-R04</span> — DOWN nose-down + smoke readable (no green flame, no ♪ tick+)</li>
+        <li><span class="id">AC-R05</span> — Skin tint (Nebula purple/magenta) still applies to hull + fins</li>
+        <li><span class="id">AC-R06</span> — No regression to tick+ / points / shop wiring — <b>visual-only this cut</b></li>
+      </ul>
+    </div>
+    <p class="foot">mock-game-rocket-anim-v1 · replaces blob from mock-game-finish-tick-v1 / live v65 · EYES ONLY · NOT A PR · EXAMPLE data · near-black + green/amber + Nebula</p>
+  </div>
+</body>
+</html>
