@@ -265,7 +265,8 @@ class GameFinishTests(unittest.TestCase):
 
         res = server.app.test_client().get("/api/health")
         data = res.get_json()
-        self.assertEqual(data["panel_v"], 65)
+        self.assertEqual(data["panel_v"], 66)
+        self.assertIn("delay_warning", data["features"])
         self.assertEqual(data["qa_tick"], "page ?qa_tick=both|up|down")
         self.assertIn("game_finish", data["features"])
         self.assertIn("quote_sync", data["features"])
