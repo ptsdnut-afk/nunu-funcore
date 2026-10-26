@@ -265,8 +265,9 @@ class GameFinishTests(unittest.TestCase):
 
         res = server.app.test_client().get("/api/health")
         data = res.get_json()
-        self.assertEqual(data["panel_v"], 66)
+        self.assertEqual(data["panel_v"], 67)
         self.assertIn("delay_warning", data["features"])
+        self.assertIn("game_polish", data["features"])
         self.assertEqual(data["qa_tick"], "page ?qa_tick=both|up|down")
         self.assertIn("game_finish", data["features"])
         self.assertIn("quote_sync", data["features"])
@@ -386,6 +387,73 @@ if (equityTickDecision(base, upEq, "idle").sound !== "") process.exit(43);
         text = Path("start.sh").read_text(encoding="utf-8")
         self.assertIn('INTERVAL_MIN="${INTERVAL_MIN:-5}"', text)
         self.assertNotIn('INTERVAL_MIN="${INTERVAL_MIN:-15}"', text)
+
+    def test_ship_g_craft_chart_and_quote_guard(self):
+        html = Path("static/index.html").read_text(encoding="utf-8")
+        self.assertIn('class="canopy-glow"', html)
+        self.assertIn('class="flame"', html)
+        self.assertIn('class="chart-stage"', html)
+        self.assertIn('data-stage-hook="chart-v1"', html)
+        self.assertIn('data-sfx-hook="casino-cues"', html)
+        self.assertIn('id="gSoundOnBtn"', html)
+        self.assertIn('id="gSoundMuteBtn"', html)
+        self.assertIn(">Sound on<", html)
+        self.assertIn(">Mute<", html)
+        self.assertNotIn('id="gStartIdle"', html)
+        self.assertNotIn('id="gIdleCta"', html)
+        self.assertEqual(html.count('id="gStart"'), 1)
+        self.assertNotIn(">No sound<", html)
+        self.assertIn("♪♪ WIN", html)
+        self.assertIn("♪ LOSS", html)
+        self.assertIn('class="mini"', html)
+        self.assertIn("body.mode-game .qa-foot { display: none; }", html)
+        self.assertIn("canopy-glow", html)
+        pure = html[html.index("/* ship-g-pure-start */"):html.index("/* ship-g-pure-end */")]
+        script = pure + r"""
+const empty = emptyQuoteDecision("  ");
+if (empty.ok || empty.start || empty.message.indexOf("Enter a coin") < 0) process.exit(2);
+const named = emptyQuoteDecision("BONK");
+if (!named.ok || named.start || named.mint !== "BONK") process.exit(3);
+if (emptyQuoteDecision(null).start) process.exit(4);
+const stale = sessionChromeDecision("active", "Session ended · final cash $4.10");
+if (!stale.replace || stale.reason !== "stale-ended") process.exit(5);
+if (sessionChromeDecision("active", "24h run live — $5.00 paper").replace) process.exit(6);
+if (sessionChromeDecision("active", "Quoted BONK").replace) process.exit(7);
+if (sessionChromeDecision("ended", "Session ended · final cash $5.00").replace) process.exit(8);
+const boot = sessionChromeDecision("ended", "Loading game…");
+if (!boot.replace || boot.reason !== "boot-ended") process.exit(9);
+const down = pnlChipText("down", 12.4);
+if (down.indexOf("+") >= 0 || down.indexOf("−12.4%") < 0 || down.indexOf("▼ DOWN") < 0) process.exit(10);
+if (pnlChipText("down", -8).indexOf("+") >= 0) process.exit(11);
+const up = pnlChipText("tick", 14.2);
+if (up.indexOf("▲ UP") < 0 || up.indexOf("+14.2%") < 0) process.exit(12);
+if (pnlChipText("idle", 9) !== "— FLAT") process.exit(13);
+if (rocketSoundBadge(false, "idle", false) !== "Sound on") process.exit(14);
+if (rocketSoundBadge(true, "tick", false) !== "Mute") process.exit(15);
+if (rocketSoundBadge(false, "tick", false) !== "♪♪ WIN") process.exit(16);
+if (rocketSoundBadge(false, "down", true) !== "♪ LOSS") process.exit(17);
+if (rocketSoundBadge(false, "down", false).indexOf("WIN") >= 0) process.exit(18);
+const tickPts = chartPointsFor("tick");
+const downPts = chartPointsFor("down");
+if (tickPts === downPts || chartPointsFor("idle") === tickPts) process.exit(19);
+"""
+        subprocess.check_call(["node", "-e", script])
+
+    def test_empty_quote_does_not_start_a_run(self):
+        import server
+
+        client = server.app.test_client()
+        with mock.patch.object(server.game_mod, "start_session") as start:
+            res = client.get("/api/game/quote")
+            self.assertEqual(res.status_code, 400)
+            body = res.get_json()
+            self.assertFalse(body.get("ok", True))
+            self.assertIn("Enter a coin", body.get("error") or "")
+            self.assertFalse(body.get("started", True))
+            start.assert_not_called()
+            blank = client.get("/api/game/quote?mint=%20%20")
+            self.assertEqual(blank.status_code, 400)
+            start.assert_not_called()
 
 
 if __name__ == "__main__":
