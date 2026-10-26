@@ -126,8 +126,9 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 63,
+            "panel_v": 64,
             "time": _utc(),
+            "qa_tick": "page ?qa_tick=both|up|down",
             "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish"],
             "quote_sla_s": game_mod.QUOTE_FRESH_SLA_S,
             "quote_band": game_mod.QUOTE_BAND,
@@ -331,13 +332,17 @@ def api_paper():
 
 @app.get("/api/game/state")
 def api_game_state():
-    return jsonify(game_mod.public_state())
+    return jsonify(game_mod.qa_tick_view(game_mod.public_state(), request.args.get("qa_tick")))
 
 
 @app.post("/api/game/state")
 def api_game_state_tick():
-    """Client-driven refresh / SL-TP / force-close tick."""
-    return jsonify(game_mod.public_state())
+    """Client-driven refresh / SL-TP / force-close tick.
+
+    Optional ?qa_tick=up|down|flat nudges this response only. The paper book
+    is saved by public_state before that view, and the nudge is not written back.
+    """
+    return jsonify(game_mod.qa_tick_view(game_mod.public_state(), request.args.get("qa_tick")))
 
 
 @app.post("/api/game/start")

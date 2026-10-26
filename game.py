@@ -1344,6 +1344,50 @@ def public_state(st: dict | None = None) -> dict:
     return out
 
 
+# Display-only equity step for the Game QA hook. Must match QA_TICK_STEP_USD in
+# static/index.html. DexScreener marks often stay inside the client TICK_EPS
+# ($0.005) for minutes, so a poll never crosses tick+ / nose-down. The page
+# query ?qa_tick=both|up|down sequences these offsets. Nothing here is saved.
+QA_TICK_STEP_USD = 0.12
+
+
+def qa_tick_view(payload: dict | None, mode: str | None) -> dict:
+    """Return a copy of a public game state with one optional equity offset.
+
+    `up` adds QA_TICK_STEP_USD, `down` subtracts it, `flat` leaves the mark and
+    labels the poll as the scripted loss (the previous poll was `up`). Any
+    other mode, including empty, is the live mark with no QA label. Inactive
+    sessions are not shifted. The caller's dict is not mutated and nothing is saved.
+    """
+    out = dict(payload or {})
+    token = (mode or "").strip().lower()
+    if token not in ("up", "down", "flat"):
+        return out
+    if out.get("status") != "active":
+        out["qa_tick"] = "need-active"
+        return out
+    base = _f(out.get("equity_usd"))
+    if base is None:
+        out["qa_tick"] = "need-active"
+        return out
+    if token == "flat":
+        out["qa_tick"] = "down"
+        out["qa_tick_delta_usd"] = 0
+        return out
+    delta = QA_TICK_STEP_USD if token == "up" else -QA_TICK_STEP_USD
+    eq = round(base + delta, 6)
+    out["equity_usd"] = eq
+    pnl = _f(out.get("pnl_usd"))
+    if pnl is not None:
+        out["pnl_usd"] = round(pnl + delta, 6)
+    start = _f(out.get("start_bankroll"))
+    if start:
+        out["pnl_pct"] = round((eq / start - 1.0) * 100, 2)
+    out["qa_tick"] = token
+    out["qa_tick_delta_usd"] = delta
+    return out
+
+
 def sell_all() -> dict:
     with _lock:
         st = tick_session()
