@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Filter · Slice 11 drawer clarity mock v1 · eyes only</title>
+  <style>
+    :root {
+      --bg: #050505;
+      --panel: #121212;
+      --panel2: #161616;
+      --border: #2a2a2a;
+      --text: #e7e9ea;
+      --muted: #8b98a5;
+      --good: #3ecf8e;
+      --amber: #f0a33a;
+      --warn: #e6b84d;
+      --bad: #f07178;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.35;
+      min-height: 100vh;
+      font-size: 16px;
+    }
+    .mock-banner {
+      background: linear-gradient(90deg, #141414, #0a0a0a);
+      border-bottom: 1px solid #2a5a40;
+      padding: 10px 16px;
+      font-size: 0.85rem;
+      color: #b8e6c0;
+      font-weight: 650;
+      display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center;
+    }
+    .mock-banner code { font-family: var(--mono); color: var(--amber); }
+    .mock-banner .tag {
+      font-size: 0.7rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase;
+      padding: 3px 9px; border-radius: 999px;
+      background: #102018; border: 1px solid #2a5a40; color: var(--good);
+    }
+    .mock-banner .warn-tag {
+      font-size: 0.7rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase;
+      padding: 3px 9px; border-radius: 999px;
+      background: #241e10; border: 1px solid #6a5320; color: var(--amber);
+    }
+    .app { max-width: 1480px; margin: 0 auto; padding: 14px 16px 36px; }
+    .intro {
+      margin: 0 0 14px; padding: 10px 14px; border-radius: 10px;
+      background: #102018; border: 1px solid #2a5a40;
+      font-size: 0.88rem; color: #b8e6c0;
+    }
+    .intro b { color: #d4f5d8; }
+    .section-label {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      margin: 18px 0 10px;
+    }
+    .section-label h2 {
+      margin: 0; font-size: 0.85rem; font-weight: 800;
+      letter-spacing: 0.06em; text-transform: uppercase;
+    }
+    .section-label .sub { font-size: 0.8rem; color: var(--muted); }
+    .pill-bad {
+      font-size: 0.65rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+      padding: 2px 8px; border-radius: 999px;
+      background: #241014; border: 1px solid #6a2030; color: var(--bad);
+    }
+    .pill-good {
+      font-size: 0.65rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+      padding: 2px 8px; border-radius: 999px;
+      background: #102018; border: 1px solid #2a5a40; color: var(--good);
+    }
+    .pill-amber {
+      font-size: 0.65rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+      padding: 2px 8px; border-radius: 999px;
+      background: #241e10; border: 1px solid #6a5320; color: var(--amber);
+    }
+
+    /* ===== Slice 11 two-state board ===== */
+    .two-state {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    @media (max-width: 900px) { .two-state { grid-template-columns: 1fr; } }
+    .mcap-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px 16px;
+    }
+    .mcap-card.has { border-color: #2a5a40; }
+    .mcap-card.unk { border-color: #3a3a3a; }
+    .mcap-card .title {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+    .mcap-card .title h3 {
+      margin: 0; font-size: 0.95rem; font-weight: 800;
+    }
+    .mcap-card .coin {
+      font-size: 0.75rem; color: var(--muted); font-family: var(--mono);
+    }
+    .mcap-grid {
+      display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;
+    }
+    .mcap-grid.now-only { grid-template-columns: 1fr; max-width: 220px; }
+    .mcap-cell {
+      background: var(--panel2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 10px 12px;
+    }
+    .mcap-cell .lab {
+      font-size: 0.65rem; font-weight: 800; letter-spacing: .05em;
+      text-transform: uppercase; color: var(--muted);
+    }
+    .mcap-cell .val {
+      font-family: var(--mono); font-weight: 900; font-size: 1.25rem; margin-top: 3px;
+    }
+    .mcap-cell .val.good { color: var(--good); }
+    .mcap-quiet {
+      margin-top: 8px; font-size: 0.8rem; color: var(--muted);
+    }
+    .mcap-note {
+      margin-top: 8px; font-size: 0.78rem; color: #b8e6c0;
+    }
+    .track {
+      height: 7px; border-radius: 4px; background: #1c1c1c;
+      margin: 10px 0 4px; overflow: hidden;
+    }
+    .track i {
+      display: block; height: 100%;
+      background: linear-gradient(90deg, #1a4a32, var(--good));
+    }
+
+    /* ===== BEFORE / AFTER stages ===== */
+    .compare {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      align-items: stretch;
+    }
+    @media (max-width: 1100px) { .compare { grid-template-columns: 1fr; } }
+    .col-label {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+    .col-label h2 {
+      margin: 0; font-size: 0.78rem; font-weight: 800;
+      letter-spacing: 0.06em; text-transform: uppercase;
+    }
+    .col-label .sub { font-size: 0.78rem; color: var(--muted); }
+
+    .stage {
+      position: relative;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+      min-height: 920px;
+    }
+    .stage.bad { border-color: #6a2a32; }
+    .stage.good { border-color: #2a5a40; }
+
+    .filter-page { padding: 12px 14px 20px; }
+    .topbar {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+      margin-bottom: 10px; padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .brand { display: flex; align-items: center; gap: 8px; }
+    .logo {
+      width: 28px; height: 28px; border-radius: 8px;
+      background: linear-gradient(135deg, #2a2a2a, #111);
+      display: grid; place-items: center;
+      font-weight: 800; font-size: 0.85rem;
+    }
+    .brand h1 { margin: 0; font-size: 0.95rem; }
+    .brand .sub { margin: 0; color: var(--muted); font-size: 0.68rem; }
+    .mode-tabs {
+      display: inline-flex; gap: 3px; padding: 2px;
+      background: #0e0e0e; border: 1px solid var(--border); border-radius: 999px;
+    }
+    .mode-tabs span {
+      padding: 4px 12px; border-radius: 999px;
+      font-size: 0.72rem; font-weight: 700; color: var(--muted);
+    }
+    .mode-tabs span.on { background: #e7e9ea; color: #0a0a0a; }
+    .search { flex: 1; min-width: 140px; display: flex; gap: 6px; }
+    .search input {
+      flex: 1; background: var(--panel2); color: var(--text);
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 6px 10px; font-family: var(--mono); font-size: 0.7rem;
+    }
+    .gbtn {
+      background: linear-gradient(135deg, #1a4a32, #0e2a1c);
+      border: 1px solid #2a5a40; color: #d4f5d8;
+      border-radius: 8px; padding: 6px 12px; font-weight: 700; font-size: 0.72rem;
+    }
+    .coin-card {
+      background: var(--panel2); border: 1px solid var(--border);
+      border-radius: 12px; padding: 12px; max-width: 340px;
+    }
+    .coin-card .row {
+      display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+    }
+    .ph {
+      width: 40px; height: 40px; border-radius: 10px;
+      background: #241e10; border: 1px solid #6a5320;
+      display: grid; place-items: center; font-size: 1.1rem;
+    }
+    .ticker { font-weight: 800; font-size: 1rem; }
+    .name { color: var(--muted); font-size: 0.72rem; }
+    .score {
+      margin-left: auto; font-family: var(--mono);
+      font-weight: 900; font-size: 1.35rem; color: var(--amber);
+    }
+    .factors {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+      font-size: 0.7rem; margin-top: 8px;
+    }
+    .factors div {
+      background: #0e0e0e; border: 1px solid var(--border);
+      border-radius: 8px; padding: 6px 8px;
+    }
+    .factors .k { color: var(--muted); font-size: 0.62rem; font-weight: 700; text-transform: uppercase; }
+    .factors .v { font-family: var(--mono); font-weight: 700; margin-top: 2px; }
+
+    /* BEFORE slam */
+    .slam-scrim {
+      position: absolute; inset: 0;
+      background: rgba(0,0,0,.84);
+      backdrop-filter: blur(2px);
+    }
+    .slam-drawer {
+      position: absolute;
+      top: 8px; right: 8px; bottom: 8px;
+      width: min(340px, 92%);
+      background: #0a0a0a;
+      border: 1px solid #2a5a40;
+      border-radius: 10px;
+      overflow: auto;
+      box-shadow: 0 0 0 1px rgba(62,207,142,.15), 0 24px 64px rgba(0,0,0,.8);
+      padding: 10px 12px;
+      font-size: 0.72rem;
+    }
+    .slam-drawer .hd {
+      display: flex; align-items: center; gap: 8px;
+      padding-bottom: 8px; border-bottom: 1px solid var(--border);
+      margin-bottom: 8px;
+    }
+    .slam-drawer .hd .ph { width: 28px; height: 28px; font-size: 0.85rem; }
+    .slam-drawer .hd .t { font-weight: 800; font-size: 0.95rem; }
+    .slam-drawer .hd .ca { font-family: var(--mono); font-size: 0.62rem; color: var(--muted); }
+    .slam-drawer .close {
+      margin-left: auto; background: #1c1c1c; border: 1px solid var(--border);
+      color: var(--text); border-radius: 6px; padding: 3px 8px; font-size: 0.65rem;
+    }
+    .slam-drawer .ceil-line { font-size: 0.65rem; color: var(--muted); margin-bottom: 6px; }
+    .slam-yellow {
+      background: #241e10; border: 1px solid #6a5320; color: #c9b888;
+      border-radius: 8px; padding: 7px 8px; font-size: 0.6rem; line-height: 1.35;
+      margin-bottom: 8px;
+    }
+    .slam-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+      margin-bottom: 8px;
+    }
+    .slam-stat {
+      background: #121212; border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px;
+    }
+    .slam-stat .lab {
+      font-size: 0.58rem; font-weight: 800; letter-spacing: .04em;
+      text-transform: uppercase; color: var(--muted);
+    }
+    .slam-stat .val {
+      font-family: var(--mono); font-size: 1.4rem; font-weight: 900;
+      color: var(--good); margin: 2px 0;
+    }
+    .slam-stat .hedge { font-size: 0.58rem; color: #6a737d; line-height: 1.3; }
+    .slam-block {
+      background: #121212; border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px; margin-bottom: 8px;
+    }
+    .slam-block h3 {
+      margin: 0 0 4px; font-size: 0.65rem; font-weight: 800;
+      letter-spacing: .05em; text-transform: uppercase; color: var(--amber);
+    }
+    .slam-block .essay {
+      font-size: 0.6rem; color: #6a737d; line-height: 1.35; margin: 4px 0;
+    }
+    .slam-cells {
+      display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px;
+      margin: 6px 0;
+    }
+    .slam-cells .c {
+      background: #0e0e0e; border: 1px solid var(--border);
+      border-radius: 6px; padding: 6px; text-align: center;
+    }
+    .slam-cells .c .t { font-size: 0.55rem; color: var(--muted); text-transform: uppercase; }
+    .slam-cells .c .v { font-family: var(--mono); font-weight: 900; font-size: 0.85rem; color: var(--good); margin-top: 2px; }
+    .slam-raw {
+      font-family: var(--mono); font-size: 0.62rem; color: #9aa5b1;
+      background: #0e0e0e; border: 1px solid var(--border);
+      border-radius: 6px; padding: 5px 7px; margin-top: 3px;
+    }
+    .vitality-pill {
+      display: inline-block; font-size: 0.62rem; font-weight: 800;
+      padding: 2px 8px; border-radius: 999px;
+      background: #102018; border: 1px solid #2a5a40; color: var(--good);
+      margin-bottom: 4px;
+    }
+
+    /* AFTER sheet */
+    .soft-scrim {
+      position: absolute; inset: 0;
+      background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(0,0,0,.12) 45%, rgba(0,0,0,.28) 100%);
+      pointer-events: none;
+    }
+    .sheet {
+      position: absolute;
+      top: 0; right: 0; bottom: 0;
+      width: min(390px, 58%);
+      background: #0d0d0d;
+      border-left: 1px solid #2a5a40;
+      box-shadow: -12px 0 40px rgba(0,0,0,.4);
+      overflow: auto;
+      padding: 12px 16px 16px;
+    }
+    .sheet .hd {
+      display: flex; align-items: flex-start; gap: 10px;
+      margin-bottom: 12px;
+    }
+    .sheet .hd .ph { width: 44px; height: 44px; font-size: 1.25rem; flex-shrink: 0; }
+    .sheet .hd .t { font-weight: 800; font-size: 1.25rem; line-height: 1.15; }
+    .sheet .hd .ca { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
+    .sheet .ex {
+      display: inline-block; margin-top: 4px;
+      font-size: 0.58rem; font-weight: 800; letter-spacing: .04em;
+      padding: 2px 6px; border-radius: 999px;
+      background: #241e10; border: 1px solid #6a5320; color: var(--amber);
+    }
+    .sheet .close {
+      margin-left: auto; background: #1c1c1c; border: 1px solid var(--border);
+      color: var(--text); border-radius: 8px; padding: 6px 12px; font-size: 0.75rem;
+      font-weight: 600; flex-shrink: 0;
+    }
+    .verdict {
+      background: linear-gradient(160deg, #102018 0%, #121212 80%);
+      border: 1px solid #2a5a40;
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin-bottom: 10px;
+    }
+    .verdict .line {
+      font-size: 1.08rem; font-weight: 750; color: #d4f5d8; line-height: 1.3;
+    }
+    .verdict .sub {
+      margin-top: 4px; font-size: 0.78rem; color: var(--muted);
+    }
+    .now-only-block {
+      background: var(--panel2); border: 1px solid var(--border);
+      border-radius: 12px; padding: 10px 12px;
+      margin-bottom: 10px;
+    }
+    .now-only-block .lab {
+      font-size: 0.68rem; font-weight: 800; letter-spacing: .05em;
+      text-transform: uppercase; color: var(--muted);
+    }
+    .now-only-block .val {
+      font-family: var(--mono); font-weight: 900; font-size: 1.6rem;
+      color: var(--good); margin-top: 2px;
+    }
+    .now-only-block .quiet {
+      margin-top: 4px; font-size: 0.8rem; color: var(--muted);
+    }
+    .pair {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+      margin-bottom: 10px;
+    }
+    .stat {
+      background: var(--panel2); border: 1px solid var(--border);
+      border-radius: 12px; padding: 10px 12px;
+    }
+    .stat.ok { border-color: #2a5a40; background: linear-gradient(160deg, #102018 0%, #161616 75%); }
+    .stat.warn { border-color: #6a5320; background: linear-gradient(160deg, #241e10 0%, #161616 75%); }
+    .stat .lab {
+      font-size: 0.68rem; font-weight: 800; letter-spacing: .05em;
+      text-transform: uppercase; color: var(--muted);
+    }
+    .stat .val {
+      font-family: var(--mono); font-size: 1.65rem; font-weight: 900;
+      margin: 2px 0 4px; line-height: 1.1;
+    }
+    .stat.ok .val { color: var(--good); }
+    .stat.warn .val { color: var(--amber); }
+    .stat .why { font-size: 0.78rem; color: var(--text); }
+    .chips {
+      display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px;
+    }
+    .chip {
+      font-size: 0.68rem; font-weight: 700;
+      padding: 3px 8px; border-radius: 999px;
+      border: 1px solid var(--border); background: #0e0e0e; color: var(--muted);
+    }
+    .chip.ok { color: var(--good); border-color: #2a5a40; background: #102018; }
+    .chip.warn { color: var(--amber); border-color: #6a5320; background: #241e10; }
+    .chip.bad { color: var(--bad); border-color: #6a2a32; background: #241418; }
+
+    .block {
+      background: var(--panel2); border: 1px solid var(--border);
+      border-radius: 12px; padding: 10px 12px;
+      margin-bottom: 8px;
+    }
+    .block h3 {
+      margin: 0 0 6px; font-size: 0.7rem; font-weight: 800;
+      letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+    }
+    .block .one-line {
+      font-size: 0.88rem; color: var(--text); margin-bottom: 8px;
+    }
+    .block .one-line b { color: #d4f5d8; }
+    .print-one {
+      display: flex; align-items: center; gap: 14px;
+      background: #0e0e0e; border: 1px solid var(--border);
+      border-radius: 10px; padding: 12px 14px;
+    }
+    .print-one .big {
+      font-family: var(--mono); font-weight: 900; font-size: 1.6rem; color: var(--good);
+    }
+    .print-one .meta { font-size: 0.82rem; color: var(--muted); }
+    .print-one .meta b { color: var(--text); }
+
+    .status-row {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      margin-bottom: 6px;
+    }
+    .status-pill {
+      font-size: 0.72rem; font-weight: 800; letter-spacing: .04em;
+      padding: 4px 10px; border-radius: 999px;
+      text-transform: uppercase;
+    }
+    .status-pill.active {
+      background: #102018; border: 1px solid #2a5a40; color: var(--good);
+    }
+    .status-pill.ghost {
+      background: #0e0e0e; border: 1px solid var(--border); color: #555;
+    }
+    .human-stats {
+      font-size: 0.92rem; color: var(--text); line-height: 1.4;
+    }
+    .human-stats b { color: #d4f5d8; font-weight: 750; }
+
+    .signal-row {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    }
+    .signal {
+      background: #0e0e0e; border: 1px solid var(--border);
+      border-radius: 10px; padding: 10px 12px;
+    }
+    .signal.unk { border-style: dashed; border-color: #3a3a3a; }
+    .signal.warn { border-color: #6a5320; }
+    .signal .lab {
+      font-size: 0.65rem; font-weight: 800; letter-spacing: .05em;
+      text-transform: uppercase; color: var(--muted);
+    }
+    .signal .val {
+      font-weight: 800; font-size: 1rem; margin-top: 2px;
+    }
+    .signal.warn .val { color: var(--amber); }
+    .signal.unk .val { color: var(--muted); }
+    .signal .hint { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
+
+    .foot-note {
+      font-size: 0.72rem; color: var(--muted);
+      padding: 8px 2px 0;
+    }
+
+    .legend {
+      margin-top: 16px; padding: 12px 14px; border-radius: 10px;
+      background: #0e0e0e; border: 1px dashed #6a5320;
+      font-size: 0.82rem; color: #c9b888;
+    }
+    .legend b { color: var(--amber); }
+    .legend ul { margin: 6px 0 0; padding-left: 18px; }
+    .legend li { margin: 3px 0; }
+    .legend code { font-family: var(--mono); color: var(--good); font-size: 0.78rem; }
+  </style>
+</head>
+<body>
+  <div class="mock-banner">
+    <span class="tag">EYES ONLY</span>
+    <span class="warn-tag">NOT A PR</span>
+    <span>Slice 11 drawer clarity · <code>qa/mock-filter-coin-drawer-clarity-v1.html</code></span>
+    <span style="color:#8b98a5">Cut: cut-2026-10-26-ship-d-slice11-drawer-clarity.md</span>
+  </div>
+  <div class="app">
+    <p class="intro">
+      <b>Owner ask:</b> MoonCoin drawer is jargon + hard slam; Filter behind it goes mush; twin +651% prints and FDV essay feel like BS.
+      Fix: plain English, calmer right sheet, one honest past print, unknown max = NOW only.
+      Numbers labeled <b>EXAMPLE</b>. Accurate or omit.
+    </p>
+
+    <!-- ========== Slice 11: 2-state ceiling ========== -->
+    <div class="section-label">
+      <span class="pill-amber">Slice 11</span>
+      <h2>Ceiling: has max vs max unknown</h2>
+      <span class="sub">When no real max: NOW only. Hide CEILING + % gone. No yellow FDV essay.</span>
+    </div>
+    <div class="two-state">
+      <div class="mcap-card has">
+        <div class="title">
+          <span class="pill-good">HAS MAX</span>
+          <h3>TRUMP-style EXAMPLE</h3>
+          <span class="coin">real headroom</span>
+        </div>
+        <div class="mcap-grid">
+          <div class="mcap-cell">
+            <div class="lab">Now</div>
+            <div class="val good">$8.4B</div>
+          </div>
+          <div class="mcap-cell">
+            <div class="lab">Ceiling</div>
+            <div class="val">$29.8B</div>
+          </div>
+          <div class="mcap-cell">
+            <div class="lab">% gone</div>
+            <div class="val">28%</div>
+          </div>
+        </div>
+        <div class="track"><i style="width:28%"></i></div>
+        <div class="mcap-note">Labeled max from real supply headroom. Slice 8/9 rules unchanged.</div>
+      </div>
+      <div class="mcap-card unk">
+        <div class="title">
+          <span class="pill-amber">MAX UNKNOWN</span>
+          <h3>MoonCoin-style EXAMPLE</h3>
+          <span class="coin">FDV equals now</span>
+        </div>
+        <div class="mcap-grid now-only">
+          <div class="mcap-cell">
+            <div class="lab">Now</div>
+            <div class="val good">$331.6k</div>
+          </div>
+        </div>
+        <div class="mcap-quiet">Max unknown.</div>
+        <div class="mcap-note" style="color:var(--muted)">No CEILING card. No % gone. No yellow FDV formula. Shut up.</div>
+      </div>
+    </div>
+
+    <!-- ========== Drawer BEFORE / AFTER ========== -->
+    <div class="section-label">
+      <span class="pill-good">Drawer</span>
+      <h2>Ugly slam vs calmer sheet</h2>
+      <span class="sub">Plain English · one past print · no raw API keys · Filter stays readable</span>
+    </div>
+
+    <div class="compare">
+      <!-- BEFORE -->
+      <div>
+        <div class="col-label">
+          <span class="pill-bad">BEFORE</span>
+          <h2 style="color:var(--bad)">Live MoonCoin dump</h2>
+          <span class="sub">hard blackout · hedges · twin prints · snake_case</span>
+        </div>
+        <div class="stage bad">
+          <div class="filter-page" aria-hidden="true">
+            <div class="topbar">
+              <div class="brand">
+                <div class="logo">N</div>
+                <div>
+                  <h1>Nunu Filter</h1>
+                  <p class="sub">v61 · EXAMPLE</p>
+                </div>
+              </div>
+              <div class="mode-tabs">
+                <span class="on">Filter</span>
+                <span>Game</span>
+                <span>Social Tap</span>
+              </div>
+              <div class="search">
+                <input value="F7Pwp1...DCpump" readonly />
+                <button class="gbtn" type="button">Find</button>
+              </div>
+            </div>
+            <div class="coin-card">
+              <div class="row">
+                <div class="ph">M</div>
+                <div>
+                  <div class="ticker">MoonCoin</div>
+                  <div class="name">F7Pwp1...DCpump</div>
+                </div>
+                <div class="score">9.8/12</div>
+              </div>
+              <div style="background:#0e0e0e;border:1px solid #2a2a2a;border-radius:10px;padding:10px;margin-bottom:8px;">
+                <div style="display:flex;justify-content:space-between;font-size:0.68rem;color:var(--muted);font-weight:700;text-transform:uppercase;">
+                  <span>Now</span><span>Ceiling</span><span>% gone</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-weight:800;font-size:0.9rem;margin-top:4px;">
+                  <span>$331.6k</span><span style="color:var(--muted)">-</span><span style="color:var(--muted)">-</span>
+                </div>
+                <div style="margin-top:6px;font-size:0.62rem;color:#c9b888;background:#241e10;border:1px solid #6a5320;border-radius:6px;padding:5px 7px;">
+                  FDV = now (fully circulating). No upside ceiling - not 100% gone. Not a promise of max price.
+                </div>
+              </div>
+              <div class="factors">
+                <div><div class="k">Liquidity</div><div class="v">$52.8k</div></div>
+                <div><div class="k">Volume 1h</div><div class="v">$374.5k</div></div>
+                <div><div class="k">Holders</div><div class="v">LP 100%</div></div>
+                <div><div class="k">Socials</div><div class="v">X</div></div>
+              </div>
+            </div>
+            <p style="margin:14px 0 0;color:#333;font-size:0.75rem;">Filter list... (blacked out under slam)</p>
+          </div>
+          <div class="slam-scrim"></div>
+          <div class="slam-drawer">
+            <div class="hd">
+              <div class="ph">M</div>
+              <div>
+                <div class="t">MoonCoin</div>
+                <div class="ca">F7Pwp1...DCpump</div>
+              </div>
+              <button class="close" type="button">Close</button>
+            </div>
+            <div class="ceil-line">Now $331.6k · ceiling unknown · - % gone.</div>
+            <div class="slam-yellow">FDV = now (fully circulating). No upside ceiling - not 100% gone. Not a promise of max price.</div>
+            <div class="slam-grid">
+              <div class="slam-stat">
+                <div class="lab">Rug risk</div>
+                <div class="val">22.1%</div>
+                <div class="hedge">Heuristic risk index, not a probability and not a certainty.</div>
+              </div>
+              <div class="slam-stat">
+                <div class="lab">LP lock</div>
+                <div class="val">100%</div>
+                <div class="hedge">Stored lock %. Not a safety score.</div>
+              </div>
+            </div>
+            <div class="slam-block">
+              <h3>Profit Outlook</h3>
+              <div class="essay">Paper read: 1h print +651.0% (up). Observed print only.</div>
+              <div class="slam-cells">
+                <div class="c"><div class="t">1H print</div><div class="v">+651.00%</div></div>
+                <div class="c"><div class="t">24H print</div><div class="v">+651.00%</div></div>
+                <div class="c"><div class="t">Liquidity</div><div class="v" style="color:#e7e9ea">$52.8k</div></div>
+              </div>
+              <div class="essay">Uses stored price-change prints only. Does not forecast a future percent. Paper research only. No target, wallet, or order.</div>
+            </div>
+            <div class="slam-block">
+              <h3>Vitality</h3>
+              <span class="vitality-pill">ACTIVE</span>
+              <div class="essay">6031 one-hour txs · 1h volume 374479 USD</div>
+              <div class="essay">Bands from the 1h print: active if txs &gt;= 400 or volume &gt;= 80000; alive if txs &gt;= 40 or volume &gt;= 8000; otherwise thin. Zeros count. This is activity, not safety.</div>
+              <div class="slam-raw">buys_h1 3293</div>
+              <div class="slam-raw">sells_h1 2738</div>
+              <div class="slam-raw">volume_h1_usd 374478.88</div>
+              <div class="slam-raw">pair_age_hours 0.12 (context only, not a...)</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AFTER -->
+      <div>
+        <div class="col-label">
+          <span class="pill-good">AFTER</span>
+          <h2 style="color:var(--good)">Calmer sheet + plain English</h2>
+          <span class="sub">NOW only · one past print · human vitality · Unknown honest</span>
+        </div>
+        <div class="stage good">
+          <div class="filter-page">
+            <div class="topbar">
+              <div class="brand">
+                <div class="logo">N</div>
+                <div>
+                  <h1>Nunu Filter</h1>
+                  <p class="sub">v61 · EXAMPLE</p>
+                </div>
+              </div>
+              <div class="mode-tabs">
+                <span class="on">Filter</span>
+                <span>Game</span>
+                <span>Social Tap</span>
+              </div>
+              <div class="search">
+                <input value="F7Pwp1...DCpump" readonly />
+                <button class="gbtn" type="button">Find</button>
+              </div>
+            </div>
+            <div class="coin-card">
+              <div class="row">
+                <div class="ph">M</div>
+                <div>
+                  <div class="ticker">MoonCoin</div>
+                  <div class="name">F7Pwp1...DCpump</div>
+                </div>
+                <div class="score">9.8/12</div>
+              </div>
+              <div style="background:#0e0e0e;border:1px solid #2a2a2a;border-radius:10px;padding:10px;">
+                <div style="font-size:0.65rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);">Now</div>
+                <div style="font-family:var(--mono);font-weight:900;font-size:1.2rem;color:var(--good);margin-top:2px;">$331.6k</div>
+                <div style="margin-top:4px;font-size:0.75rem;color:var(--muted);">Max unknown.</div>
+              </div>
+              <div class="factors">
+                <div><div class="k">Liquidity</div><div class="v">$52.8k</div></div>
+                <div><div class="k">Volume 1h</div><div class="v">$374.5k</div></div>
+                <div><div class="k">LP lock</div><div class="v">100%</div></div>
+                <div><div class="k">Socials</div><div class="v">X</div></div>
+              </div>
+            </div>
+            <p style="margin:12px 0 0;color:var(--muted);font-size:0.78rem;">Filter list stays scannable behind the sheet.</p>
+            <div style="margin-top:8px;display:grid;gap:6px;max-width:340px;">
+              <div style="background:#161616;border:1px solid #2a2a2a;border-radius:8px;padding:8px 10px;font-size:0.75rem;display:flex;justify-content:space-between;">
+                <span>OtherCoin</span><span style="color:var(--amber);font-family:var(--mono);font-weight:800;">7.2/12</span>
+              </div>
+              <div style="background:#161616;border:1px solid #2a2a2a;border-radius:8px;padding:8px 10px;font-size:0.75rem;display:flex;justify-content:space-between;">
+                <span>DemoToken</span><span style="color:var(--amber);font-family:var(--mono);font-weight:800;">6.1/12</span>
+              </div>
+            </div>
+          </div>
+          <div class="soft-scrim"></div>
+          <aside class="sheet" aria-label="Coin detail sheet EXAMPLE">
+            <div class="hd">
+              <div class="ph">M</div>
+              <div>
+                <div class="t">MoonCoin</div>
+                <div class="ca">F7Pwp1...DCpump</div>
+                <span class="ex">EXAMPLE</span>
+              </div>
+              <button class="close" type="button">Close</button>
+            </div>
+
+            <div class="verdict">
+              <div class="line">Hot and brand new · LP locked · past hour ripped</div>
+              <div class="sub">Scannable in ~2 seconds. Not a prediction.</div>
+            </div>
+
+            <div class="now-only-block">
+              <div class="lab">Now</div>
+              <div class="val">$331.6k</div>
+              <div class="quiet">Max unknown.</div>
+            </div>
+
+            <div class="pair">
+              <div class="stat warn">
+                <div class="lab">Rug risk</div>
+                <div class="val">22%</div>
+                <div class="why">Heuristic. Lower is calmer.</div>
+                <div class="chips">
+                  <span class="chip ok">LP locked</span>
+                  <span class="chip warn">~7 min old</span>
+                  <span class="chip bad">Top wallet ~56%</span>
+                </div>
+              </div>
+              <div class="stat ok">
+                <div class="lab">LP lock</div>
+                <div class="val">100%</div>
+                <div class="why">LP locked 100%</div>
+                <div class="chips">
+                  <span class="chip ok">Stored lock</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="block">
+              <h3>Last hour print</h3>
+              <div class="one-line">Past move only. <b>Not a forecast.</b> Coin too young for a real 24h.</div>
+              <div class="print-one">
+                <div class="big">+651%</div>
+                <div class="meta"><b>1h print</b><br>Liquidity $52.8k</div>
+              </div>
+            </div>
+
+            <div class="block">
+              <h3>Vitality</h3>
+              <div class="status-row">
+                <span class="status-pill active">Active</span>
+                <span class="status-pill ghost">Alive</span>
+                <span class="status-pill ghost">Thin</span>
+              </div>
+              <div class="human-stats">
+                <b>~7 min old</b> · <b>3.3k buys</b> / <b>2.7k sells</b> last hour · <b>$375k</b> vol
+              </div>
+            </div>
+
+            <div class="block">
+              <h3>Signals</h3>
+              <div class="signal-row">
+                <div class="signal warn">
+                  <div class="lab">Early whale</div>
+                  <div class="val">Top ~56%</div>
+                  <div class="hint">High concentration</div>
+                </div>
+                <div class="signal unk">
+                  <div class="lab">FOMO / pump</div>
+                  <div class="val">Unknown</div>
+                  <div class="hint">No clean signal</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="foot-note">Paper research. No target, wallet, or order.</div>
+          </aside>
+        </div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <b>Eng pointer (AC-D01…D07) · cut qa/cut-2026-10-26-ship-d-slice11-drawer-clarity.md</b>
+      <ul>
+        <li><b>AC-D01</b> Calmer right sheet. Soft dim. Filter list readable. Bigger type.</li>
+        <li><b>AC-D02</b> Plain English only. No lawyer walls. No raw keys like <code>buys_h1</code> on default view.</li>
+        <li><b>AC-D03</b> Twin 1h=24h (or too young for 24h) → one honest print only (e.g. 1h +651%).</li>
+        <li><b>AC-D04</b> Unknown max → NOW only + optional "Max unknown." Hide CEILING, % gone, yellow FDV essay.</li>
+        <li><b>AC-D05</b> Real ceiling still shows Now / Ceiling / % gone (HAS MAX board).</li>
+        <li><b>AC-D06</b> Rug / LP: one clear number each + one short plain line. Chips beat essays.</li>
+        <li><b>AC-D07</b> Snappy. Same unknown-max path on Filter row + drawer. No fake forecast language.</li>
+      </ul>
+    </div>
+  </div>
+</body>
+</html>

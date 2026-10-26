@@ -1,0 +1,115 @@
+{
+  "run_started": "2026-10-25T02:23:42Z",
+  "run_finished": "2026-10-25T02:23:46Z",
+  "data_as_of": "2026-10-25T02:23:46Z",
+  "scanned_mints": 52,
+  "pairs_resolved": 50,
+  "evaluated": 50,
+  "flagged_count": 12,
+  "trench_band_count": 8,
+  "late_chase_count": 1,
+  "thresholds": {
+    "min_liquidity_usd": 15000.0,
+    "min_volume_h1_usd": 5000.0,
+    "max_pair_age_hours": 72.0,
+    "min_score_to_flag": 55.0,
+    "late_chase_min_age_h": 2.0,
+    "late_chase_min_h1_pct": 100.0,
+    "trench_band_score_12_min": 10.0,
+    "weights": {
+      "liquidity": 30.0,
+      "volume": 25.0,
+      "holders": 25.0,
+      "socials": 20.0
+    }
+  },
+  "apis": {
+    "dexscreener": "ok",
+    "rugcheck_summaries_ok": 14,
+    "rugcheck_summaries_fail": 0,
+    "cache_dir": "/home/jdkk246/nunu-filter/nunu-filter/.cache"
+  },
+  "disclaimer": "Paper research only. Not financial advice. No trades placed.",
+  "top_scores": [
+    {
+      "ticker": "MAYA",
+      "mint": "3KpyR7uM657Bbcw64gLHQpJfPYByJEiVhu4ED3cnpump",
+      "score": 100.0,
+      "score_12": 12.0,
+      "flagged": true,
+      "trench_band": true
+    },
+    {
+      "ticker": "SWORDOPE",
+      "mint": "3SVjZ7BfT9FxiR49nZc7UdBmLgzRLJY7XBZDKhEFpump",
+      "score": 100.0,
+      "score_12": 12.0,
+      "flagged": true,
+      "trench_band": true
+    },
+    {
+      "ticker": "WRHND",
+      "mint": "hFF4rkdzsaoYhkz4dGEQepGmHCBTVFFCoaLXbJqpump",
+      "score": 95.1,
+      "score_12": 11.4,
+      "flagged": true,
+      "trench_band": true
+    },
+    {
+      "ticker": "KURUMI",
+      "mint": "AUHK6bsTMU6nemt7epnvELJtGezx9JS76Lm48pxipump",
+      "score": 92.0,
+      "score_12": 11.0,
+      "flagged": true,
+      "trench_band": true
+    },
+    {
+      "ticker": "REACHY",
+      "mint": "DgmECo2oh1h7WC7sb7Y25fuH6YLBDCnjCBzKbVQ1pump",
+      "score": 91.5,
+      "score_12": 11.0,
+      "flagged": true,
+      "trench_band": true
+    },
+    {
+      "ticker": "REMUS",
+      "mint": "CA8q2mkYWZnUNqYmf6pxyxAPZsmSe2EG9P7hHMW5pump",
+      "score": 90.7,
+      "score_12": 10.9,
+      "flagged": true,
+      "trench_band": true
+    },
+    {
+      "ticker": "Chunkee",
+      "mint": "GkrpmRvhNdyubgHfqW5f58kfvkBtF6TbmwQEtHGnpump",
+      "score": 88.7,
+      "score_12": 10.6,
+      "flagged": true,
+      "trench_band": true
+    },
+    {
+      "ticker": "GATO",
+      "mint": "HsprHxBRgiVaQdRf3TnKNuZZtaX9JUSPgMFdAkk6pump",
+      "score": 84.0,
+      "score_12": 10.1,
+      "flagged": false,
+      "trench_band": true
+    },
+    {
+      "ticker": "CATTLEAXE",
+      "mint": "H7VZNCBynDK5ikBS9krDJ2Tx8CUr1wxedV19ZgkWpump",
+      "score": 83.0,
+      "score_12": 10.0,
+      "flagged": true,
+      "trench_band": true
+    },
+    {
+      "ticker": "PUMP",
+      "mint": "28ZdKbDwAWSsKPFMwxJTUiB9HbjWxetsHvK1NYwtpump",
+      "score": 82.0,
+      "score_12": 9.8,
+      "flagged": true,
+      "trench_band": false
+    }
+  ]
+}

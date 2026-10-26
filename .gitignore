@@ -1,0 +1,13 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.env
+*.pid
+.DS_Store
+bot_status.json
+*.zip
+.cache/
+flag_history.json
+bot.log
+server.log

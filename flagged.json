@@ -1,0 +1,1009 @@
+[
+  {
+    "ticker": "MAYA",
+    "name": "Maya The Samoyed",
+    "mint": "3KpyR7uM657Bbcw64gLHQpJfPYByJEiVhu4ED3cnpump",
+    "ca_short": "3Kpy\u2026pump",
+    "score": 100.0,
+    "score_12": 12.0,
+    "trench_band": true,
+    "flagged": true,
+    "hard_fails": [],
+    "late_chase": false,
+    "breakdown": {
+      "liquidity": 30.0,
+      "volume": 25.0,
+      "holders": 25.0,
+      "socials": 20.0,
+      "flow_adj": 3.0
+    },
+    "metrics": {
+      "liquidity_usd": 110921.99,
+      "volume_h1_usd": 584208.46,
+      "volume_h24_usd": 1993645.79,
+      "market_cap_usd": 1578621.0,
+      "price_usd": "0.001585",
+      "price_change_h1": 95.82,
+      "price_change_h24": 2989.0,
+      "buys_h1": 16633,
+      "sells_h1": 4605,
+      "buy_sell_ratio_h1": 3.612,
+      "buy_sell_ratio": 3.612,
+      "pair_age_hours": 1.5,
+      "lp_locked_pct": 100.0,
+      "dex_id": "pumpswap",
+      "pair_address": "2X5p7bVpciv44iGmE7KrKLqNtDzyRK7muXsYVGtyz79v"
+    },
+    "liquidity_usd": 110921.99,
+    "volume_h1_usd": 584208.46,
+    "volume_h24_usd": 1993645.79,
+    "lp_locked_pct": 100.0,
+    "pair_age_hours": 1.5,
+    "image_url": "https://cdn.dexscreener.com/cms/images/cGlgwrt9AGcrZ6Xh?width=800&height=800&quality=95&format=auto",
+    "data_as_of": "2026-10-25T02:23:46Z",
+    "links": {
+      "pump": "https://pump.fun/coin/3KpyR7uM657Bbcw64gLHQpJfPYByJEiVhu4ED3cnpump",
+      "fomo": "https://fomo.family/coin/3KpyR7uM657Bbcw64gLHQpJfPYByJEiVhu4ED3cnpump?chainId=1399811149",
+      "gmgn": "https://gmgn.ai/sol/token/3KpyR7uM657Bbcw64gLHQpJfPYByJEiVhu4ED3cnpump",
+      "dex": "https://dexscreener.com/solana/2x5p7bvpciv44igme7krklqntdzyrk7muxsyvgtyz79v"
+    },
+    "holders": {
+      "rugcheck_available": true,
+      "score_normalised": 1.0,
+      "lp_locked_pct": 100.0,
+      "risk_count": 0,
+      "risks": []
+    },
+    "socials": {
+      "twitter": true,
+      "telegram": true,
+      "website": true,
+      "link_count": 3
+    },
+    "red_flags": [],
+    "why": [
+      "liq $110,922 \u2192 30/30",
+      "vol1h $584,208 \u2192 25/25",
+      "LP ~100% locked",
+      "RugCheck score 1 (clean)",
+      "has X/twitter",
+      "has telegram",
+      "has website",
+      "has description",
+      "buy-heavy h1 (3.61)"
+    ],
+    "sources": [
+      "boosts",
+      "profiles"
+    ],
+    "boost_amount": 100,
+    "dex_url": "https://dexscreener.com/solana/2x5p7bvpciv44igme7krklqntdzyrk7muxsyvgtyz79v",
+    "description": "Maya The Samoyed - $MAYA Born in Germany. Raised by Lingli Ye. Destined to farm memes across every timeline.",
+    "first_flagged_at": "2026-10-25T01:22:20Z",
+    "score_since": "2026-10-25T02:12:19Z",
+    "sitting_minutes": 61.4,
+    "score_stable_minutes": 11.4
+  },
+  {
+    "ticker": "SWORDOPE",
+    "name": "dope wif sword",
+    "mint": "3SVjZ7BfT9FxiR49nZc7UdBmLgzRLJY7XBZDKhEFpump",
+    "ca_short": "3SVj\u2026pump",
+    "score": 100.0,
+    "score_12": 12.0,
+    "trench_band": true,
+    "flagged": true,
+    "hard_fails": [],
+    "late_chase": false,
+    "breakdown": {
+      "liquidity": 30.0,
+      "volume": 25.0,
+      "holders": 25.0,
+      "socials": 20.0,
+      "flow_adj": 3.0
+    },
+    "metrics": {
+      "liquidity_usd": 139333.69,
+      "volume_h1_usd": 146484.69,
+      "volume_h24_usd": 4244049.04,
+      "market_cap_usd": 2303901.0,
+      "price_usd": "0.002314",
+      "price_change_h1": -17.46,
+      "price_change_h24": 4055.0,
+      "buys_h1": 4360,
+      "sells_h1": 1666,
+      "buy_sell_ratio_h1": 2.617,
+      "buy_sell_ratio": 2.617,
+      "pair_age_hours": 6.66,
+      "lp_locked_pct": 100.0,
+      "dex_id": "pumpswap",
+      "pair_address": "3tXP9X2W1aL9jtZF1tuAwEZMuX4w3PWNvVAHPJjd3MAq"
+    },
+    "liquidity_usd": 139333.69,
+    "volume_h1_usd": 146484.69,
+    "volume_h24_usd": 4244049.04,
+    "lp_locked_pct": 100.0,
+    "pair_age_hours": 6.66,
+    "image_url": "https://cdn.dexscreener.com/cms/images/Jp-qmedkU47xiFrA?width=800&height=800&quality=95&format=auto",
+    "data_as_of": "2026-10-25T02:23:46Z",
+    "links": {
+      "pump": "https://pump.fun/coin/3SVjZ7BfT9FxiR49nZc7UdBmLgzRLJY7XBZDKhEFpump",
+      "fomo": "https://fomo.family/coin/3SVjZ7BfT9FxiR49nZc7UdBmLgzRLJY7XBZDKhEFpump?chainId=1399811149",
+      "gmgn": "https://gmgn.ai/sol/token/3SVjZ7BfT9FxiR49nZc7UdBmLgzRLJY7XBZDKhEFpump",
+      "dex": "https://dexscreener.com/solana/3txp9x2w1al9jtzf1tuawezmux4w3pwnvvahpjjd3maq"
+    },
+    "holders": {
+      "rugcheck_available": true,
+      "score_normalised": 1.0,
+      "lp_locked_pct": 100.0,
+      "risk_count": 0,
+      "risks": []
+    },
+    "socials": {
+      "twitter": true,
+      "telegram": true,
+      "website": true,
+      "link_count": 3
+    },
+    "red_flags": [],
+    "why": [
+      "liq $139,334 \u2192 30/30",
+      "vol1h $146,485 \u2192 25/25",
+      "LP ~100% locked",
+      "RugCheck score 1 (clean)",
+      "has X/twitter",
+      "has telegram",
+      "has website",
+      "has description",
+      "buy-heavy h1 (2.62)"
+    ],
+    "sources": [
+      "boosts"
+    ],
+    "boost_amount": 500,
+    "dex_url": "https://dexscreener.com/solana/3txp9x2w1al9jtzf1tuawezmux4w3pwnvvahpjjd3maq",
+    "description": "Swordope brings fearless energy and a blade for every battle.",
+    "first_flagged_at": "2026-10-25T01:22:20Z",
+    "score_since": "2026-10-25T01:22:20Z",
+    "sitting_minutes": 61.4,
+    "score_stable_minutes": 61.4
+  },
+  {
+    "ticker": "WRHND",
+    "name": "WarHound",
+    "mint": "hFF4rkdzsaoYhkz4dGEQepGmHCBTVFFCoaLXbJqpump",
+    "ca_short": "hFF4\u2026pump",
+    "score": 95.1,
+    "score_12": 11.4,
+    "trench_band": true,
+    "flagged": true,
+    "hard_fails": [],
+    "late_chase": false,
+    "breakdown": {
+      "liquidity": 27.1,
+      "volume": 25.0,
+      "holders": 25.0,
+      "socials": 15.0,
+      "flow_adj": 3.0
+    },
+    "metrics": {
+      "liquidity_usd": 68084.29,
+      "volume_h1_usd": 123869.06,
+      "volume_h24_usd": 2978438.62,
+      "market_cap_usd": 582509.0,
+      "price_usd": "0.0005846",
+      "price_change_h1": 15.65,
+      "price_change_h24": 1074.0,
+      "buys_h1": 3269,
+      "sells_h1": 1479,
+      "buy_sell_ratio_h1": 2.21,
+      "buy_sell_ratio": 2.21,
+      "pair_age_hours": 5.84,
+      "lp_locked_pct": 100.0,
+      "dex_id": "pumpswap",
+      "pair_address": "9NpHzpd3rjJhRdFi2Xm5by22YPhDTkEBQHAC2YmVXAKX"
+    },
+    "liquidity_usd": 68084.29,
+    "volume_h1_usd": 123869.06,
+    "volume_h24_usd": 2978438.62,
+    "lp_locked_pct": 100.0,
+    "pair_age_hours": 5.84,
+    "image_url": "https://cdn.dexscreener.com/cms/images/V9I6VS5HbKh_7ttP?width=800&height=800&quality=95&format=auto",
+    "data_as_of": "2026-10-25T02:23:46Z",
+    "links": {
+      "pump": "https://pump.fun/coin/hFF4rkdzsaoYhkz4dGEQepGmHCBTVFFCoaLXbJqpump",
+      "fomo": "https://fomo.family/coin/hFF4rkdzsaoYhkz4dGEQepGmHCBTVFFCoaLXbJqpump?chainId=1399811149",
+      "gmgn": "https://gmgn.ai/sol/token/hFF4rkdzsaoYhkz4dGEQepGmHCBTVFFCoaLXbJqpump",
+      "dex": "https://dexscreener.com/solana/9nphzpd3rjjhrdfi2xm5by22yphdtkebqhac2ymvxakx"
+    },
+    "holders": {
+      "rugcheck_available": true,
+      "score_normalised": 1.0,
+      "lp_locked_pct": 100.0,
+      "risk_count": 0,
+      "risks": []
+    },
+    "socials": {
+      "twitter": true,
+      "telegram": false,
+      "website": true,
+      "link_count": 2
+    },
+    "red_flags": [],
+    "why": [
+      "liq $68,084 \u2192 27/30",
+      "vol1h $123,869 \u2192 25/25",
+      "LP ~100% locked",
+      "RugCheck score 1 (clean)",
+      "has X/twitter",
+      "has website",
+      "has description",
+      "buy-heavy h1 (2.21)"
+    ],
+    "sources": [
+      "boosts"
+    ],
+    "boost_amount": 100,
+    "dex_url": "https://dexscreener.com/solana/9nphzpd3rjjhrdfi2xm5by22yphdtkebqhac2ymvxakx",
+    "description": "Gene-spliced. Battle-tested. Very good boy.",
+    "first_flagged_at": "2026-10-25T01:22:20Z",
+    "score_since": "2026-10-25T01:22:20Z",
+    "sitting_minutes": 61.4,
+    "score_stable_minutes": 61.4
+  },
+  {
+    "ticker": "KURUMI",
+    "name": "\u304f\u308b\u307f\u3061\u3083\u3093",
+    "mint": "AUHK6bsTMU6nemt7epnvELJtGezx9JS76Lm48pxipump",
+    "ca_short": "AUHK\u2026pump",
+    "score": 92.0,
+    "score_12": 11.0,
+    "trench_band": true,
+    "flagged": true,
+    "hard_fails": [],
+    "late_chase": false,
+    "breakdown": {
+      "liquidity": 24.0,
+      "volume": 25.0,
+      "holders": 25.0,
+      "socials": 15.0,
+      "flow_adj": 3.0
+    },
+    "metrics": {
+      "liquidity_usd": 55133.85,
+      "volume_h1_usd": 159746.17,
+      "volume_h24_usd": 487710.16,
+      "market_cap_usd": 429314.0,
+      "price_usd": "0.0004333",
+      "price_change_h1": 32.76,
+      "price_change_h24": 756.0,
+      "buys_h1": 3105,
+      "sells_h1": 1777,
+      "buy_sell_ratio_h1": 1.747,
+      "buy_sell_ratio": 1.747,
+      "pair_age_hours": 2.16,
+      "lp_locked_pct": 100.0,
+      "dex_id": "pumpswap",
+      "pair_address": "DxvCfzrLE4DyctHUZm5Xchmb9zuEaek56zkPbYuivfDF"
+    },
+    "liquidity_usd": 55133.85,
+    "volume_h1_usd": 159746.17,
+    "volume_h24_usd": 487710.16,
+    "lp_locked_pct": 100.0,
+    "pair_age_hours": 2.16,
+    "image_url": "https://cdn.dexscreener.com/cms/images/IcQe8FHlmVzZ1l9g?width=800&height=800&quality=95&format=auto",
+    "data_as_of": "2026-10-25T02:23:46Z",
+    "links": {
+      "pump": "https://pump.fun/coin/AUHK6bsTMU6nemt7epnvELJtGezx9JS76Lm48pxipump",
+      "fomo": "https://fomo.family/coin/AUHK6bsTMU6nemt7epnvELJtGezx9JS76Lm48pxipump?chainId=1399811149",
+      "gmgn": "https://gmgn.ai/sol/token/AUHK6bsTMU6nemt7epnvELJtGezx9JS76Lm48pxipump",
+      "dex": "https://dexscreener.com/solana/dxvcfzrle4dycthuzm5xchmb9zueaek56zkpbyuivfdf"
+    },
+    "holders": {
+      "rugcheck_available": true,
+      "score_normalised": 1.0,
+      "lp_locked_pct": 100.0,
+      "risk_count": 0,
+      "risks": []
+    },
+    "socials": {
+      "twitter": true,
+      "telegram": false,
+      "website": true,
+      "link_count": 2
+    },
+    "red_flags": [],
+    "why": [
+      "liq $55,134 \u2192 24/30",
+      "vol1h $159,746 \u2192 25/25",
+      "LP ~100% locked",
+      "RugCheck score 1 (clean)",
+      "has X/twitter",
+      "has website",
+      "has description",
+      "buy-heavy h1 (1.75)"
+    ],
+    "sources": [
+      "boosts"
+    ],
+    "boost_amount": 50,
+    "dex_url": "https://dexscreener.com/solana/dxvcfzrle4dycthuzm5xchmb9zueaek56zkpbyuivfdf",
+    "description": "\u304f\u308b\u307f\u3061\u3083\u3093 ($KURUMI) brings pastel anime charm, wild trading memes, and bunny-powered fun to a playful community on Solana.",
+    "first_flagged_at": "2026-10-25T01:22:20Z",
+    "score_since": "2026-10-25T02:12:19Z",
+    "sitting_minutes": 61.4,
+    "score_stable_minutes": 11.4
+  },
+  {
+    "ticker": "REACHY",
+    "name": "NVIDIA Reachy Mini",
+    "mint": "DgmECo2oh1h7WC7sb7Y25fuH6YLBDCnjCBzKbVQ1pump",
+    "ca_short": "DgmE\u2026pump",
+    "score": 91.5,
+    "score_12": 11.0,
+    "trench_band": true,
+    "flagged": true,
+    "hard_fails": [],
+    "late_chase": true,
+    "breakdown": {
+      "liquidity": 23.5,
+      "volume": 25.0,
+      "holders": 25.0,
+      "socials": 15.0,
+      "flow_adj": 3.0
+    },
+    "metrics": {
+      "liquidity_usd": 52823.45,
+      "volume_h1_usd": 149471.12,
+      "volume_h24_usd": 448737.57,
+      "market_cap_usd": 388507.0,
+      "price_usd": "0.0003945",
+      "price_change_h1": 111.0,
+      "price_change_h24": 795.0,
+      "buys_h1": 1997,
+      "sells_h1": 1296,
+      "buy_sell_ratio_h1": 1.541,
+      "buy_sell_ratio": 1.541,
+      "pair_age_hours": 2.57,
+      "lp_locked_pct": 100.0,
+      "dex_id": "pumpswap",
+      "pair_address": "Bozb9ALBQf4JBayYXKYHA7KmsRk5vKYaBPn75oZFK8mV"
+    },
+    "liquidity_usd": 52823.45,
+    "volume_h1_usd": 149471.12,
+    "volume_h24_usd": 448737.57,
+    "lp_locked_pct": 100.0,
+    "pair_age_hours": 2.57,
+    "image_url": "https://cdn.dexscreener.com/cms/images/8azos1DfpFG7-0Rx?width=800&height=800&quality=95&format=auto",
+    "data_as_of": "2026-10-25T02:23:46Z",
+    "links": {
+      "pump": "https://pump.fun/coin/DgmECo2oh1h7WC7sb7Y25fuH6YLBDCnjCBzKbVQ1pump",
+      "fomo": "https://fomo.family/coin/DgmECo2oh1h7WC7sb7Y25fuH6YLBDCnjCBzKbVQ1pump?chainId=1399811149",
+      "gmgn": "https://gmgn.ai/sol/token/DgmECo2oh1h7WC7sb7Y25fuH6YLBDCnjCBzKbVQ1pump",
+      "dex": "https://dexscreener.com/solana/bozb9albqf4jbayyxkyha7kmsrk5vkyabpn75ozfk8mv"
+    },
+    "holders": {
+      "rugcheck_available": true,
+      "score_normalised": 1.0,
+      "lp_locked_pct": 100.0,
+      "risk_count": 0,
+      "risks": []
+    },
+    "socials": {
+      "twitter": true,
+      "telegram": false,
+      "website": true,
+      "link_count": 2
+    },
+    "red_flags": [
+      "late_chase"
+    ],
+    "why": [
+      "liq $52,823 \u2192 23/30",
+      "vol1h $149,471 \u2192 25/25",
+      "LP ~100% locked",
+      "RugCheck score 1 (clean)",
+      "has X/twitter",
+      "has website",
+      "has description",
+      "buy-heavy h1 (1.54)",
+      "late chase risk (age 2.6h, h1 +111%)"
+    ],
+    "sources": [
+      "boosts"
+    ],
+    "boost_amount": 30,
+    "dex_url": "https://dexscreener.com/solana/bozb9albqf4jbayyxkyha7kmsrk5vkyabpn75ozfk8mv",
+    "description": "$REACHY is an independent, unofficial meme token with no affiliation with or endorsement from NVIDIA or Reachy Mini\u2019s creators.",
+    "first_flagged_at": "2026-10-25T01:22:20Z",
+    "score_since": "2026-10-25T02:20:37Z",
+    "sitting_minutes": 61.4,
+    "score_stable_minutes": 3.1
+  },
+  {
+    "ticker": "REMUS",
+    "name": "Remus",
+    "mint": "CA8q2mkYWZnUNqYmf6pxyxAPZsmSe2EG9P7hHMW5pump",
+    "ca_short": "CA8q\u2026pump",
+    "score": 90.7,
+    "score_12": 10.9,
+    "trench_band": true,
+    "flagged": true,
+    "hard_fails": [],
+    "late_chase": false,
+    "breakdown": {
+      "liquidity": 29.7,
+      "volume": 18.1,
+      "holders": 25.0,
+      "socials": 15.0,
+      "flow_adj": 3.0
+    },
+    "metrics": {
+      "liquidity_usd": 78697.82,
+      "volume_h1_usd": 44406.29,
+      "volume_h24_usd": 1843059.93,
+      "market_cap_usd": 722885.0,
+      "price_usd": "0.0007331",
+      "price_change_h1": 17.17,
+      "price_change_h24": 241.0,
+      "buys_h1": 620,
+      "sells_h1": 483,
+      "buy_sell_ratio_h1": 1.284,
+      "buy_sell_ratio": 1.284,
+      "pair_age_hours": 27.22,
+      "lp_locked_pct": 99.990657093198,
+      "dex_id": "pumpswap",
+      "pair_address": "6JDiSPsWBwcSN8xBa4LNBzMZRikxksbxcto8J3ELR4cG"
+    },
+    "liquidity_usd": 78697.82,
+    "volume_h1_usd": 44406.29,
+    "volume_h24_usd": 1843059.93,
+    "lp_locked_pct": 99.990657093198,
+    "pair_age_hours": 27.22,
+    "image_url": "https://cdn.dexscreener.com/cms/images/RSLqRr5vubt1aRKX?width=800&height=800&quality=95&format=auto",
+    "data_as_of": "2026-10-25T02:23:46Z",
+    "links": {
+      "pump": "https://pump.fun/coin/CA8q2mkYWZnUNqYmf6pxyxAPZsmSe2EG9P7hHMW5pump",
+      "fomo": "https://fomo.family/coin/CA8q2mkYWZnUNqYmf6pxyxAPZsmSe2EG9P7hHMW5pump?chainId=1399811149",
+      "gmgn": "https://gmgn.ai/sol/token/CA8q2mkYWZnUNqYmf6pxyxAPZsmSe2EG9P7hHMW5pump",
+      "dex": "https://dexscreener.com/solana/6jdispswbwcsn8xba4lnbzmzrikxksbxcto8j3elr4cg"
+    },
+    "holders": {
+      "rugcheck_available": true,
+      "score_normalised": 1.0,
+      "lp_locked_pct": 99.990657093198,
+      "risk_count": 0,
+      "risks": []
+    },
+    "socials": {
+      "twitter": true,
+      "telegram": false,
+      "website": true,
+      "link_count": 2
+    },
+    "red_flags": [],
+    "why": [
+      "liq $78,698 \u2192 30/30",
+      "vol1h $44,406 \u2192 18/25",
+      "LP ~100% locked",
+      "RugCheck score 1 (clean)",
+      "has X/twitter",
+      "has website",
+      "has description",
+      "buy-heavy h1 (1.28)"
+    ],
+    "sources": [
+      "boosts"
+    ],
+    "boost_amount": 50,
+    "dex_url": "https://dexscreener.com/solana/6jdispswbwcsn8xba4lnbzmzrikxksbxcto8j3elr4cg",
+    "description": "The Official Fomo Mascot.\n\nNovember 15.",
+    "first_flagged_at": "2026-10-25T01:22:20Z",
+    "score_since": "2026-10-25T02:12:19Z",
+    "sitting_minutes": 61.4,
+    "score_stable_minutes": 11.4
+  },
+  {
+    "ticker": "Chunkee",
+    "name": "Chunkee the Manatee",
+    "mint": "GkrpmRvhNdyubgHfqW5f58kfvkBtF6TbmwQEtHGnpump",
+    "ca_short": "Gkrp\u2026pump",
+    "score": 88.7,
+    "score_12": 10.6,
+    "trench_band": true,
+    "flagged": true,
+    "hard_fails": [],
+    "late_chase": false,
+    "breakdown": {
+      "liquidity": 20.7,
+      "volume": 25.0,
+      "holders": 25.0,
+      "socials": 15.0,
+      "flow_adj": 3.0
+    },
+    "metrics": {
+      "liquidity_usd": 41088.68,
+      "volume_h1_usd": 103542.23,
+      "volume_h24_usd": 461202.37,
+      "market_cap_usd": 239676.0,
+      "price_usd": "0.0002424",
+      "price_change_h1": -3.41,
+      "price_change_h24": 413.0,
+      "buys_h1": 465,
+      "sells_h1": 381,
+      "buy_sell_ratio_h1": 1.22,
+      "buy_sell_ratio": 1.22,
+      "pair_age_hours": 2.07,
+      "lp_locked_pct": 100.0,
+      "dex_id": "pumpswap",
+      "pair_address": "38Wo8aavzczzrGvgd7HkFwbLXMYmRKctgVGzQHyhAgXv"
+    },
+    "liquidity_usd": 41088.68,
+    "volume_h1_usd": 103542.23,
+    "volume_h24_usd": 461202.37,
+    "lp_locked_pct": 100.0,
+    "pair_age_hours": 2.07,
+    "image_url": "https://cdn.dexscreener.com/cms/images/jgfY5tBqrOmm04-O?width=800&height=800&quality=95&format=auto",
+    "data_as_of": "2026-10-25T02:23:46Z",
+    "links": {
+      "pump": "https://pump.fun/coin/GkrpmRvhNdyubgHfqW5f58kfvkBtF6TbmwQEtHGnpump",
+      "fomo": "https://fomo.family/coin/GkrpmRvhNdyubgHfqW5f58kfvkBtF6TbmwQEtHGnpump?chainId=1399811149",
+      "gmgn": "https://gmgn.ai/sol/token/GkrpmRvhNdyubgHfqW5f58kfvkBtF6TbmwQEtHGnpump",
+      "dex": "https://dexscreener.com/solana/38wo8aavzczzrgvgd7hkfwblxmymrkctgvgzqhyhagxv"
+    },
+    "holders": {
+      "rugcheck_available": true,
+      "score_normalised": 1.0,
+      "lp_locked_pct": 100.0,
+      "risk_count": 0,
+      "risks": []
+    },
+    "socials": {
+      "twitter": true,
+      "telegram": false,
+      "website": true,
+      "link_count": 2
+    },
+    "red_flags": [],
+    "why": [
+      "liq $41,089 \u2192 21/30",
+      "vol1h $103,542 \u2192 25/25",
+      "LP ~100% locked",
+      "RugCheck score 1 (clean)",
+      "has X/twitter",
+      "has website",
+      "has description",
+      "buy-heavy h1 (1.22)"
+    ],
+    "sources": [
+      "profiles"
+    ],
+    "boost_amount": null,
+    "dex_url": "https://dexscreener.com/solana/38wo8aavzczzrgvgd7hkfwblxmymrkctgvgzqhyhagxv",
+    "description": "Stay Chunkee. Soft body, hard chain \u2014 Leonida\u2019s wetland boss trading stress for sunset.",
+    "first_flagged_at": "2026-10-25T01:22:20Z",
+    "score_since": "2026-10-25T02:12:19Z",
+    "sitting_minutes": 61.4,
+    "score_stable_minutes": 11.4
+  },
+  {
+    "ticker": "CATTLEAXE",
+    "name": "Cattleaxe",
+    "mint": "H7VZNCBynDK5ikBS9krDJ2Tx8CUr1wxedV19ZgkWpump",
+    "ca_short": "H7VZ\u2026pump",
+    "score": 83.0,
+    "score_12": 10.0,
+    "trench_band": true,
+    "flagged": true,
+    "hard_fails": [],
+    "late_chase": false,
+    "breakdown": {
+      "liquidity": 30.0,
+      "volume": 25.0,
+      "holders": 10.0,
+      "socials": 15.0,
+      "flow_adj": 3.0
+    },
+    "metrics": {
+      "liquidity_usd": 127576.26,
+      "volume_h1_usd": 509259.7,
+      "volume_h24_usd": 3068110.9,
+      "market_cap_usd": 1956928.0,
+      "price_usd": "0.001966",
+      "price_change_h1": 33.31,
+      "price_change_h24": 2693.0,
+      "buys_h1": 12643,
+      "sells_h1": 5278,
+      "buy_sell_ratio_h1": 2.395,
+      "buy_sell_ratio": 2.395,
+      "pair_age_hours": 6.8,
+      "lp_locked_pct": 0.0,
+      "dex_id": "pumpswap",
+      "pair_address": "3p3uYa9AYzV7w2nHEJeo8ANkuuwhYUonQvhHS8LyrqJY"
+    },
+    "liquidity_usd": 127576.26,
+    "volume_h1_usd": 509259.7,
+    "volume_h24_usd": 3068110.9,
+    "lp_locked_pct": 0.0,
+    "pair_age_hours": 6.8,
+    "image_url": "https://cdn.dexscreener.com/cms/images/k8ix7LCLLGh9vRhA?width=800&height=800&quality=95&format=auto",
+    "data_as_of": "2026-10-25T02:23:46Z",
+    "links": {
+      "pump": "https://pump.fun/coin/H7VZNCBynDK5ikBS9krDJ2Tx8CUr1wxedV19ZgkWpump",
+      "fomo": "https://fomo.family/coin/H7VZNCBynDK5ikBS9krDJ2Tx8CUr1wxedV19ZgkWpump?chainId=1399811149",
+      "gmgn": "https://gmgn.ai/sol/token/H7VZNCBynDK5ikBS9krDJ2Tx8CUr1wxedV19ZgkWpump",
+      "dex": "https://dexscreener.com/solana/3p3uya9ayzv7w2nhejeo8ankuuwhyuonqvhhs8lyrqjy"
+    },
+    "holders": {
+      "rugcheck_available": true,
+      "score_normalised": 31.0,
+      "lp_locked_pct": 0.0,
+      "risk_count": 1,
+      "risks": [
+        "High holder correlation"
+      ]
+    },
+    "socials": {
+      "twitter": true,
+      "telegram": false,
+      "website": true,
+      "link_count": 2
+    },
+    "red_flags": [
+      "lp_weak_0"
+    ],
+    "why": [
+      "liq $127,576 \u2192 30/30",
+      "vol1h $509,260 \u2192 25/25",
+      "LP weakly locked (0%)",
+      "RugCheck score 31 (ok)",
+      "has X/twitter",
+      "has website",
+      "has description",
+      "buy-heavy h1 (2.40)"
+    ],
+    "sources": [
+      "boosts"
+    ],
+    "boost_amount": 500,
+    "dex_url": "https://dexscreener.com/solana/3p3uya9ayzv7w2nhejeo8ankuuwhyuonqvhhs8lyrqjy",
+    "description": "The axe weighs more than the entire knight. A tiny kitten chose the biggest battleaxe in the armoury. Now every swing comes with a nap.",
+    "first_flagged_at": "2026-10-25T01:22:20Z",
+    "score_since": "2026-10-25T02:20:37Z",
+    "sitting_minutes": 61.4,
+    "score_stable_minutes": 3.1
+  },
+  {
+    "ticker": "PUMP",
+    "name": "Pretty Unreal Massive Pair",
+    "mint": "28ZdKbDwAWSsKPFMwxJTUiB9HbjWxetsHvK1NYwtpump",
+    "ca_short": "28Zd\u2026pump",
+    "score": 82.0,
+    "score_12": 9.8,
+    "trench_band": false,
+    "flagged": true,
+    "hard_fails": [],
+    "late_chase": false,
+    "breakdown": {
+      "liquidity": 21.8,
+      "volume": 25.0,
+      "holders": 21.2,
+      "socials": 11.0,
+      "flow_adj": 3.0
+    },
+    "metrics": {
+      "liquidity_usd": 45687.28,
+      "volume_h1_usd": 638709.85,
+      "volume_h24_usd": 677133.99,
+      "market_cap_usd": 250460.0,
+      "price_usd": "0.0002592",
+      "price_change_h1": 313.0,
+      "price_change_h24": 469.0,
+      "buys_h1": 9645,
+      "sells_h1": 7029,
+      "buy_sell_ratio_h1": 1.372,
+      "buy_sell_ratio": 1.372,
+      "pair_age_hours": 1.04,
+      "lp_locked_pct": 90.39215466493798,
+      "dex_id": "pumpswap",
+      "pair_address": "3Cf4WkHjTSy6zsZmRJX6sdLRFgLyujpD8Bh8oAc97Kgq"
+    },
+    "liquidity_usd": 45687.28,
+    "volume_h1_usd": 638709.85,
+    "volume_h24_usd": 677133.99,
+    "lp_locked_pct": 90.39215466493798,
+    "pair_age_hours": 1.04,
+    "image_url": "https://cdn.dexscreener.com/cms/images/PtYpbHHtY0HRQoSQ?width=800&height=800&quality=95&format=auto",
+    "data_as_of": "2026-10-25T02:23:46Z",
+    "links": {
+      "pump": "https://pump.fun/coin/28ZdKbDwAWSsKPFMwxJTUiB9HbjWxetsHvK1NYwtpump",
+      "fomo": "https://fomo.family/coin/28ZdKbDwAWSsKPFMwxJTUiB9HbjWxetsHvK1NYwtpump?chainId=1399811149",
+      "gmgn": "https://gmgn.ai/sol/token/28ZdKbDwAWSsKPFMwxJTUiB9HbjWxetsHvK1NYwtpump",
+      "dex": "https://dexscreener.com/solana/3cf4wkhjtsy6zszmrjx6sdlrfglyujpd8bh8oac97kgq"
+    },
+    "holders": {
+      "rugcheck_available": true,
+      "score_normalised": 29.0,
+      "lp_locked_pct": 90.39215466493798,
+      "risk_count": 1,
+      "risks": [
+        "Copycat token"
+      ]
+    },
+    "socials": {
+      "twitter": true,
+      "telegram": false,
+      "website": false,
+      "link_count": 1
+    },
+    "red_flags": [],
+    "why": [
+      "liq $45,687 \u2192 22/30",
+      "vol1h $638,710 \u2192 25/25",
+      "LP ~90% locked",
+      "RugCheck score 29 (ok)",
+      "has X/twitter",
+      "has description",
+      "buy-heavy h1 (1.37)"
+    ],
+    "sources": [
+      "profiles"
+    ],
+    "boost_amount": null,
+    "dex_url": "https://dexscreener.com/solana/3cf4wkhjtsy6zszmrjx6sdlrfglyujpd8bh8oac97kgq",
+    "description": "The narrative is simple, Pretty Unreal Massive Pair that is paired to $PUMPand gives you $PUMP for holding.",
+    "first_flagged_at": "2026-10-25T02:12:19Z",
+    "score_since": "2026-10-25T02:23:46Z",
+    "sitting_minutes": 11.4,
+    "score_stable_minutes": 0.0
+  },
+  {
+    "ticker": "Marvin",
+    "name": "Marvin",
+    "mint": "8zsFH5cS1YT93nhb3ZWzCYk7gvADt7Nqc9P2PgGUpump",
+    "ca_short": "8zsF\u2026pump",
+    "score": 68.4,
+    "score_12": 8.2,
+    "trench_band": false,
+    "flagged": true,
+    "hard_fails": [],
+    "late_chase": false,
+    "breakdown": {
+      "liquidity": 10.4,
+      "volume": 25.0,
+      "holders": 25.0,
+      "socials": 13.0,
+      "flow_adj": -5.0
+    },
+    "metrics": {
+      "liquidity_usd": 17396.88,
+      "volume_h1_usd": 741158.27,
+      "volume_h24_usd": 741158.27,
+      "market_cap_usd": 33936.0,
+      "price_usd": "0.00003393",
+      "price_change_h1": -14.78,
+      "price_change_h24": -14.78,
+      "buys_h1": 8447,
+      "sells_h1": 7324,
+      "buy_sell_ratio_h1": 1.153,
+      "buy_sell_ratio": 1.153,
+      "pair_age_hours": 0.32,
+      "lp_locked_pct": 98.52115982390006,
+      "dex_id": "pumpswap",
+      "pair_address": "FRXXwxRvjiGsABqoFiKqVogVeNMiJW5WQ7HSMvdu7Ccj"
+    },
+    "liquidity_usd": 17396.88,
+    "volume_h1_usd": 741158.27,
+    "volume_h24_usd": 741158.27,
+    "lp_locked_pct": 98.52115982390006,
+    "pair_age_hours": 0.32,
+    "image_url": "https://cdn.dexscreener.com/cms/images/BdaFdzZd0SR88cjL?width=800&height=800&quality=95&format=auto",
+    "data_as_of": "2026-10-25T02:23:46Z",
+    "links": {
+      "pump": "https://pump.fun/coin/8zsFH5cS1YT93nhb3ZWzCYk7gvADt7Nqc9P2PgGUpump",
+      "fomo": "https://fomo.family/coin/8zsFH5cS1YT93nhb3ZWzCYk7gvADt7Nqc9P2PgGUpump?chainId=1399811149",
+      "gmgn": "https://gmgn.ai/sol/token/8zsFH5cS1YT93nhb3ZWzCYk7gvADt7Nqc9P2PgGUpump",
+      "dex": "https://dexscreener.com/solana/frxxwxrvjigsabqofikqvogvenmijw5wq7hsmvdu7ccj"
+    },
+    "holders": {
+      "rugcheck_available": true,
+      "score_normalised": 1.0,
+      "lp_locked_pct": 98.52115982390006,
+      "risk_count": 0,
+      "risks": []
+    },
+    "socials": {
+      "twitter": true,
+      "telegram": false,
+      "website": true,
+      "link_count": 2
+    },
+    "red_flags": [
+      "high_vol_liq"
+    ],
+    "why": [
+      "liq $17,397 \u2192 10/30",
+      "vol1h $741,158 \u2192 25/25",
+      "LP ~99% locked",
+      "RugCheck score 1 (clean)",
+      "has X/twitter",
+      "has website",
+      "vol/liq h1 = 42.6x (wash risk)"
+    ],
+    "sources": [
+      "profiles"
+    ],
+    "boost_amount": null,
+    "dex_url": "https://dexscreener.com/solana/frxxwxrvjigsabqofikqvogvenmijw5wq7hsmvdu7ccj",
+    "description": "",
+    "first_flagged_at": "2026-10-25T02:20:37Z",
+    "score_since": "2026-10-25T02:23:46Z",
+    "sitting_minutes": 3.1,
+    "score_stable_minutes": 0.0
+  },
+  {
+    "ticker": "NETWORK",
+    "name": "Network Coin",
+    "mint": "8THZ69JP2ErZuHVj4G5rcwkFfsQafp5mQsaoQReApump",
+    "ca_short": "8THZ\u2026pump",
+    "score": 68.2,
+    "score_12": 8.2,
+    "trench_band": false,
+    "flagged": true,
+    "hard_fails": [],
+    "late_chase": false,
+    "breakdown": {
+      "liquidity": 17.0,
+      "volume": 8.2,
+      "holders": 25.0,
+      "socials": 15.0,
+      "flow_adj": 3.0
+    },
+    "metrics": {
+      "liquidity_usd": 28300.8,
+      "volume_h1_usd": 10942.84,
+      "volume_h24_usd": 260127.21,
+      "market_cap_usd": 115954.0,
+      "price_usd": "0.0001220",
+      "price_change_h1": -13.58,
+      "price_change_h24": 125.0,
+      "buys_h1": 218,
+      "sells_h1": 153,
+      "buy_sell_ratio_h1": 1.425,
+      "buy_sell_ratio": 1.425,
+      "pair_age_hours": 4.58,
+      "lp_locked_pct": 100.0,
+      "dex_id": "pumpswap",
+      "pair_address": "88Jxy6WUYurL7WhZSNYwJvjQwvtDoxT3RUrac1PRgLwu"
+    },
+    "liquidity_usd": 28300.8,
+    "volume_h1_usd": 10942.84,
+    "volume_h24_usd": 260127.21,
+    "lp_locked_pct": 100.0,
+    "pair_age_hours": 4.58,
+    "image_url": "https://cdn.dexscreener.com/cms/images/OrOZtOiOVORsdlR-?width=800&height=800&quality=95&format=auto",
+    "data_as_of": "2026-10-25T02:23:46Z",
+    "links": {
+      "pump": "https://pump.fun/coin/8THZ69JP2ErZuHVj4G5rcwkFfsQafp5mQsaoQReApump",
+      "fomo": "https://fomo.family/coin/8THZ69JP2ErZuHVj4G5rcwkFfsQafp5mQsaoQReApump?chainId=1399811149",
+      "gmgn": "https://gmgn.ai/sol/token/8THZ69JP2ErZuHVj4G5rcwkFfsQafp5mQsaoQReApump",
+      "dex": "https://dexscreener.com/solana/88jxy6wuyurl7whzsnywjvjqwvtdoxt3rurac1prglwu"
+    },
+    "holders": {
+      "rugcheck_available": true,
+      "score_normalised": 1.0,
+      "lp_locked_pct": 100.0,
+      "risk_count": 0,
+      "risks": []
+    },
+    "socials": {
+      "twitter": true,
+      "telegram": false,
+      "website": true,
+      "link_count": 2
+    },
+    "red_flags": [],
+    "why": [
+      "liq $28,301 \u2192 17/30",
+      "vol1h $10,943 \u2192 8/25",
+      "LP ~100% locked",
+      "RugCheck score 1 (clean)",
+      "has X/twitter",
+      "has website",
+      "has description",
+      "buy-heavy h1 (1.42)"
+    ],
+    "sources": [
+      "boosts"
+    ],
+    "boost_amount": 100,
+    "dex_url": "https://dexscreener.com/solana/88jxy6wuyurl7whzsnywjvjqwvtdoxt3rurac1prglwu",
+    "description": "In a world driven by opportunity, who you know can be just as important as what you know. Behind every successful business, every major movement, and every breakthrough is a network of people who made it possible. The right connection can o",
+    "first_flagged_at": "2026-10-25T01:22:20Z",
+    "score_since": "2026-10-25T02:20:37Z",
+    "sitting_minutes": 61.4,
+    "score_stable_minutes": 3.1
+  },
+  {
+    "ticker": "Pablo",
+    "name": "Pablo the Race Cat",
+    "mint": "EfMZfcStz5oxorWLhBLcPzkePLz91BG5knrGAGiXpump",
+    "ca_short": "EfMZ\u2026pump",
+    "score": 64.2,
+    "score_12": 7.7,
+    "trench_band": false,
+    "flagged": true,
+    "hard_fails": [],
+    "late_chase": false,
+    "breakdown": {
+      "liquidity": 14.6,
+      "volume": 9.5,
+      "holders": 25.0,
+      "socials": 15.0,
+      "flow_adj": 0.0
+    },
+    "metrics": {
+      "liquidity_usd": 24382.52,
+      "volume_h1_usd": 12714.82,
+      "volume_h24_usd": 353967.31,
+      "market_cap_usd": 87029.0,
+      "price_usd": "0.00008943",
+      "price_change_h1": -6.97,
+      "price_change_h24": 35.84,
+      "buys_h1": 193,
+      "sells_h1": 223,
+      "buy_sell_ratio_h1": 0.865,
+      "buy_sell_ratio": 0.865,
+      "pair_age_hours": 4.76,
+      "lp_locked_pct": 100.0,
+      "dex_id": "pumpswap",
+      "pair_address": "5991THFJ2QDEXkPSUP6bq4s7hiwCJo9pj4h2EG4hWCEc"
+    },
+    "liquidity_usd": 24382.52,
+    "volume_h1_usd": 12714.82,
+    "volume_h24_usd": 353967.31,
+    "lp_locked_pct": 100.0,
+    "pair_age_hours": 4.76,
+    "image_url": "https://cdn.dexscreener.com/cms/images/YQ7CkXOZ33lXbGiV?width=800&height=800&quality=95&format=auto",
+    "data_as_of": "2026-10-25T02:23:46Z",
+    "links": {
+      "pump": "https://pump.fun/coin/EfMZfcStz5oxorWLhBLcPzkePLz91BG5knrGAGiXpump",
+      "fomo": "https://fomo.family/coin/EfMZfcStz5oxorWLhBLcPzkePLz91BG5knrGAGiXpump?chainId=1399811149",
+      "gmgn": "https://gmgn.ai/sol/token/EfMZfcStz5oxorWLhBLcPzkePLz91BG5knrGAGiXpump",
+      "dex": "https://dexscreener.com/solana/5991thfj2qdexkpsup6bq4s7hiwcjo9pj4h2eg4hwcec"
+    },
+    "holders": {
+      "rugcheck_available": true,
+      "score_normalised": 1.0,
+      "lp_locked_pct": 100.0,
+      "risk_count": 0,
+      "risks": []
+    },
+    "socials": {
+      "twitter": true,
+      "telegram": false,
+      "website": true,
+      "link_count": 3
+    },
+    "red_flags": [],
+    "why": [
+      "liq $24,383 \u2192 15/30",
+      "vol1h $12,715 \u2192 10/25",
+      "LP ~100% locked",
+      "RugCheck score 1 (clean)",
+      "has X/twitter",
+      "has website",
+      "has description"
+    ],
+    "sources": [
+      "boosts"
+    ],
+    "boost_amount": 100,
+    "dex_url": "https://dexscreener.com/solana/5991thfj2qdexkpsup6bq4s7hiwcjo9pj4h2eg4hwcec",
+    "description": "Pablo the Race Cat",
+    "first_flagged_at": "2026-10-25T01:22:20Z",
+    "score_since": "2026-10-25T01:22:20Z",
+    "sitting_minutes": 61.4,
+    "score_stable_minutes": 61.4
+  }
+]
