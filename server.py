@@ -126,10 +126,10 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 66,
+            "panel_v": 67,
             "time": _utc(),
             "qa_tick": "page ?qa_tick=both|up|down",
-            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning"],
+            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish"],
             "sitting_drop_min": 5.0,
             "sitting_near_lead_min": 1.0,
             "sitting_fresh_min": 2.0,
@@ -396,7 +396,7 @@ def api_game_sell():
 def api_game_quote():
     mint = (request.args.get("mint") or request.args.get("ca") or request.args.get("q") or "").strip()
     if not mint:
-        return jsonify({"ok": False, "error": "mint/q required — paste CA, ticker, or name", "sound": "fail"}), 400
+        return jsonify({"ok": False, "error": "Enter a coin — CA, ticker, or name", "sound": "fail", "started": False}), 400
     fresh = (request.args.get("fresh") or "").lower() in ("1", "true", "yes")
     # multi-hit name: return picker instead of silent wrong coin
     if not game_mod.looks_like_mint(mint):

@@ -697,12 +697,28 @@
     .sound-chip[data-sound="fail"] { background: #241418; border-color: #6a2a32; color: #ffc9ce; }
     .sound-chip[data-sound="start"][data-audio="played"],
     .sound-chip[data-sound="ready"][data-audio="played"] { background: #102018; border-color: #2a5a40; color: #d4f5d8; }
-    .mute-toggle {
-      border: 1px solid var(--border); border-radius: 999px; padding: 6px 10px;
-      background: #12151c; cursor: pointer; user-select: none;
+    .sound-toggle {
+      display: none; align-items: center; padding: 2px; gap: 2px;
+      border: 1px solid #2a2a2a; border-radius: 999px; background: #12151c;
     }
-    .mute-toggle input { accent-color: var(--bad); }
-    .mute-toggle:has(input:checked) { background: #241418; border-color: #6a2a32; color: #ffc9ce; }
+    body.mode-game .sound-toggle { display: inline-flex; }
+    .sound-toggle .seg {
+      border: 0; background: transparent; color: var(--muted); cursor: pointer;
+      font-size: 0.72rem; font-weight: 800; padding: 5px 10px; border-radius: 999px;
+    }
+    .sound-toggle .seg.on { background: #102018; color: var(--good); }
+    .sound-toggle .seg.mute.on { background: #241418; color: #ffc9ce; }
+    .sess {
+      font-size: 0.62rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+      padding: 4px 8px; border-radius: 999px; border: 1px solid #2a2a2a;
+      color: var(--muted); background: #141414;
+    }
+    .sess.live { border-color: #2a5a40; color: var(--good); background: #102018; }
+    .sess.ended { border-color: #6a2a32; color: var(--bad); background: #241018; }
+    body.mode-game .qa-foot { display: none; }
+    .qa-foot { margin-top: 4px; color: var(--muted); font-size: 0.68rem; }
+    .qa-foot summary { cursor: pointer; color: var(--muted); }
+    .foot-live { font-size: 0.72rem; }
     .end-readout {
       background: #241e10; border: 1px solid #6a5320; border-radius: 10px;
       padding: 12px 14px; margin-bottom: 8px; font-size: 0.84rem;
@@ -1767,9 +1783,12 @@
     @media (prefers-reduced-motion: reduce) {
       .coin-sheet, .coin-back { transition: none; }
       .rocket-live .rocket-wrap,
-      .rocket-live .thrusters,
+      .rocket-live .flame,
       .rocket-live .float-delta,
       .rocket-live .smoke-puffs circle,
+      .rocket-live .sfx-hit,
+      .rocket-live .chart-stage,
+      .rocket-live .canopy-glow,
       .rocket-live[data-mood="tick"] .rocket-bank .stat.equity,
       .gain-flash { animation: none !important; }
     }
@@ -1799,8 +1818,9 @@
     .rocket-live {
       position: relative; margin: 0 0 12px; border: 1px solid #2a2a2a; border-radius: 14px;
       overflow: hidden; background: #121212;
-      --hull1: #7aa2ff; --hull2: #c9a0ff; --fin: #c9a0ff;
+      --hull1: #7aa8ff; --hull2: #c84bff; --fin: #7a4dff;
     }
+    .rocket-live[data-skin="nebula"] { --hull1: #7aa8ff; --hull2: #c84bff; --fin: #7a4dff; }
     .rocket-live[data-skin="plain"] { --hull1: #d5d8de; --hull2: #8b939e; --fin: #c5cad1; }
     .rocket-live[data-skin="acid"] { --hull1: #7dffb0; --hull2: #3ecf8e; --fin: #b6ff3a; }
     .rocket-live[data-skin="ember"] { --hull1: #ffb020; --hull2: #ff5a3c; --fin: #ff7a3c; }
@@ -1818,18 +1838,20 @@
     .rocket-live[data-mood="down"] .rocket-head .state { color: var(--bad); }
     .rocket-live .sound-pill {
       font-size: 0.62rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
-      padding: 2px 7px; border-radius: 999px; border: 1px solid #333; color: #666; background: #1a1a1a;
+      padding: 2px 7px; border-radius: 999px; border: 1px solid #2a5a40; color: var(--good); background: #102018;
     }
     .rocket-live[data-mood="tick"] .sound-pill { border-color: #2a5a40; color: var(--good); background: #102018; }
+    .rocket-live[data-mood="down"] .sound-pill,
+    .rocket-live[data-audio="mute"] .sound-pill { border-color: #6a2a32; color: var(--bad); background: #241018; }
     .rocket-strip {
-      position: relative; height: 128px; overflow: hidden;
+      position: relative; height: 168px; overflow: hidden;
       background: radial-gradient(ellipse at 30% 40%, #1a2030 0%, #050508 55%, #000 100%);
     }
     .rocket-live[data-mood="down"] .rocket-strip {
       background: radial-gradient(ellipse at 40% 60%, #201010 0%, #0a0505 55%, #000 100%);
     }
     .rocket-live .stars {
-      position: absolute; inset: 0; opacity: .65;
+      position: absolute; inset: 0; opacity: .55; z-index: 0;
       background-image:
         radial-gradient(1px 1px at 12% 30%, #fff 50%, transparent 51%),
         radial-gradient(1px 1px at 28% 70%, #fff 50%, transparent 51%),
@@ -1837,35 +1859,74 @@
         radial-gradient(1px 1px at 80% 62%, #ccc 50%, transparent 51%),
         radial-gradient(1px 1px at 90% 18%, #fff 50%, transparent 51%);
     }
-    .rocket-wrap { position: absolute; left: 8%; top: 50%; width: 220px; height: 88px; transform: translateY(-50%); }
+    .chart-stage {
+      position: absolute; left: 0; right: 0; bottom: 0; height: 72px;
+      z-index: 1; opacity: .62; pointer-events: none;
+    }
+    .rocket-live[data-mood="tick"] .chart-stage { opacity: .85; animation: chartpulse 1.4s ease-in-out infinite; }
+    .rocket-live[data-mood="down"] .chart-stage { opacity: .7; }
+    .rocket-live[data-stage="demo"] .chart-stage { opacity: .5; }
+    .rocket-wrap { position: absolute; left: 6%; top: 42%; width: 230px; height: 96px; transform: translateY(-50%); z-index: 2; }
     .rocket-live[data-mood="idle"] .rocket-wrap,
     .rocket-live[data-mood="up"] .rocket-wrap { animation: rocket-float 3.2s ease-in-out infinite; }
-    .rocket-live[data-mood="tick"] .rocket-wrap { animation: rocket-lift .7s ease-in-out infinite; }
-    .rocket-live[data-mood="down"] .rocket-wrap { transform: translateY(-38%) rotate(28deg); animation: none; left: 12%; }
-    .rocket-svg { width: 220px; height: 88px; display: block; }
-    .rocket-live .thrusters { transform-origin: 28px 44px; }
-    .rocket-live[data-mood="idle"] .thrusters { animation: rocket-thrust .9s ease-in-out infinite; opacity: .55; }
-    .rocket-live[data-mood="up"] .thrusters { animation: rocket-thrust .8s ease-in-out infinite; opacity: .8; }
-    .rocket-live[data-mood="tick"] .thrusters { animation: rocket-hot .32s ease-in-out infinite; }
-    .rocket-live[data-mood="down"] .thrusters { display: none; }
+    .rocket-live[data-stage="demo"][data-mood="idle"] .rocket-wrap { animation: craft-cruise 4.2s ease-in-out infinite; }
+    .rocket-live[data-mood="tick"] .rocket-wrap { animation: rocket-lift .7s ease-in-out infinite; left: 8%; }
+    .rocket-live[data-mood="down"] .rocket-wrap { transform: translateY(-32%) rotate(28deg); animation: none; left: 14%; }
+    .rocket-svg { width: 230px; height: 96px; display: block; overflow: visible; }
+    .rocket-live .flame { transform-origin: 36px 48px; }
+    .rocket-live .flame-hot { display: none; }
+    .rocket-live[data-mood="idle"] .flame,
+    .rocket-live[data-mood="up"] .flame { animation: thruster-dim 1.1s ease-in-out infinite; opacity: .55; }
+    .rocket-live[data-mood="tick"] .flame { animation: thruster-hot .28s ease-in-out infinite; }
+    .rocket-live[data-mood="tick"] .flame-dim { display: none; }
+    .rocket-live[data-mood="tick"] .flame-hot { display: inline; }
+    .rocket-live[data-mood="down"] .flame { display: none; }
     .rocket-live .smoke-puffs { display: none; }
     .rocket-live[data-mood="down"] .smoke-puffs { display: block; }
-    .rocket-live .smoke-puffs circle { animation: rocket-smoke 1.2s ease-out infinite; }
-    .rocket-live .smoke-puffs circle:nth-child(2) { animation-delay: .3s; }
-    .rocket-live .smoke-puffs circle:nth-child(3) { animation-delay: .6s; }
-    @keyframes rocket-thrust { 0%,100% { opacity: .75; transform: scaleY(1); } 50% { opacity: 1; transform: scaleY(1.25); } }
-    @keyframes rocket-hot { 0%,100% { opacity: .9; transform: scaleY(1); } 50% { opacity: 1; transform: scaleY(1.45) translateX(-3px); } }
-    @keyframes rocket-lift { 0%,100% { transform: translateY(-50%); } 50% { transform: translateY(calc(-50% - 10px)); } }
-    @keyframes rocket-float { 0%,100% { transform: translateY(-50%); } 50% { transform: translateY(calc(-50% - 3px)); } }
-    @keyframes rocket-smoke { 0% { opacity: .5; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(14px) scale(1.4); } }
+    .rocket-live .smoke-puffs circle { animation: rocket-smoke 1.25s ease-out infinite; }
+    .rocket-live .smoke-puffs circle:nth-child(2) { animation-delay: .28s; }
+    .rocket-live .smoke-puffs circle:nth-child(3) { animation-delay: .55s; }
+    .canopy-glow { animation: canopy 2.4s ease-in-out infinite; }
+    @keyframes thruster-dim { 0%,100% { opacity: .45; transform: scaleX(1); } 50% { opacity: .7; transform: scaleX(1.08); } }
+    @keyframes thruster-hot { 0%,100% { opacity: .92; transform: scaleX(1) translateX(0); } 50% { opacity: 1; transform: scaleX(1.22) translateX(-4px); } }
+    @keyframes rocket-lift { 0%,100% { transform: translateY(-50%) rotate(-8deg); } 50% { transform: translateY(calc(-50% - 11px)) rotate(-12deg); } }
+    @keyframes rocket-float { 0%,100% { transform: translateY(-50%); } 50% { transform: translateY(calc(-50% - 4px)); } }
+    @keyframes craft-cruise { 0%,100% { transform: translateY(-50%) translateX(0); } 50% { transform: translateY(calc(-50% - 4px)) translateX(12px); } }
+    @keyframes rocket-smoke { 0% { opacity: .55; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(16px) scale(1.5); } }
     @keyframes rocket-pop { 0% { opacity: 0; transform: translateY(8px); } 20% { opacity: 1; transform: translateY(0); } 80% { opacity: 1; transform: translateY(-10px); } 100% { opacity: 0; transform: translateY(-18px); } }
     @keyframes rocket-bank { 0%,100% { color: var(--good); } 50% { color: #b8f5d0; } }
+    @keyframes canopy { 0%,100% { opacity: .88; } 50% { opacity: 1; } }
+    @keyframes chartpulse { 0%,100% { opacity: .55; } 50% { opacity: .9; } }
+    @keyframes sfx-pop { 0% { opacity: 0; transform: translateX(-50%) translateY(6px); } 18% { opacity: 1; transform: translateX(-50%) translateY(0); } 100% { opacity: 0; transform: translateX(-50%) translateY(-12px); } }
     .rocket-live .float-delta {
-      display: none; position: absolute; left: 46%; top: 22%;
+      display: none; position: absolute; left: 52%; top: 12%; z-index: 3;
       font-family: var(--mono); font-weight: 900; font-size: 1.15rem; color: var(--good);
       text-shadow: 0 0 14px rgba(62,207,142,.55); animation: rocket-pop 1.4s ease-out infinite;
     }
     .rocket-live[data-mood="tick"] .float-delta { display: block; }
+    .sfx-hit {
+      display: none; position: absolute; left: 46%; top: 8px; z-index: 4;
+      transform: translateX(-50%); pointer-events: none;
+      font-size: 0.68rem; font-weight: 900; letter-spacing: .04em;
+      padding: 3px 8px; border-radius: 8px; animation: sfx-pop 1.1s ease-out infinite;
+    }
+    .rocket-live[data-sfx="win"] .sfx-hit.win {
+      display: block; color: #d8ffe8; background: #102018; border: 1px solid #3ecf8e;
+      box-shadow: 0 0 16px rgba(62,207,142,.45);
+    }
+    .rocket-live[data-sfx="loss"] .sfx-hit.loss {
+      display: block; color: #ffd0d4; background: #241018; border: 1px solid #f07178;
+      box-shadow: 0 0 16px rgba(240,113,120,.35);
+    }
+    .pos-chip {
+      position: absolute; left: 10px; bottom: 8px; z-index: 3;
+      font-size: 0.62rem; font-family: var(--mono); font-weight: 800;
+      padding: 3px 7px; border-radius: 6px;
+      background: rgba(26,16,40,.88); border: 1px solid #5a3a8a; color: #d0b0ff;
+    }
+    .rocket-live[data-mood="tick"] .pos-chip,
+    .rocket-live[data-mood="up"] .pos-chip { background: rgba(16,32,24,.88); border-color: #2a5a40; color: var(--good); }
+    .rocket-live[data-mood="down"] .pos-chip { background: rgba(36,16,24,.88); border-color: #6a2a32; color: var(--bad); }
     .rocket-hud { position: absolute; right: 12px; top: 10px; text-align: right; }
     .rocket-hud .skin { font-size: 0.62rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--amber); }
     .rocket-hud .dir { font-family: var(--mono); font-size: 1.15rem; font-weight: 900; color: var(--muted); }
@@ -1907,8 +1968,19 @@
     .sku { background: #161616; border: 1px solid #2a2a2a; border-radius: 12px; padding: 10px; position: relative; min-height: 112px; }
     .sku.equipped { border-color: var(--amber); box-shadow: 0 0 12px rgba(240,163,58,.25); }
     .sku.owned { border-color: #2a5a40; }
-    .sku.locked { opacity: .78; }
-    .sku .preview { height: 28px; border-radius: 8px; margin-bottom: 6px; background: #0e0e0e; border: 1px solid #222; }
+    .sku.locked .cta { opacity: .72; }
+    .sku { --hull1: #7aa8ff; --hull2: #c84bff; --fin: #7a4dff; }
+    .sku[data-skin="nebula"] { --hull1: #7aa8ff; --hull2: #c84bff; --fin: #7a4dff; }
+    .sku[data-skin="plain"] { --hull1: #d5d8de; --hull2: #8b939e; --fin: #c5cad1; }
+    .sku[data-skin="acid"] { --hull1: #7dffb0; --hull2: #3ecf8e; --fin: #b6ff3a; }
+    .sku[data-skin="ember"] { --hull1: #ffb020; --hull2: #ff5a3c; --fin: #ff7a3c; }
+    .sku[data-skin="crown"] { --hull1: #ffe08a; --hull2: #f0a33a; --fin: #ffd76a; }
+    .sku[data-skin="void"] { --hull1: #6a4cff; --hull2: #1a1030; --fin: #b9a6ff; }
+    .sku .mini { height: 40px; display: grid; place-items: center; margin-bottom: 4px; }
+    .sku .mini svg { width: 88px; height: 32px; display: block; }
+    .sku .preview { height: 8px; border-radius: 8px; margin-bottom: 6px; background: #0e0e0e; border: 1px solid #222; }
+    .sku .prev-lab { margin-top: 4px; font-size: 0.58rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+    .sku.locked .mini, .sku.locked .preview { opacity: 1; }
     .sku[data-skin="nebula"] .preview { background: linear-gradient(90deg, #7aa2ff, #c9a0ff); }
     .sku[data-skin="plain"] .preview { background: linear-gradient(90deg, #d5d8de, #8b939e); }
     .sku[data-skin="acid"] .preview { background: linear-gradient(90deg, #7dffb0, #3ecf8e); }
@@ -1958,7 +2030,7 @@
         <div class="logo">N</div>
         <div>
           <h1>Nunu Filter</h1>
-          <p class="sub">Solana Research Panel · paper only · v66</p>
+          <p class="sub">Solana Research Panel · paper only · v67</p>
         </div>
       </div>
       <div class="mode-tabs" role="tablist">
@@ -1967,6 +2039,11 @@
       </div>
       <span class="net-pill"><span class="live-dot" id="liveDot"></span>Solana Mainnet</span>
       <div class="top-actions">
+        <div class="sound-toggle" id="gSoundToggle" role="group" aria-label="Game sound" title="Sound on plays win and loss hits. Mute silences them.">
+          <button type="button" class="seg on" id="gSoundOnBtn" aria-pressed="true">Sound on</button>
+          <button type="button" class="seg mute" id="gSoundMuteBtn" aria-pressed="false">Mute</button>
+          <input type="checkbox" id="gMute" hidden />
+        </div>
         <button type="button" class="profile-chip" id="profileChip" title="Edit name and picture">
           <span class="pf-av" id="pfAv">P</span>
           <span class="pf-meta">
@@ -2095,47 +2172,89 @@
     </div>
 
     <div id="modeGame">
-      <section class="rocket-live" id="gRocket" data-mood="idle" data-skin="nebula" aria-label="Rocket">
+      <section class="rocket-live" id="gRocket" data-mood="idle" data-skin="nebula" data-stage="demo" data-sfx="off" data-stage-hook="chart-v1" data-sfx-hook="casino-cues" aria-label="Rocket">
         <div class="rocket-head">
           <span class="state" id="gRocketState">Idle / flat</span>
-          <span class="sound-pill" id="gRocketSound">No sound</span>
+          <span class="sound-pill" id="gRocketSound">Sound on</span>
         </div>
         <div class="rocket-strip">
           <div class="stars"></div>
+          <svg class="chart-stage" id="gChart" viewBox="0 0 320 72" preserveAspectRatio="none" aria-hidden="true">
+            <defs>
+              <linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1">
+                <stop id="gChartStop" offset="0%" stop-color="#3ecf8e" stop-opacity=".35"/>
+                <stop offset="100%" stop-color="#3ecf8e" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <polygon id="gChartFill" fill="url(#chartFill)" points="0,72 0,48 40,44 80,46 120,38 160,40 200,34 240,36 280,30 320,28 320,72"></polygon>
+            <polyline id="gChartLine" fill="none" stroke="#3ecf8e" stroke-width="1.8" points="0,48 40,44 80,46 120,38 160,40 200,34 240,36 280,30 320,28"></polyline>
+            <circle id="gChartDot" cx="300" cy="30" r="3.2" fill="#3ecf8e"></circle>
+          </svg>
+          <div class="sfx-hit win" id="gSfxWin">♪♪ WIN HIT</div>
+          <div class="sfx-hit loss" id="gSfxLoss">♪ LOSS HIT</div>
           <div class="float-delta" id="gFloatDelta"></div>
           <div class="rocket-wrap">
-            <svg class="rocket-svg" viewBox="0 0 220 88" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <svg class="rocket-svg" viewBox="0 0 240 96" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
               <defs>
-                <linearGradient id="hullGrad" x1="0" y1="0" x2="1" y2="1">
+                <linearGradient id="hullGrad" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stop-color="var(--hull2)"/>
+                  <stop offset="45%" stop-color="var(--hull1)"/>
+                  <stop offset="100%" stop-color="var(--hull1)"/>
+                </linearGradient>
+                <linearGradient id="noseGrad" x1="0" y1="0" x2="1" y2="0">
                   <stop offset="0%" stop-color="var(--hull1)"/>
-                  <stop offset="100%" stop-color="var(--hull2)"/>
+                  <stop offset="100%" stop-color="#ffffff"/>
+                </linearGradient>
+                <linearGradient id="flameGrad" x1="1" y1="0" x2="0" y2="0">
+                  <stop offset="0%" stop-color="#3ecf8e"/>
+                  <stop offset="55%" stop-color="#a8f5c8"/>
+                  <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+                </linearGradient>
+                <linearGradient id="canGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#d8f0ff"/>
+                  <stop offset="40%" stop-color="#5b8cff"/>
+                  <stop offset="100%" stop-color="#1a2048"/>
                 </linearGradient>
               </defs>
-              <g class="thrusters">
-                <ellipse cx="34" cy="44" rx="16" ry="9" fill="#3ecf8e" opacity=".9"/>
-                <ellipse cx="20" cy="44" rx="11" ry="6" fill="#a8f5c8" opacity=".85"/>
-                <ellipse cx="10" cy="44" rx="6" ry="3.5" fill="#fff" opacity=".75"/>
+              <g class="flame">
+                <g class="flame-dim">
+                  <ellipse cx="36" cy="48" rx="20" ry="8" fill="url(#flameGrad)" opacity=".7"/>
+                  <ellipse cx="28" cy="48" rx="11" ry="4.5" fill="#a8f5c8" opacity=".4"/>
+                </g>
+                <g class="flame-hot">
+                  <ellipse cx="30" cy="48" rx="34" ry="12" fill="url(#flameGrad)" opacity=".95"/>
+                  <ellipse cx="18" cy="48" rx="18" ry="6.5" fill="#ffffff" opacity=".75"/>
+                  <ellipse cx="10" cy="48" rx="8" ry="3" fill="#fff" opacity=".9"/>
+                </g>
               </g>
               <g class="smoke-puffs">
-                <circle cx="36" cy="54" r="8" fill="#666" opacity=".4"/>
-                <circle cx="26" cy="62" r="10" fill="#555" opacity=".35"/>
-                <circle cx="16" cy="70" r="12" fill="#444" opacity=".3"/>
+                <circle cx="38" cy="54" r="10" fill="#777" opacity=".45"/>
+                <circle cx="24" cy="62" r="13" fill="#666" opacity=".38"/>
+                <circle cx="12" cy="72" r="15" fill="#555" opacity=".3"/>
               </g>
-              <ellipse cx="112" cy="44" rx="54" ry="22" fill="var(--hull1)" stroke="var(--hull2)" stroke-width="3"/>
-              <polygon points="166,44 196,34 196,54" fill="#e7e9ea"/>
-              <rect x="82" y="30" width="24" height="26" rx="6" fill="#0a0a0a" stroke="#f0a33a" stroke-width="1.5"/>
-              <circle cx="92" cy="40" r="2.2" fill="#e7e9ea"/>
-              <circle cx="100" cy="40" r="2.2" fill="#e7e9ea"/>
-              <path d="M90 50 Q96 54 102 50" stroke="#e7e9ea" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-              <polygon points="70,30 56,12 84,28" fill="var(--fin)"/>
-              <polygon points="70,58 56,76 84,60" fill="var(--fin)"/>
+              <ellipse cx="54" cy="40" rx="5" ry="9" fill="#12081e" stroke="var(--fin)" stroke-width="1.6"/>
+              <ellipse cx="54" cy="56" rx="5" ry="9" fill="#12081e" stroke="var(--fin)" stroke-width="1.6"/>
+              <ellipse class="bell-core" cx="54" cy="40" rx="2.2" ry="4.5" fill="#3ecf8e" opacity=".35"/>
+              <ellipse class="bell-core" cx="54" cy="56" rx="2.2" ry="4.5" fill="#3ecf8e" opacity=".35"/>
+              <path class="fin" d="M86 34 L68 8 L108 30 Z" fill="var(--fin)" stroke="#e7e9ea" stroke-width="1"/>
+              <path class="fin" d="M86 62 L68 88 L108 66 Z" fill="var(--fin)" stroke="#e7e9ea" stroke-width="1"/>
+              <path d="M62 44 L52 48 L62 52 Z" fill="var(--fin)" stroke="#e7e9ea" stroke-width=".8"/>
+              <path class="hull" d="M58 36 C80 22, 130 18, 168 32 L186 48 L168 64 C130 78, 80 74, 58 60 Z" fill="url(#hullGrad)" stroke="#e7e9ea" stroke-width="1.5"/>
+              <path d="M78 40 C118 32, 148 34, 174 46" stroke="#fff" stroke-opacity=".22" stroke-width="1.1" fill="none"/>
+              <path d="M90 54 C120 58, 148 56, 172 50" stroke="#fff" stroke-opacity=".12" stroke-width="1" fill="none"/>
+              <rect x="92" y="44" width="22" height="2.2" rx="1" fill="#1a1028" opacity=".5"/>
+              <path class="nose" d="M168 32 L214 48 L168 64 Z" fill="url(#noseGrad)" stroke="#e7e9ea" stroke-width="1.2"/>
+              <ellipse class="canopy-glow" cx="128" cy="46" rx="18" ry="10" fill="url(#canGrad)" stroke="#8ab0ff" stroke-width="1.5"/>
+              <path d="M118 42 Q128 38 140 42" stroke="#fff" stroke-opacity=".45" stroke-width="1.4" fill="none"/>
+              <circle cx="158" cy="34" r="2" fill="#f0a33a"/>
             </svg>
           </div>
           <div class="rocket-hud">
             <div class="skin" id="gRocketSkin">Skin · Nebula Frame</div>
             <div class="dir" id="gRocketDir">— FLAT</div>
-            <div class="sub" id="gRocketSub">mark hold · no Δ</div>
+            <div class="sub" id="gRocketSub">chart stage · dim twin flame</div>
           </div>
+          <div class="pos-chip" id="gPosChip">no open · chart cruise</div>
         </div>
         <div class="rocket-bank">
           <div class="stat equity" id="gRocketEqCard">
@@ -2175,13 +2294,8 @@
         </div>
       </div>
 
-      <div class="game-idle-cta" id="gIdleCta">
-        <h3>Start a 24h · $5 paper run</h3>
-        <p>High score = most cash left when the clock hits zero. Force-sells open positions at 24h. No wallets.</p>
-        <button type="button" class="gbtn primary" id="gStartIdle">Start 24h ($5)</button>
-      </div>
-
       <div class="game-search">
+        <span class="sess" id="gSessChip">Idle</span>
         <button type="button" class="gbtn primary" id="gStart">Start 24h ($5)</button>
         <input type="text" id="gMint" placeholder="CA, ticker, or name (TikTok) — Play from Filter is safest." spellcheck="false" autocomplete="off" />
         <button type="button" class="gbtn" id="gQuote">Quote</button>
@@ -2190,10 +2304,6 @@
         <label class="gfield">TP%<input type="number" id="gTp" value="100" min="0" step="1" /></label>
         <button type="button" class="gbtn buy" id="gBuy">▲ BUY</button>
         <button type="button" class="gbtn sell" id="gSellAll" title="Sell every open position">▼ SELL ALL</button>
-        <label class="gfield mute-toggle" id="gMuteLabel" title="Mute paper-game sounds">
-          <input type="checkbox" id="gMute" />
-          <span id="gMuteText">Sound on</span>
-        </label>
       </div>
       <div class="game-status-row">
         <div class="game-status" id="gLine">Loading game…</div>
@@ -2261,8 +2371,11 @@
     </div>
 
     <footer class="app-foot">
-      APIs: <code>/api/flagged</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>
-      <div style="margin-top:4px">Open with <code>?v=66</code>. Tokens left · Social Tap (coin, meme, and crypto viral from public sources — nothing invented) or Traders on the right (Filter stays primary). Traders is a side tab: watchlist add/remove, socials only when the snapshot has them. QA checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: add <code>&amp;mode=game</code>. <code>game-idle</code> then Start sends <code>POST /api/game/start</code> with <code>{"force":true}</code> (confirms first) so an already-active run can show idle, then a new $5 countdown. <code>game-ended</code> shows final cash, ended-at, and scores without waiting 24h. Live JSON stays unchanged until Start. Equity tick proof on an active run: <code>?qa_tick=both</code> (tick+ then nose-down), <code>?qa_tick=up</code>, or <code>?qa_tick=down</code>. Display offset only — the shared paper book is unchanged. Do not combine with <code>?fixture=</code>.</div>
+      <div class="foot-live">Paper only · no wallets. <code>?v=67</code></div>
+      <details class="qa-foot">
+        <summary>QA fixtures</summary>
+        <div>APIs: <code>/api/flagged</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>. Social Tap is coin, meme, and crypto viral from public sources — nothing invented. Checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: <code>&amp;mode=game</code>. Equity tick proof: <code>?qa_tick=both</code>, <code>?qa_tick=up</code>, <code>?qa_tick=down</code>. Display offset only. Do not combine with <code>?fixture=</code>.</div>
+      </details>
     </footer>
   </div>
 
@@ -2300,7 +2413,7 @@
 
   <script>
 
-    const PANEL_V = 66;
+    const PANEL_V = 67;
     const SITTING_DROP_MIN = 5;
     const SITTING_NEAR_LEAD_MIN = 1;
     const SITTING_FRESH_MIN = 2;
@@ -2409,6 +2522,7 @@
       lastPosPrices: {},
       lastEquity: null,
       rocketSession: null,
+      gameGen: 0,
       rocketPulse: "",
       rocketPulseUntil: 0,
       rocketFloat: 0,
@@ -2668,8 +2782,8 @@
       high: [[523, 0.06], [784, 0.07], [1046, 0.12]],
       start: [[392, 0.05], [523, 0.06], [784, 0.09]],
       ready: [[880, 0.07]],
-      tick: [[880, 0.035], [1175, 0.04], [1568, 0.07]],
-      down: [[140, 0.09]],
+      tick: [[880, 0.035], [1174, 0.03], [1568, 0.04], [1976, 0.05]],
+      down: [[146, 0.06], [92, 0.07], [55, 0.05]],
       points: [[988, 0.04], [1318, 0.07]],
       tax: [[196, 0.05], [98, 0.09]],
       unlock: [[740, 0.04], [988, 0.045], [1568, 0.08]],
@@ -2677,16 +2791,16 @@
     const SOUND_WAVE = {
       buy: "square", sell: "sine", fail: "sawtooth", stop: "triangle",
       tp: "square", high: "triangle", start: "triangle", ready: "sine",
-      tick: "sine", down: "sine", points: "triangle", tax: "square", unlock: "triangle",
+      tick: "square", down: "sawtooth", points: "triangle", tax: "square", unlock: "triangle",
     };
     const SOUND_GAIN = {
       buy: 0.07, sell: 0.11, fail: 0.045, high: 0.06, ready: 0.05,
-      tick: 0.05, down: 0.04, points: 0.045, tax: 0.04, unlock: 0.05,
+      tick: 0.08, down: 0.09, points: 0.045, tax: 0.04, unlock: 0.05,
     };
 
     function soundLabel(kind, outcome) {
-      if (kind === "mute" || (kind === "ready" && outcome === "silent")) return "Muted — no audio";
-      if (kind === "ready" && outcome === "played") return "Sound on · played";
+      if (kind === "mute" || (kind === "ready" && outcome === "silent")) return "Mute";
+      if (kind === "ready" && outcome === "played") return "Sound on";
       const base = {
         buy: "sound: buy",
         sell: "sound: sell",
@@ -2696,12 +2810,12 @@
         high: "sound: high",
         start: "sound: start",
         ready: "Sound on",
-        tick: "♪ tick+",
-        down: "dull thump",
+        tick: "♪♪ WIN",
+        down: "♪ LOSS",
         points: "points",
         tax: "points tax",
         unlock: "shop unlock",
-      }[kind] || (kind ? ("sound: " + kind) : "Sound");
+      }[kind] || (kind ? ("sound: " + kind) : "Sound on");
       if (outcome === "silent") return base + " · muted";
       if (outcome === "blocked") return base + " · audio blocked";
       return base;
@@ -2820,9 +2934,24 @@
     function setMuteUi(muted) {
       state.mute = !!muted;
       const box = document.getElementById("gMute");
-      const text = document.getElementById("gMuteText");
       if (box) box.checked = state.mute;
-      if (text) text.textContent = state.mute ? "Muted — no audio" : "Sound on";
+      const onBtn = document.getElementById("gSoundOnBtn");
+      const muteBtn = document.getElementById("gSoundMuteBtn");
+      if (onBtn) {
+        onBtn.classList.toggle("on", !state.mute);
+        onBtn.setAttribute("aria-pressed", state.mute ? "false" : "true");
+      }
+      if (muteBtn) {
+        muteBtn.classList.toggle("on", state.mute);
+        muteBtn.setAttribute("aria-pressed", state.mute ? "true" : "false");
+      }
+      const rocket = document.getElementById("gRocket");
+      if (rocket) rocket.setAttribute("data-audio", state.mute ? "mute" : "on");
+      const pill = document.getElementById("gRocketSound");
+      if (pill && state.mute) pill.textContent = "Mute";
+      else if (pill && rocket && rocket.getAttribute("data-sfx") !== "win" && rocket.getAttribute("data-sfx") !== "loss") {
+        pill.textContent = "Sound on";
+      }
     }
 
     function lpPctOf(r) {
@@ -3968,7 +4097,8 @@
         }
         setGameLine("Fixture session ended. Final cash $5.00. Live /api JSON is unchanged.", "ok");
       }
-      paintRocket({ equity_usd: null, pnl_pct: 0 }, "idle", 0);
+      paintRocket({ equity_usd: null, pnl_pct: 0, status: fx === "game-ended" ? "ended" : "idle" }, "idle", 0);
+      paintStartChrome(fx === "game-ended" ? "ended" : (fx === "game-idle" || fx === "game-empty" ? "idle" : ""));
       paintFinish(state.game);
     }
 
@@ -4150,20 +4280,54 @@
     }
 
     /* —— Game —— */
-    function clearBootGameLine() {
+    function liveRunLine(g) {
+      const cash = g && g.cash_usd != null ? fmtGameUsd(g.cash_usd) : "—";
+      const endTxt = g && g.ends_at ? (" · ends " + fmtUtc(g.ends_at)) : "";
+      return "24h run live — " + cash + " paper" + endTxt + ". Quote a coin and Buy.";
+    }
+
+    function applySessionChrome(g) {
+      g = g || state.game || {};
       const line = document.getElementById("gLine");
-      if (!line || !/^Loading game/.test(line.textContent || "")) return;
-      const g = state.game || {};
-      const st = g.status || "idle";
-      const cash = g.final_cash != null && st === "ended" ? g.final_cash : g.cash_usd;
-      if (st === "active") {
-        const n = (g.positions || []).length;
-        setGameLine((n ? (n + " open") : "Flat") + " · " + fmtGameUsd(cash) + " cash · clock running", "ok");
-      } else if (st === "ended") {
+      const text = (line && line.textContent) || "";
+      const decision = sessionChromeDecision(g.status || "idle", text);
+      if (!decision.replace) return;
+      if (decision.reason === "stale-ended" || decision.reason === "boot-active") {
+        setGameLine(liveRunLine(g), "ok");
+      } else if (decision.reason === "boot-ended") {
+        const cash = g.final_cash != null ? g.final_cash : g.cash_usd;
         setGameLine("Session ended · final cash " + fmtGameUsd(cash), "");
       } else {
         setGameLine("Idle · start a $5 paper run", "");
       }
+    }
+
+    function paintStartChrome(status) {
+      const startBtn = document.getElementById("gStart");
+      const chip = document.getElementById("gSessChip");
+      const st = status || "idle";
+      if (chip) {
+        chip.className = "sess" + (st === "active" ? " live" : (st === "ended" ? " ended" : ""));
+        chip.textContent = st === "active" ? "ACTIVE" : (st === "ended" ? "Session ended" : "Idle");
+      }
+      if (!startBtn) return;
+      const starts = document.querySelectorAll("#gStart");
+      if (starts.length !== 1) startBtn.setAttribute("data-start-count", String(starts.length));
+      if (st === "active") {
+        startBtn.textContent = "Restart…";
+        startBtn.classList.add("restart");
+        startBtn.classList.remove("primary");
+        startBtn.title = "Wipe this run and start a fresh $5 bankroll";
+      } else {
+        startBtn.textContent = "Start 24h ($5)";
+        startBtn.classList.remove("restart");
+        startBtn.classList.add("primary");
+        startBtn.title = "Start one 24h paper run";
+      }
+    }
+
+    function clearBootGameLine() {
+      applySessionChrome(state.game);
     }
 
     function setGameLine(msg, kind) {
@@ -4175,7 +4339,7 @@
 
     function setGameBusy(busy) {
       state.gameBusy = !!busy;
-      ["gBuy", "gQuote", "gStart", "gStartIdle", "gSellAll"].forEach((id) => {
+      ["gBuy", "gQuote", "gStart", "gSellAll"].forEach((id) => {
         const el = document.getElementById(id);
         if (el) el.disabled = !!busy;
       });
@@ -4215,6 +4379,49 @@
       return body;
     }
 
+    /* ship-g-pure-start */
+    function emptyQuoteDecision(mint) {
+      const q = String(mint == null ? "" : mint).trim();
+      if (!q) return { ok: false, start: false, mint: "", message: "Enter a coin — CA, ticker, or name" };
+      return { ok: true, start: false, mint: q, message: "" };
+    }
+
+    function sessionChromeDecision(status, lineText) {
+      const st = String(status || "idle");
+      const text = String(lineText || "");
+      if (st === "active" && /Session ended/.test(text)) return { replace: true, reason: "stale-ended" };
+      if (st === "active" && /^Loading game/.test(text)) return { replace: true, reason: "boot-active" };
+      if (st === "ended" && /^Loading game/.test(text)) return { replace: true, reason: "boot-ended" };
+      if (st !== "active" && st !== "ended" && (/^Loading game/.test(text) || /Session ended/.test(text))) {
+        return { replace: true, reason: "boot-idle" };
+      }
+      return { replace: false, reason: "" };
+    }
+
+    function pnlChipText(mood, pct) {
+      const n = Number(pct);
+      const mag = Number.isFinite(n) ? Math.abs(n) : 0;
+      const body = mag >= 0.05 ? (mag.toFixed(1) + "%") : "";
+      if (mood === "down") return "▼ DOWN" + (body ? (" −" + body) : "");
+      if (mood === "tick" || mood === "up") return "▲ UP" + (body ? (" +" + body) : "");
+      return "— FLAT";
+    }
+
+    function rocketSoundBadge(muted, mood, downPulse) {
+      if (muted) return "Mute";
+      if (mood === "tick") return "♪♪ WIN";
+      if (mood === "down" && downPulse) return "♪ LOSS";
+      return "Sound on";
+    }
+
+    function chartPointsFor(mood) {
+      if (mood === "tick") return "0,50 40,46 80,44 120,40 160,36 200,30 240,24 280,18 320,12";
+      if (mood === "down") return "0,30 40,28 80,32 120,36 160,42 200,48 240,54 280,60 320,66";
+      if (mood === "up") return "0,46 50,42 100,40 150,36 200,33 250,30 320,26";
+      return "0,48 40,44 80,46 120,38 160,40 200,34 240,36 280,30 320,28";
+    }
+    /* ship-g-pure-end */
+
     // QA force-tick. DexScreener marks often sit inside TICK_EPS for minutes,
     // so a Game poll never crosses tick+ / nose-down. ?qa_tick=both|up|down
     // sequences a display offset on /api/game/state. The paper book is not written.
@@ -4248,9 +4455,9 @@
     function qaTickStepNote(dir) {
       const amt = QA_TICK_STEP_USD.toFixed(2);
       if (dir === "down") {
-        return "QA force-tick nose-down −$" + amt + ". Smoke, no ♪ tick+. This browser only — server paper book unchanged.";
+        return "QA force-tick nose-down −$" + amt + ". Smoke, ♪ LOSS, never ♪♪ WIN. This browser only — server paper book unchanged.";
       }
-      return "QA force-tick tick+ +$" + amt + ". ♪ tick+ once and thruster lift. This browser only — server paper book unchanged.";
+      return "QA force-tick tick+ +$" + amt + ". ♪♪ WIN once and thruster lift. This browser only — server paper book unchanged.";
     }
 
     function qaTickDoneNote(plan) {
@@ -4482,13 +4689,66 @@
       return "+" + fmtPts(n);
     }
 
+    function paintChart(mood) {
+      const pts = chartPointsFor(mood);
+      const color = mood === "down" ? "#f07178" : "#3ecf8e";
+      const line = document.getElementById("gChartLine");
+      const fill = document.getElementById("gChartFill");
+      const dot = document.getElementById("gChartDot");
+      const stop = document.getElementById("gChartStop");
+      if (line) {
+        line.setAttribute("points", pts);
+        line.setAttribute("stroke", color);
+        line.setAttribute("stroke-width", mood === "tick" || mood === "down" ? "2.2" : "1.8");
+      }
+      if (fill) fill.setAttribute("points", "0,72 " + pts + " 320,72");
+      if (stop) stop.setAttribute("stop-color", color);
+      if (dot) {
+        const last = pts.trim().split(" ").pop().split(",");
+        dot.setAttribute("cx", last[0]);
+        dot.setAttribute("cy", last[1]);
+        dot.setAttribute("fill", color);
+      }
+    }
+
+    function chipPct(g, mood, floatDelta, pulsing) {
+      const equity = Number(g && g.equity_usd);
+      if (pulsing && Number.isFinite(equity) && Math.abs(equity) > 0.0001 && floatDelta != null && Number.isFinite(Number(floatDelta))) {
+        return (Number(floatDelta) / equity) * 100;
+      }
+      let openUsd = 0;
+      let stake = 0;
+      let has = false;
+      ((g && g.positions) || []).forEach((p) => {
+        if (!p) return;
+        if (p.pnl_usd != null && Number.isFinite(Number(p.pnl_usd))) {
+          has = true;
+          openUsd += Number(p.pnl_usd);
+        }
+        if (p.stake_usd != null && Number.isFinite(Number(p.stake_usd))) stake += Number(p.stake_usd);
+      });
+      if (has && stake) return (openUsd / stake) * 100;
+      if (g && g.pnl_pct != null && Number.isFinite(Number(g.pnl_pct))) return Number(g.pnl_pct);
+      return 0;
+    }
+
     function paintRocket(g, mood, floatDelta) {
       const rocket = document.getElementById("gRocket");
       if (!rocket) return;
       g = g || {};
+      mood = mood || "idle";
       const profile = g.profile || {};
-      rocket.setAttribute("data-mood", mood || "idle");
+      const downPulse = state.rocketPulse === "down" && Date.now() < state.rocketPulseUntil;
+      const pulsing = mood === "tick" || downPulse;
+      const positions = g.positions || [];
+      const hasOpen = positions.some((p) => p && (p.mint || p.symbol || p.pnl_usd != null));
+      const stage = (g.status === "ended") ? "ended" : ((!hasOpen && !pulsing) ? "demo" : "live");
+      rocket.setAttribute("data-mood", mood);
       rocket.setAttribute("data-skin", profile.tint || "nebula");
+      rocket.setAttribute("data-stage", stage);
+      const sfx = state.mute ? "off" : (mood === "tick" ? "win" : (downPulse ? "loss" : "off"));
+      rocket.setAttribute("data-sfx", sfx);
+      rocket.setAttribute("data-audio", state.mute ? "mute" : "on");
       if (state.qaTickDir) rocket.setAttribute("data-qa-tick", state.qaTickDir);
       else rocket.removeAttribute("data-qa-tick");
       const set = (id, text) => {
@@ -4497,45 +4757,51 @@
       };
       const labels = { idle: "Idle / flat", up: "Up", tick: "Tick+", down: "Down / loss" };
       set("gRocketState", labels[mood] || "Idle / flat");
-      const downPulse = state.rocketPulse === "down" && Date.now() < state.rocketPulseUntil;
-      set("gRocketSound", mood === "tick" ? "♪ tick+" : (mood === "down" && downPulse ? "Dull thump" : "No sound"));
+      set("gRocketSound", rocketSoundBadge(!!state.mute, mood, downPulse));
       set("gRocketSkin", "Skin · " + (profile.equipped_name || "Nebula Frame"));
-      const pct = g.pnl_pct != null && Number.isFinite(Number(g.pnl_pct)) ? fmtPct(Number(g.pnl_pct)) : "";
-      let dir = "— FLAT";
-      let sub = "mark hold · no Δ";
-      if (mood === "tick") {
-        dir = "▲ UP" + (pct ? (" " + pct) : "");
-        sub = "gain mark · thruster pulse";
-      } else if (mood === "up") {
-        dir = "▲ UP" + (pct ? (" " + pct) : "");
-        sub = "session green · calm";
-      } else if (mood === "down") {
-        dir = "▼ DOWN" + (pct ? (" " + pct) : "");
-        sub = downPulse ? "nose-down · smoke" : "nose-down · quiet";
-      }
-      set("gRocketDir", dir);
+      set("gRocketDir", pnlChipText(mood, chipPct(g, mood, floatDelta, pulsing)));
+      let sub = "chart stage · dim twin flame";
+      if (mood === "tick") sub = "lift · long twin flame";
+      else if (mood === "down") sub = "nose-down · smoke · no win hit";
+      else if (stage === "demo") sub = "demo cruise · dim twin flame";
       set("gRocketSub", sub);
       const floatEl = document.getElementById("gFloatDelta");
       if (floatEl) floatEl.textContent = mood === "tick" ? fmtSignedTick(floatDelta) : "";
+      const pos = positions[0];
+      const posChip = document.getElementById("gPosChip");
+      if (posChip) {
+        if (!pos) posChip.textContent = stage === "demo" ? "no open · chart cruise" : "no open";
+        else posChip.textContent = "OPEN · " + (pos.symbol || "?") + (pos.pnl_usd != null ? (" · " + fmtSignedTick(pos.pnl_usd)) : "");
+      }
       const eqEl = document.getElementById("gRocketEquity");
       if (eqEl) {
         eqEl.textContent = fmtGameUsd(g.equity_usd);
         eqEl.className = "val" + (mood === "tick" || mood === "up" ? " good" : (mood === "down" ? " bad" : ""));
       }
-      set("gRocketEqHint", mood === "tick" ? "green flash" : (mood === "down" ? "session red · quiet" : "unchanged this mark"));
+      const sessionSigned = g.pnl_usd != null ? fmtSignedTick(g.pnl_usd) : "$0.00";
+      set("gRocketEqHint", mood === "tick" ? "green flash · " + sessionSigned : (mood === "down" ? "session red · " + sessionSigned : "session " + sessionSigned));
+      if (pulsing && floatDelta != null && Number.isFinite(Number(floatDelta)) && Number(floatDelta) !== 0) {
+        state.lastTickShown = Number(floatDelta);
+        state.lastTickSign = mood === "tick" ? "up" : "down";
+      }
       const last = document.getElementById("gLastTick");
       if (last) {
-        if (mood === "tick" || downPulse) {
-          last.textContent = fmtSignedTick(floatDelta != null ? floatDelta : state.rocketFloat);
-          last.className = "val " + (mood === "tick" ? "good" : "bad");
+        if (state.lastTickShown != null) {
+          last.textContent = fmtSignedTick(state.lastTickShown);
+          last.className = "val " + (state.lastTickSign === "down" ? "bad" : "good");
         } else {
           last.textContent = "$0.00";
           last.className = "val";
         }
       }
-      set("gLastTickHint", mood === "tick" ? "♪ short up-chirp · once" : (mood === "down" ? "never ♪ tick+" : "no cue · rocket calm"));
+      let tickHint = "waiting mark";
+      if (state.lastTickSign === "up") tickHint = "♪♪ WIN · once";
+      else if (state.lastTickSign === "down") tickHint = "♪ LOSS · not tick+";
+      else if (!hasOpen) tickHint = "no cue · craft idle";
+      set("gLastTickHint", tickHint);
       const eqCard = document.getElementById("gEquityCard");
       if (eqCard) eqCard.classList.toggle("gain-flash", mood === "tick");
+      paintChart(mood);
     }
 
     function noteEquityTick(g, eq, status) {
@@ -4547,6 +4813,8 @@
         state.rocketPulse = "";
         state.rocketPulseUntil = 0;
         state.lastTickDir = "";
+        state.lastTickShown = null;
+        state.lastTickSign = "";
         if (hadSession && state.qaTickPlan && state.qaTickPlan.length) state.qaSkipNextTick = true;
       } else if (state.qaSkipNextTick) {
         state.qaSkipNextTick = false;
@@ -4685,11 +4953,21 @@
           const price = sku.owned
             ? '<div class="price free">' + (sku.id === "plain" ? "Default · 0" : "Owned") + "</div>"
             : '<div class="price">' + fmtPts(sku.price) + " pts</div>";
+          const mini = '<div class="mini" aria-hidden="true"><svg viewBox="0 0 88 32">' +
+            '<path d="M30 13 L24 4 L40 12 Z" fill="var(--fin)"/>' +
+            '<path d="M30 19 L24 28 L40 20 Z" fill="var(--fin)"/>' +
+            '<path d="M22 12 C32 7, 50 6, 64 11 L72 16 L64 21 C50 26, 32 25, 22 20 Z" fill="var(--hull1)" stroke="var(--hull2)" stroke-width="1"/>' +
+            '<path d="M64 11 L80 16 L64 21 Z" fill="#f4f4f8"/>' +
+            '<ellipse cx="48" cy="15" rx="7" ry="3.4" fill="#8ab4ff" stroke="#d8f0ff" stroke-width=".6"/>' +
+            '<ellipse cx="16" cy="16" rx="8" ry="3.2" fill="#3ecf8e" opacity=".7"/>' +
+            "</svg></div>";
           return '<div class="' + cls + '" data-skin="' + esc(sku.tint || sku.id) + '" data-id="' + esc(sku.id) + '">' +
             badge +
+            mini +
             '<div class="preview"></div>' +
             '<div class="title">' + esc(sku.name) + "</div>" +
             price +
+            '<div class="prev-lab">Preview</div>' +
             '<button type="button" class="gbtn cta" data-shop="' + esc(action) + '" data-id="' + esc(sku.id) + '"' +
             (action ? "" : " disabled") + ">" + esc(cta) + "</button></div>";
         }).join("") || '<div class="empty">Shop loads with the game.</div>';
@@ -4860,20 +5138,7 @@
         }
       }
 
-      const startBtn = document.getElementById("gStart");
-      if (startBtn) {
-        if (status === "active") {
-          startBtn.textContent = "Restart…";
-          startBtn.classList.add("restart");
-          startBtn.classList.remove("primary");
-          startBtn.title = "Wipe this run and start a fresh $5 bankroll";
-        } else {
-          startBtn.textContent = "Start 24h ($5)";
-          startBtn.classList.remove("restart");
-          startBtn.classList.add("primary");
-          startBtn.title = "Start a new 24h paper run";
-        }
-      }
+      paintStartChrome(status);
 
       if (peak != null && peak > state.lastPeak + 0.0001 && status === "active" && state.lastPeak > 0) {
         beep("high");
@@ -4998,6 +5263,7 @@
 
       noteEquityTick(g, eq, status);
       paintFinish(g);
+      applySessionChrome(g);
 
       // Keep quote-card live price ticking when a quote is on screen
       if (state.lastQuoteMint && status === "active") {
@@ -5099,6 +5365,7 @@
     }
 
     async function loadGame(forceTick) {
+      const gen = state.gameGen || 0;
       try {
         const qaMode = planQaTickForFetch(Date.now());
         const qaQs = qaMode ? ("?qa_tick=" + encodeURIComponent(qaMode)) : "";
@@ -5109,6 +5376,7 @@
           cache: "no-store",
         });
         if (!res.ok) throw new Error("game HTTP " + res.status);
+        if (gen !== (state.gameGen || 0)) return;
         state.game = await res.json();
         state.gameLoaded = true;
         const wasDown = state.gameFailCount > 0 || state.lastGameErr;
@@ -5157,6 +5425,7 @@
         ? "Start a fresh $5 paper run? This ends the current session on the server."
         : "Restart and wipe current 24h run + open positions?")) return;
       setGameBusy(true);
+      state.gameGen = (state.gameGen || 0) + 1;
       setGameLine(force ? "Starting fresh $5 paper run…" : "Starting 24h run…", "warn");
       try {
         const res = await fetch("/api/game/start", {
@@ -5175,12 +5444,15 @@
         state.rocketPulseUntil = 0;
         state.rocketSession = null;
         state.lastTickDir = "";
+        state.lastTickShown = null;
+        state.lastTickSign = "";
         if (fromIdleFixture) clearGameFixture();
-        renderGame();
-        playResponseSound(data);
         const cashTxt = state.game && state.game.cash_usd != null ? fmtGameUsd(state.game.cash_usd) : "—";
         const endTxt = state.game && state.game.ends_at ? fmtUtc(state.game.ends_at) : "";
-        setGameLine("24h run live — " + cashTxt + " paper" + (endTxt ? (" · ends " + endTxt) : "") + ". Quote a CA and Buy.", "ok");
+        setGameLine("24h run live — " + cashTxt + " paper" + (endTxt ? (" · ends " + endTxt) : "") + ". Quote a coin and Buy.", "ok");
+        renderGame();
+        playResponseSound(data);
+        setGameLine("24h run live — " + cashTxt + " paper" + (endTxt ? (" · ends " + endTxt) : "") + ". Quote a coin and Buy.", "ok");
         toast("24h game started — " + cashTxt + " paper");
       } catch (e) {
         beep("fail");
@@ -5193,8 +5465,17 @@
 
     async function gameQuote(mint) {
       if (state.gameBusy) return;
-      mint = (mint || document.getElementById("gMint").value || "").trim();
-      if (!mint) { setGameLine("Paste a mint/CA, ticker, or name first", "bad"); toast("Paste CA / ticker / name", true); return; }
+      const decision = emptyQuoteDecision(mint || (document.getElementById("gMint") && document.getElementById("gMint").value) || "");
+      if (!decision.ok || decision.start) {
+        beep("fail");
+        const msg = decision.message || "Enter a coin — CA, ticker, or name";
+        setGameLine(msg, "bad");
+        toast(msg, true);
+        const emptyBox = document.getElementById("gQuoteBox");
+        if (emptyBox) emptyBox.innerHTML = '<div class="err">' + esc(msg) + ". Quote does not start a run.</div>";
+        return;
+      }
+      mint = decision.mint;
       const requestedMint = mint;
       document.getElementById("gMint").value = requestedMint;
       const box = document.getElementById("gQuoteBox");
@@ -5406,9 +5687,18 @@
       }
     }
 
-    async function ensureGameActive() {
+    async function ensureGameActive(mint) {
+      const gate = emptyQuoteDecision(mint);
+      if (!gate.ok || gate.start) {
+        const msg = gate.message || "Enter a coin — CA, ticker, or name";
+        beep("fail");
+        setGameLine(msg, "bad");
+        toast(msg, true);
+        return false;
+      }
       if (state.game && state.game.status === "active") return true;
       let sounded = false;
+      state.gameGen = (state.gameGen || 0) + 1;
       try {
         const res = await fetch("/api/game/start", {
           method: "POST",
@@ -5454,7 +5744,7 @@
       setGameBusy(true);
       setGameLine("Buying…", "warn");
       try {
-        if (!(await ensureGameActive())) return;
+        if (!(await ensureGameActive(requestedMint))) return;
         const body = { mint: requestedMint, stake_usd: stake };
         if (sl !== "") body.sl_pct = Number(sl);
         if (tp !== "") body.tp_pct = Number(tp);
@@ -5748,9 +6038,11 @@
       if (state.mode === "game") loadGame(true);
     });
     document.getElementById("gStart").addEventListener("click", gameStart);
-    const gStartIdle = document.getElementById("gStartIdle");
-    if (gStartIdle) gStartIdle.addEventListener("click", gameStart);
-    document.getElementById("gQuote").addEventListener("click", () => gameQuote());
+    document.getElementById("gQuote").addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      gameQuote();
+    });
     document.getElementById("gBuy").addEventListener("click", () => gameBuy());
     document.getElementById("gSellAll").addEventListener("click", () => gameSellAll());
     document.getElementById("gMint").addEventListener("keydown", (ev) => {
@@ -5791,10 +6083,15 @@
         if (action && id) gameShop(action, id);
       });
     }
-    document.getElementById("gMute").addEventListener("change", (e) => {
-      setMuteUi(!!e.target.checked);
-      if (state.mute) markSound("mute", "silent");
-      else beep("ready");
+    document.getElementById("gSoundOnBtn").addEventListener("click", () => {
+      if (!state.mute) return;
+      setMuteUi(false);
+      beep("ready");
+    });
+    document.getElementById("gSoundMuteBtn").addEventListener("click", () => {
+      if (state.mute) return;
+      setMuteUi(true);
+      markSound("mute", "silent");
     });
     document.getElementById("gPositions").addEventListener("click", (ev) => {
       const btn = ev.target.closest(".g-sell");
