@@ -119,6 +119,47 @@
     }
     .age-pill.warn { color: var(--warn); background: #241e10; border-color: #6a5320; }
     .age-pill.bad { color: var(--bad); background: #241418; border-color: #6a2a32; }
+    /* SHIP H — Filter lag banner (mock-filter-lag-warning-v1). Hidden on Game. */
+    .lag-banner {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px;
+      margin: 0 0 8px; padding: 12px 14px; border-radius: 10px;
+      border: 1px solid #8a6520;
+      background: linear-gradient(90deg, #2a1e08 0%, #1a1408 60%, #12100a 100%);
+    }
+    .lag-banner.loud { box-shadow: 0 0 18px rgba(240,163,58,.28); }
+    .lag-banner.mid { box-shadow: none; border-color: #6a5320; background: #1a1510; }
+    .lag-banner.fresh-state {
+      border-color: #2a5a40;
+      background: linear-gradient(90deg, #102018 0%, #0e1410 60%, #0a100c 100%);
+      box-shadow: 0 0 14px rgba(62,207,142,.18);
+    }
+    .lag-icon {
+      width: 36px; height: 36px; border-radius: 8px;
+      display: grid; place-items: center; font-size: 1.15rem;
+      background: #3a2810; border: 1px solid #8a6520; flex-shrink: 0;
+    }
+    .lag-banner.fresh-state .lag-icon { background: #102018; border-color: #2a5a40; }
+    .lag-copy { flex: 1; min-width: 220px; }
+    .lag-copy .title {
+      font-size: 1.05rem; font-weight: 900; letter-spacing: -0.01em; color: var(--amber);
+    }
+    .lag-banner.fresh-state .lag-copy .title { color: var(--good); }
+    .lag-copy .detail {
+      margin-top: 3px; font-size: 0.84rem; color: #d0b888; font-family: var(--mono); line-height: 1.35;
+    }
+    .lag-banner.fresh-state .lag-copy .detail { color: #9ed4b0; }
+    .lag-copy .detail b { color: var(--text); }
+    .lag-banner.fresh-state .lag-copy .detail b { color: #d4f5d8; }
+    .lag-meta {
+      display: flex; flex-direction: column; gap: 2px; align-items: flex-end;
+      font-family: var(--mono); font-size: 0.72rem;
+    }
+    .lag-meta .age { font-weight: 900; font-size: 1.35rem; color: var(--amber); line-height: 1; }
+    .lag-banner.fresh-state .lag-meta .age { color: var(--good); }
+    .lag-meta .bound { color: var(--muted); }
+    .lag-meta .bound b { color: #e8c070; }
+    .lag-banner.fresh-state .lag-meta .bound b { color: var(--good); }
+    body.mode-game #lagBanner { display: none; }
     .banner {
       background: #142018; border: 1px solid #2f5a32; color: #b8e6c0;
       padding: 7px 12px; border-radius: 8px; margin: 0 0 10px; font-size: 0.78rem;
@@ -1917,7 +1958,7 @@
         <div class="logo">N</div>
         <div>
           <h1>Nunu Filter</h1>
-          <p class="sub">Solana Research Panel · paper only · v65</p>
+          <p class="sub">Solana Research Panel · paper only · v66</p>
         </div>
       </div>
       <div class="mode-tabs" role="tablist">
@@ -1934,10 +1975,21 @@
           </span>
           <span class="pf-edit">Edit</span>
         </button>
-        <span class="age-pill" id="dataAge">data age —</span>
         <button class="refresh" type="button" id="btnRefresh" title="Force refresh">Refresh</button>
       </div>
     </header>
+
+    <div class="lag-banner loud" id="lagBanner" role="status" data-lag="loud">
+      <div class="lag-icon" id="lagIcon" aria-hidden="true">⚠</div>
+      <div class="lag-copy">
+        <div class="title" id="lagTitle">Behind live · not Dex 1s</div>
+        <div class="detail" id="lagDetail">data age <b>—</b> · up to ~<b>5m</b> lag (5‑min scan) · paper scores can trail mid-dump</div>
+      </div>
+      <div class="lag-meta">
+        <div class="age" id="lagAge">—</div>
+        <div class="bound" id="lagBound">worst <b>≤ ~5m</b></div>
+      </div>
+    </div>
 
     <div class="banner">
       <strong>Paper research only.</strong>
@@ -1972,7 +2024,7 @@
         <section class="pane token-pane">
           <div class="pane-head">
             <h2>Token flow</h2>
-            <span class="sub" id="filterSub">Live · on-chain · filtered · sitting drop 5m</span>
+            <span class="sub" id="filterSub">On-chain · filtered · sitting drop 5m</span>
             <span class="muted" id="metaCompact">—</span>
             <span class="muted" id="tweetsCollapseReason" hidden></span>
             <span class="muted" id="sideTiming"></span>
@@ -2210,7 +2262,7 @@
 
     <footer class="app-foot">
       APIs: <code>/api/flagged</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>
-      <div style="margin-top:4px">Open with <code>?v=65</code>. Tokens left · Social Tap (coin, meme, and crypto viral from public sources — nothing invented) or Traders on the right (Filter stays primary). Traders is a side tab: watchlist add/remove, socials only when the snapshot has them. QA checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: add <code>&amp;mode=game</code>. <code>game-idle</code> then Start sends <code>POST /api/game/start</code> with <code>{"force":true}</code> (confirms first) so an already-active run can show idle, then a new $5 countdown. <code>game-ended</code> shows final cash, ended-at, and scores without waiting 24h. Live JSON stays unchanged until Start. Equity tick proof on an active run: <code>?qa_tick=both</code> (tick+ then nose-down), <code>?qa_tick=up</code>, or <code>?qa_tick=down</code>. Display offset only — the shared paper book is unchanged. Do not combine with <code>?fixture=</code>.</div>
+      <div style="margin-top:4px">Open with <code>?v=66</code>. Tokens left · Social Tap (coin, meme, and crypto viral from public sources — nothing invented) or Traders on the right (Filter stays primary). Traders is a side tab: watchlist add/remove, socials only when the snapshot has them. QA checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: add <code>&amp;mode=game</code>. <code>game-idle</code> then Start sends <code>POST /api/game/start</code> with <code>{"force":true}</code> (confirms first) so an already-active run can show idle, then a new $5 countdown. <code>game-ended</code> shows final cash, ended-at, and scores without waiting 24h. Live JSON stays unchanged until Start. Equity tick proof on an active run: <code>?qa_tick=both</code> (tick+ then nose-down), <code>?qa_tick=up</code>, or <code>?qa_tick=down</code>. Display offset only — the shared paper book is unchanged. Do not combine with <code>?fixture=</code>.</div>
     </footer>
   </div>
 
@@ -2248,12 +2300,65 @@
 
   <script>
 
-    const PANEL_V = 65;
+    const PANEL_V = 66;
     const SITTING_DROP_MIN = 5;
     const SITTING_NEAR_LEAD_MIN = 1;
     const SITTING_FRESH_MIN = 2;
     const SOCIAL_TAP_FRESH_MIN = 5;
     const QUOTE_SLA_S = 15;
+    const FEED_LOOP_MIN = 5;
+    const NEAR_LIVE_SEC = 60;
+    const LOUD_LAG_SEC = 4 * 60;
+
+    function lagAgeText(ageSec) {
+      if (ageSec == null || !Number.isFinite(ageSec)) return "—";
+      const s = Math.max(0, Math.floor(ageSec));
+      if (s < 60) return (s / 60).toFixed(1) + "m";
+      return Math.floor(s / 60) + "m " + (s % 60) + "s";
+    }
+
+    function lagPhase(ageSec) {
+      if (ageSec == null || !Number.isFinite(ageSec)) return "loud";
+      if (ageSec < NEAR_LIVE_SEC) return "fresh";
+      if (ageSec >= LOUD_LAG_SEC) return "loud";
+      return "mid";
+    }
+
+    function lagDetailHtml(phase, ageTxt, ageSec) {
+      const age = "<b>" + ageTxt + "</b>";
+      if (phase === "fresh") {
+        return "data age " + age + " · next scan ≤ <b>5m</b> · still not Dex 1s — paper research loop";
+      }
+      if (ageSec != null && ageSec > FEED_LOOP_MIN * 60) {
+        return "data age " + age + " · older than the ~<b>5m</b> loop (5‑min scan) · not Dex 1s";
+      }
+      return "data age " + age + " · up to ~<b>5m</b> lag (5‑min scan) · paper scores can trail mid-dump";
+    }
+
+    function paintLag(dataAsOf) {
+      let ageSec = null;
+      const parsed = Date.parse(dataAsOf || "");
+      if (dataAsOf && !Number.isNaN(parsed)) {
+        ageSec = Math.max(0, Math.floor((Date.now() - parsed) / 1000));
+      }
+      const phase = lagPhase(ageSec);
+      const ageTxt = lagAgeText(ageSec);
+      const banner = document.getElementById("lagBanner");
+      const icon = document.getElementById("lagIcon");
+      const title = document.getElementById("lagTitle");
+      const detail = document.getElementById("lagDetail");
+      const ageEl = document.getElementById("lagAge");
+      const bound = document.getElementById("lagBound");
+      if (banner) {
+        banner.className = "lag-banner" + (phase === "fresh" ? " fresh-state" : phase === "mid" ? " mid" : " loud");
+        banner.setAttribute("data-lag", phase);
+      }
+      if (icon) icon.textContent = phase === "fresh" ? "✓" : "⚠";
+      if (title) title.textContent = phase === "fresh" ? "Near live · just scanned" : "Behind live · not Dex 1s";
+      if (detail) detail.innerHTML = lagDetailHtml(phase, ageTxt, ageSec);
+      if (ageEl) ageEl.textContent = ageTxt;
+      if (bound) bound.innerHTML = phase === "fresh" ? "next <b>≤ ~5m</b>" : "worst <b>≤ ~5m</b>";
+    }
     const UI_FIXTURES = [
       "flagged-loading", "flagged-empty", "flagged-error",
       "tweets-loading", "tweets-empty", "tweets-error",
@@ -3587,27 +3692,15 @@
       const visible = applyFilters(flagged);
       const dupTickers = sameTickerMap(flagged);
 
+      paintLag(dataAsOf);
       const ageSec = (() => {
         const t = Date.parse(dataAsOf);
         if (Number.isNaN(t)) return null;
         return Math.max(0, Math.floor((Date.now() - t) / 1000));
       })();
-      const ageClass = ageSec == null ? "" : (ageSec < 120 ? "" : ageSec < 600 ? "warn" : "bad");
-      const ageTxt = ageSec == null ? "—" : (ageSec < 60 ? ageSec + "s" : Math.floor(ageSec / 60) + "m " + (ageSec % 60) + "s");
       const dotClass = ageSec == null ? "stale" : (ageSec < 180 ? "" : ageSec < 600 ? "stale" : "dead");
       const dot = document.getElementById("liveDot");
       if (dot) dot.className = "live-dot " + dotClass;
-      const ageEl = document.getElementById("dataAge");
-      if (ageEl) {
-        ageEl.className = "age-pill " + ageClass;
-        if (ageSec != null && ageSec >= 600) {
-          ageEl.textContent = "stale " + ageTxt + " — run bot";
-          ageEl.title = "latest.json is old. On the Chromebook run: python3 bot.py --once (or start.sh)";
-        } else {
-          ageEl.textContent = "data age " + ageTxt;
-          ageEl.title = "";
-        }
-      }
       const mc = document.getElementById("metaCompact");
       if (mc) {
         mc.innerHTML = "Flagged <strong>" + flagged.length + "</strong> · showing <strong>" +
@@ -6356,19 +6449,11 @@
     function tickAge() {
       const latest = state.latest || {};
       const dataAsOf = latest.data_as_of || latest.run_finished;
-      const ageEl = document.getElementById("dataAge");
+      paintLag(dataAsOf);
       if (dataAsOf) {
         const t = Date.parse(dataAsOf);
         if (!Number.isNaN(t)) {
           const ageSec = Math.max(0, Math.floor((Date.now() - t) / 1000));
-          const ageTxt = ageSec < 60 ? ageSec + "s" : Math.floor(ageSec / 60) + "m " + (ageSec % 60) + "s";
-          const ageClass = ageSec < 120 ? "" : ageSec < 600 ? "warn" : "bad";
-          if (ageEl) {
-            ageEl.className = "age-pill " + ageClass;
-            ageEl.textContent = (ageSec != null && ageSec >= 600)
-              ? ("stale " + ageTxt + " — run bot")
-              : ("data age " + ageTxt);
-          }
           const dot = document.getElementById("liveDot");
           if (dot) {
             dot.className = "live-dot " + (ageSec < 180 ? "" : ageSec < 600 ? "stale" : "dead");

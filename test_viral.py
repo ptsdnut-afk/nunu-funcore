@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import unittest
 from datetime import datetime, timezone
 from unittest import mock
@@ -474,13 +475,14 @@ class SocialTapFreshnessTests(unittest.TestCase):
 
 
 class PanelRouteTests(unittest.TestCase):
-    def test_health_is_v65_with_mcap_progress_flag(self):
+    def test_health_is_v66_with_delay_warning(self):
         import server
 
         res = server.app.test_client().get("/api/health")
         self.assertEqual(res.status_code, 200)
         data = res.get_json()
-        self.assertEqual(data["panel_v"], 65)
+        self.assertEqual(data["panel_v"], 66)
+        self.assertIn("delay_warning", data["features"])
         self.assertEqual(data["qa_tick"], "page ?qa_tick=both|up|down")
         self.assertIn("game_finish", data["features"])
         self.assertIn("viral_live", data["features"])
@@ -529,12 +531,12 @@ class PanelRouteTests(unittest.TestCase):
             again = client.get("/api/tweets", headers={"If-None-Match": etag})
             self.assertEqual(again.status_code, 304)
 
-    def test_panel_labels_social_tap_v65(self):
+    def test_panel_labels_social_tap_v66(self):
         with open("static/index.html", encoding="utf-8") as fh:
             html = fh.read()
         self.assertIn(">Social Tap<", html)
-        self.assertIn("const PANEL_V = 65", html)
-        self.assertIn("paper only · v65", html)
+        self.assertIn("const PANEL_V = 66", html)
+        self.assertIn("paper only · v66", html)
         self.assertIn("Mcap · % max", html)
         self.assertIn("Market cap progress · paper research", html)
         self.assertIn("Ceiling math:", html)
@@ -561,7 +563,8 @@ class PanelRouteTests(unittest.TestCase):
         self.assertNotIn("?v=62", html)
         self.assertNotIn("?v=63", html)
         self.assertNotIn("?v=64", html)
-        self.assertIn("?v=65", html)
+        self.assertNotIn("?v=65", html)
+        self.assertIn("?v=66", html)
         self.assertIn("Where it’s at · DEX Screener", html)
         self.assertIn("data-quote-live", html)
         self.assertIn("quoteAgeOk", html)
@@ -574,6 +577,52 @@ class PanelRouteTests(unittest.TestCase):
         self.assertIn("score-btn.win", html)
         self.assertIn("coin-hero", html)
         self.assertIn("engine weights", html)
+
+    def test_lag_banner_matches_ship_h_mock(self):
+        with open("static/index.html", encoding="utf-8") as fh:
+            html = fh.read()
+        self.assertIn('id="lagBanner"', html)
+        self.assertIn("Behind live · not Dex 1s", html)
+        self.assertIn("Near live · just scanned", html)
+        self.assertIn("≤ ~5m", html)
+        self.assertIn("up to ~<b>5m</b> lag (5‑min scan)", html)
+        self.assertIn("paper scores can trail mid-dump", html)
+        self.assertIn("still not Dex 1s — paper research loop", html)
+        self.assertIn("next scan ≤ <b>5m</b>", html)
+        self.assertIn("const FEED_LOOP_MIN = 5", html)
+        self.assertIn("const NEAR_LIVE_SEC = 60", html)
+        self.assertIn("const LOUD_LAG_SEC = 4 * 60", html)
+        self.assertIn("sitting drop 5m", html)
+        self.assertIn("On-chain · filtered · sitting drop 5m", html)
+        self.assertNotIn('id="dataAge"', html)
+        self.assertNotIn("Live · on-chain · filtered", html)
+        self.assertIn("body.mode-game #lagBanner { display: none; }", html)
+        consts = html[html.index("const FEED_LOOP_MIN"):html.index("function lagAgeText")]
+        fns = html[html.index("function lagAgeText"):html.index("function paintLag")]
+        script = consts + "\n" + fns + r"""
+if (lagPhase(24) !== "fresh") process.exit(2);
+if (lagPhase(59) !== "fresh") process.exit(3);
+if (lagPhase(60) !== "mid") process.exit(4);
+if (lagPhase(239) !== "mid") process.exit(5);
+if (lagPhase(240) !== "loud") process.exit(6);
+if (lagPhase(243) !== "loud") process.exit(7);
+if (lagPhase(null) !== "loud") process.exit(8);
+if (lagAgeText(24) !== "0.4m") process.exit(9);
+if (lagAgeText(4 * 60 + 3) !== "4m 3s") process.exit(10);
+if (lagAgeText(null) !== "—") process.exit(11);
+const stale = lagDetailHtml("loud", "4m 3s", 243);
+if (stale.indexOf("data age <b>4m 3s</b>") < 0) process.exit(12);
+if (stale.indexOf("up to ~<b>5m</b> lag") < 0) process.exit(13);
+if (stale.indexOf("paper scores can trail mid-dump") < 0) process.exit(14);
+const fresh = lagDetailHtml("fresh", "0.4m", 24);
+if (fresh.indexOf("next scan ≤ <b>5m</b>") < 0) process.exit(15);
+if (fresh.indexOf("still not Dex 1s") < 0) process.exit(16);
+if (fresh.indexOf("1s live") >= 0) process.exit(17);
+const old = lagDetailHtml("loud", "12m 4s", 724);
+if (old.indexOf("older than the ~<b>5m</b> loop") < 0) process.exit(18);
+if (old.indexOf("not Dex 1s") < 0) process.exit(19);
+"""
+        subprocess.check_call(["node", "-e", script])
 
 
 if __name__ == "__main__":
