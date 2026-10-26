@@ -1876,7 +1876,7 @@
         <div class="logo">N</div>
         <div>
           <h1>Nunu Filter</h1>
-          <p class="sub">Solana Research Panel · paper only · v63</p>
+          <p class="sub">Solana Research Panel · paper only · v64</p>
         </div>
       </div>
       <div class="mode-tabs" role="tablist">
@@ -2167,7 +2167,7 @@
 
     <footer class="app-foot">
       APIs: <code>/api/flagged</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>
-      <div style="margin-top:4px">Open with <code>?v=63</code>. Tokens left · Social Tap (coin, meme, and crypto viral from public sources — nothing invented) or Traders on the right (Filter stays primary). Traders is a side tab: watchlist add/remove, socials only when the snapshot has them. QA checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: add <code>&amp;mode=game</code>. <code>game-idle</code> then Start sends <code>POST /api/game/start</code> with <code>{"force":true}</code> (confirms first) so an already-active run can show idle, then a new $5 countdown. <code>game-ended</code> shows final cash, ended-at, and scores without waiting 24h. Live JSON stays unchanged until Start.</div>
+      <div style="margin-top:4px">Open with <code>?v=64</code>. Tokens left · Social Tap (coin, meme, and crypto viral from public sources — nothing invented) or Traders on the right (Filter stays primary). Traders is a side tab: watchlist add/remove, socials only when the snapshot has them. QA checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: add <code>&amp;mode=game</code>. <code>game-idle</code> then Start sends <code>POST /api/game/start</code> with <code>{"force":true}</code> (confirms first) so an already-active run can show idle, then a new $5 countdown. <code>game-ended</code> shows final cash, ended-at, and scores without waiting 24h. Live JSON stays unchanged until Start. Equity tick proof on an active run: <code>?qa_tick=both</code> (tick+ then nose-down), <code>?qa_tick=up</code>, or <code>?qa_tick=down</code>. Display offset only — the shared paper book is unchanged. Do not combine with <code>?fixture=</code>.</div>
     </footer>
   </div>
 
@@ -2205,7 +2205,7 @@
 
   <script>
 
-    const PANEL_V = 63;
+    const PANEL_V = 64;
     const QUOTE_SLA_S = 15;
     const UI_FIXTURES = [
       "flagged-loading", "flagged-empty", "flagged-error",
@@ -2261,6 +2261,13 @@
       rocketPulseUntil: 0,
       rocketFloat: 0,
       lastTickDir: "",
+      qaTickPlan: null,
+      qaTickChecked: false,
+      qaTickScript: null,
+      qaTickPulseMs: 0,
+      qaTickNote: "",
+      qaTickDir: "",
+      qaSkipNextTick: false,
       pointsReady: false,
       seenPointAt: "",
       pfpDraft: "rocket",
@@ -3700,8 +3707,13 @@
       const note = document.getElementById("fixtureNote");
       if (note) {
         if (!fx) {
-          note.hidden = true;
-          note.textContent = "";
+          if (state.qaTickNote) {
+            note.hidden = false;
+            note.textContent = state.qaTickNote;
+          } else {
+            note.hidden = true;
+            note.textContent = "";
+          }
         } else {
           note.hidden = false;
           note.textContent = "UI fixture: " + fx + " — check only. Live /api JSON is unchanged.";
@@ -3933,6 +3945,260 @@
       return body;
     }
 
+    // QA force-tick. DexScreener marks often sit inside TICK_EPS for minutes,
+    // so a Game poll never crosses tick+ / nose-down. ?qa_tick=both|up|down
+    // sequences a display offset on /api/game/state. The paper book is not written.
+    // QA_TICK_STEP_USD must match game.QA_TICK_STEP_USD.
+    const QA_TICK_STEP_USD = 0.12;
+    const QA_TICK_HOLD_MS = 7000;
+
+    function qaRoundUsd(n) {
+      return Math.round(Number(n) * 1000) / 1000;
+    }
+
+    function readQaTickPlan(raw) {
+      const v = String(raw || "").trim().toLowerCase().replace(/\s+/g, "");
+      if (v === "up" || v === "plus" || v === "+" || v === "tick") return ["up"];
+      if (v === "down" || v === "dn" || v === "minus" || v === "-" || v === "loss") return ["down"];
+      if (v === "both" || v === "up,down" || v === "up-down" || v === "updown") return ["up", "down"];
+      return [];
+    }
+
+    function emptyQaStep() {
+      return { mode: "", expect: "", release: false, note: "", dir: "" };
+    }
+
+    function qaTickOffsetMode(offset, dir) {
+      if (offset > 0.000001) return "up";
+      if (offset < -0.000001) return "down";
+      if (dir === "down") return "flat";
+      return "";
+    }
+
+    function qaTickStepNote(dir) {
+      const amt = QA_TICK_STEP_USD.toFixed(2);
+      if (dir === "down") {
+        return "QA force-tick nose-down −$" + amt + ". Smoke, no ♪ tick+. This browser only — server paper book unchanged.";
+      }
+      return "QA force-tick tick+ +$" + amt + ". ♪ tick+ once and thruster lift. This browser only — server paper book unchanged.";
+    }
+
+    function qaTickDoneNote(plan) {
+      const parts = (plan || []).map((d) => (d === "down" ? "nose-down" : "tick+"));
+      return "QA force-tick done (" + parts.join(" then ") + "). Live marks resumed. Server paper book unchanged.";
+    }
+
+    function freshQaTickScript(plan) {
+      return {
+        plan: (plan || []).slice(),
+        phase: "",
+        session: "",
+        step: -1,
+        offset: 0,
+        dir: "",
+        holdUntil: 0,
+        holdNote: "",
+        armedNote: "",
+        doneNote: "",
+        inflight: false,
+        inflightPlan: null,
+        pulsePending: false,
+        releaseOnce: false,
+        frozenEquity: null,
+      };
+    }
+
+    function settleQaTickRequest(script) {
+      if (!script) return;
+      script.inflight = false;
+      script.inflightPlan = null;
+    }
+
+    function stepQaTick(script, now) {
+      const plan = script.plan || [];
+      if (script.phase === "done") {
+        return { mode: "", expect: "", release: false, note: script.doneNote || "", dir: "" };
+      }
+      if (!script.phase) {
+        script.phase = "armed";
+        script.step = -1;
+        script.offset = 0;
+        script.dir = "";
+        const first = plan[0] === "down" ? "nose-down −$" : "tick+ +$";
+        script.armedNote = "QA force-tick armed. Next refresh plays " + first + QA_TICK_STEP_USD.toFixed(2) + ". This browser only — server paper book unchanged.";
+        return { mode: "", expect: "", release: false, note: script.armedNote, dir: "" };
+      }
+      if (script.phase === "hold" && now < script.holdUntil) {
+        return {
+          mode: qaTickOffsetMode(script.offset, script.dir),
+          expect: "",
+          release: false,
+          note: script.holdNote || "",
+          dir: script.dir || "",
+        };
+      }
+      const next = script.step + 1;
+      if (next >= plan.length) {
+        const snap = Math.abs(script.offset || 0) >= 0.000001;
+        script.phase = "done";
+        script.offset = 0;
+        script.dir = "";
+        script.holdNote = "";
+        script.doneNote = qaTickDoneNote(plan);
+        script.releaseOnce = snap;
+        script.pulsePending = false;
+        script.frozenEquity = null;
+        return { mode: "", expect: "", release: snap, note: script.doneNote, dir: "" };
+      }
+      const dir = plan[next];
+      const prev = Number(script.offset) || 0;
+      const offset = dir === "up" ? qaRoundUsd(prev + QA_TICK_STEP_USD) : qaRoundUsd(prev - QA_TICK_STEP_USD);
+      script.step = next;
+      script.offset = offset;
+      script.phase = "hold";
+      script.dir = dir;
+      script.holdUntil = now + QA_TICK_HOLD_MS;
+      script.holdNote = qaTickStepNote(dir);
+      script.pulsePending = true;
+      script.frozenEquity = null;
+      return {
+        mode: qaTickOffsetMode(offset, dir),
+        expect: dir,
+        release: false,
+        note: script.holdNote,
+        dir: dir,
+      };
+    }
+
+    function planQaTickRequest(script, now) {
+      const plan = (script && script.plan) || [];
+      if (!plan.length) return emptyQaStep();
+      if (script.inflight && script.inflightPlan) return script.inflightPlan;
+      const step = stepQaTick(script, now);
+      script.inflight = true;
+      script.inflightPlan = step;
+      return step;
+    }
+
+    function applyQaTickRelease(releaseOnce, prev, next) {
+      if (!releaseOnce) return { prev: prev, releaseOnce: false };
+      if (next == null || !Number.isFinite(Number(next))) return { prev: prev, releaseOnce: true };
+      return { prev: Number(next), releaseOnce: false };
+    }
+
+    /* qa-tick-pure-end */
+
+    function ensureQaTickPlan() {
+      if (state.qaTickChecked) return state.qaTickPlan || [];
+      state.qaTickChecked = true;
+      let raw = "";
+      try { raw = new URLSearchParams(location.search).get("qa_tick") || ""; }
+      catch (e) { raw = ""; }
+      state.qaTickPlan = readQaTickPlan(raw);
+      return state.qaTickPlan;
+    }
+
+    function syncQaTickSession(sessionId) {
+      let script = state.qaTickScript;
+      if (!script) return null;
+      const sid = sessionId || "";
+      if (!script.session) {
+        if (sid) script.session = sid;
+        return script;
+      }
+      if (!sid || script.session === sid) return script;
+      script = freshQaTickScript(script.plan);
+      script.session = sid;
+      state.qaTickScript = script;
+      state.qaTickDir = "";
+      state.qaTickPulseMs = 0;
+      return script;
+    }
+
+    function paintQaTickNote() {
+      const note = document.getElementById("fixtureNote");
+      if (!note || state.fixture) return;
+      if (!state.qaTickNote) {
+        note.hidden = true;
+        note.textContent = "";
+        return;
+      }
+      note.hidden = false;
+      note.textContent = state.qaTickNote;
+    }
+
+    function planQaTickForFetch(now) {
+      if (gameFixtureOn()) return "";
+      const plan = ensureQaTickPlan();
+      if (!plan.length) return "";
+      if (!state.qaTickScript) state.qaTickScript = freshQaTickScript(plan);
+      const known = (state.game && state.game.session_id) || "";
+      syncQaTickSession(known);
+      if (state.game && state.game.status && state.game.status !== "active") {
+        if (!state.qaTickScript || state.qaTickScript.phase !== "done") {
+          state.qaTickNote = "QA force-tick needs an active 24h paper run. Start the run and stay on this Game URL.";
+          paintQaTickNote();
+        }
+        return "";
+      }
+      const step = planQaTickRequest(state.qaTickScript, now || Date.now());
+      state.qaTickDir = step.dir || "";
+      if (step.note) state.qaTickNote = step.note;
+      paintQaTickNote();
+      return step.mode || "";
+    }
+
+    function applyQaTickResponse(g) {
+      const plan = state.qaTickPlan || [];
+      if (!plan.length || !state.qaTickScript) return;
+      g = g || {};
+      let script = syncQaTickSession(g.session_id || "") || state.qaTickScript;
+      const status = g.status || "idle";
+      if (status !== "active" && script.phase !== "done") {
+        if (script.phase === "hold" && Math.abs(script.offset || 0) >= 0.000001) script.releaseOnce = true;
+        settleQaTickRequest(script);
+        script.phase = "";
+        script.step = -1;
+        script.offset = 0;
+        script.dir = "";
+        script.holdUntil = 0;
+        script.holdNote = "";
+        script.pulsePending = false;
+        script.frozenEquity = null;
+        state.qaTickDir = "";
+        state.qaTickPulseMs = 0;
+        state.qaTickNote = "QA force-tick needs an active 24h paper run. Start the run and stay on this Game URL.";
+        paintQaTickNote();
+        return;
+      }
+      settleQaTickRequest(script);
+      if (script.pulsePending) {
+        state.qaTickPulseMs = QA_TICK_HOLD_MS;
+        if (g.equity_usd != null && Number.isFinite(Number(g.equity_usd))) {
+          script.frozenEquity = Number(g.equity_usd);
+        }
+        script.pulsePending = false;
+      } else if (script.phase === "hold" && script.frozenEquity != null && g.equity_usd != null) {
+        const live = Number(g.equity_usd);
+        const frozen = Number(script.frozenEquity);
+        if (Number.isFinite(live) && Number.isFinite(frozen) && Math.abs(live - frozen) > 1e-9) {
+          if (g.pnl_usd != null && Number.isFinite(Number(g.pnl_usd))) {
+            g.pnl_usd = Math.round((Number(g.pnl_usd) + (frozen - live)) * 1000) / 1000;
+          }
+          const start = Number(g.start_bankroll);
+          if (Number.isFinite(start) && start > 0) {
+            g.pnl_pct = Math.round((frozen / start - 1) * 10000) / 100;
+          }
+          g.equity_usd = frozen;
+        }
+      }
+      state.qaTickDir = script.dir || "";
+      if (script.phase === "done") state.qaTickNote = script.doneNote || state.qaTickNote;
+      else if (script.phase === "hold" && script.holdNote) state.qaTickNote = script.holdNote;
+      else if (script.phase === "armed" && script.armedNote) state.qaTickNote = script.armedNote;
+      paintQaTickNote();
+    }
+
     function fmtPts(n) {
       const v = Math.round(Number(n) || 0);
       const body = Math.abs(v).toLocaleString("en-US");
@@ -3953,6 +4219,8 @@
       const profile = g.profile || {};
       rocket.setAttribute("data-mood", mood || "idle");
       rocket.setAttribute("data-skin", profile.tint || "nebula");
+      if (state.qaTickDir) rocket.setAttribute("data-qa-tick", state.qaTickDir);
+      else rocket.removeAttribute("data-qa-tick");
       const set = (id, text) => {
         const el = document.getElementById(id);
         if (el) el.textContent = text;
@@ -4003,27 +4271,40 @@
     function noteEquityTick(g, eq, status) {
       const sid = g && g.session_id;
       if (sid !== state.rocketSession) {
+        const hadSession = state.rocketSession != null && state.rocketSession !== "";
         state.rocketSession = sid || null;
         state.lastEquity = null;
         state.rocketPulse = "";
         state.rocketPulseUntil = 0;
         state.lastTickDir = "";
+        if (hadSession && state.qaTickPlan && state.qaTickPlan.length) state.qaSkipNextTick = true;
+      } else if (state.qaSkipNextTick) {
+        state.qaSkipNextTick = false;
+        if (eq != null && Number.isFinite(Number(eq))) state.lastEquity = Number(eq);
+      } else if (state.qaTickScript && state.qaTickScript.releaseOnce) {
+        const rel = applyQaTickRelease(true, state.lastEquity, eq);
+        state.lastEquity = rel.prev;
+        state.qaTickScript.releaseOnce = rel.releaseOnce;
       }
       const decision = equityTickDecision(state.lastEquity, eq, status);
+      const pulseMs = state.qaTickPulseMs || 1400;
       if (decision.sound === "tick") {
         beep("tick");
+        state.qaTickPulseMs = 0;
         state.lastTickDir = "up";
         state.rocketPulse = "tick";
-        state.rocketPulseUntil = Date.now() + 1400;
+        state.rocketPulseUntil = Date.now() + pulseMs;
         state.rocketFloat = decision.delta;
       } else if (decision.sound === "down") {
         if (state.lastTickDir !== "down") beep("down");
+        state.qaTickPulseMs = 0;
         state.lastTickDir = "down";
         state.rocketPulse = "down";
-        state.rocketPulseUntil = Date.now() + 1400;
+        state.rocketPulseUntil = Date.now() + pulseMs;
         state.rocketFloat = decision.delta;
-      } else if (decision.delta != null) {
-        state.lastTickDir = "flat";
+      } else {
+        state.qaTickPulseMs = 0;
+        if (decision.delta != null) state.lastTickDir = "flat";
       }
       if (eq != null && Number.isFinite(Number(eq))) state.lastEquity = Number(eq);
       const pulsing = !!(state.rocketPulse && Date.now() < state.rocketPulseUntil);
@@ -4242,6 +4523,7 @@
         return;
       }
       const g = state.game || {};
+      applyQaTickResponse(g);
       const status = g.status || "idle";
       const cashKnown = g.cash_usd != null && !Number.isNaN(Number(g.cash_usd));
       const cash = cashKnown ? Number(g.cash_usd) : null;
@@ -4437,9 +4719,12 @@
       ).join("") || '<div class="ev tick"><span class="t">now</span><span class="m">Tape quiet. Buy or sell to light it up.</span></div>';
 
       const mh = document.getElementById("gMarkHint");
-      if (mh) mh.textContent = status === "active"
-        ? ("Live · " + openN + " open · poll 2s · server " + ((g.server_time || "").slice(11, 19) || "—"))
-        : "Start a run (or just Buy — auto-starts)";
+      if (mh) {
+        const liveHint = status === "active"
+          ? ("Live · " + openN + " open · poll 2s · server " + ((g.server_time || "").slice(11, 19) || "—"))
+          : "Start a run (or just Buy — auto-starts)";
+        mh.textContent = state.qaTickNote ? state.qaTickNote : liveHint;
+      }
 
       noteEquityTick(g, eq, status);
       paintFinish(g);
@@ -4545,7 +4830,9 @@
 
     async function loadGame(forceTick) {
       try {
-        const res = await fetch("/api/game/state", {
+        const qaMode = planQaTickForFetch(Date.now());
+        const qaQs = qaMode ? ("?qa_tick=" + encodeURIComponent(qaMode)) : "";
+        const res = await fetch("/api/game/state" + qaQs, {
           method: forceTick ? "POST" : "GET",
           headers: forceTick ? { "Content-Type": "application/json" } : {},
           body: forceTick ? "{}" : undefined,

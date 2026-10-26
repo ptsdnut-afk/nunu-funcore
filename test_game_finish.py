@@ -187,12 +187,86 @@ class GameFinishTests(unittest.TestCase):
             weird = client.post("/api/game/shop", json={"action": "nope", "id": "acid"})
             self.assertEqual(weird.status_code, 400)
 
+    def test_qa_tick_view_offsets_equity_without_saving_or_mutating(self):
+        payload = {
+            "status": "active",
+            "equity_usd": 6.52,
+            "pnl_usd": 1.52,
+            "pnl_pct": 30.4,
+            "start_bankroll": 5.0,
+            "positions": [{"id": "p", "last_price_usd": 1.0}],
+        }
+        with mock.patch.object(game, "save_state") as save:
+            up = game.qa_tick_view(payload, "up")
+            down = game.qa_tick_view(payload, "down")
+            flat = game.qa_tick_view(payload, "flat")
+            plain = game.qa_tick_view(payload, "")
+            weird = game.qa_tick_view(payload, "both")
+            idle = game.qa_tick_view({"status": "idle", "equity_usd": 5.0}, "up")
+            save.assert_not_called()
+        self.assertEqual(payload["equity_usd"], 6.52)
+        self.assertEqual(payload["positions"][0]["last_price_usd"], 1.0)
+        self.assertAlmostEqual(up["equity_usd"] - 6.52, game.QA_TICK_STEP_USD, places=6)
+        self.assertGreaterEqual(up["qa_tick_delta_usd"], 0.005)
+        self.assertEqual(up["qa_tick"], "up")
+        self.assertAlmostEqual(up["pnl_usd"], 1.64, places=6)
+        self.assertAlmostEqual(down["equity_usd"] - 6.52, -game.QA_TICK_STEP_USD, places=6)
+        self.assertLessEqual(down["qa_tick_delta_usd"], -0.005)
+        self.assertEqual(down["qa_tick"], "down")
+        self.assertEqual(flat["equity_usd"], 6.52)
+        self.assertEqual(flat["qa_tick"], "down")
+        self.assertEqual(flat["qa_tick_delta_usd"], 0)
+        self.assertNotIn("qa_tick", plain)
+        self.assertNotIn("qa_tick", weird)
+        self.assertEqual(weird["equity_usd"], 6.52)
+        self.assertEqual(idle["equity_usd"], 5.0)
+        self.assertEqual(idle["qa_tick"], "need-active")
+        self.assertIs(up["positions"], payload["positions"])
+
+    def test_qa_tick_route_does_not_persist(self):
+        import server
+
+        payload = {
+            "status": "active",
+            "equity_usd": 6.52,
+            "pnl_usd": 1.52,
+            "start_bankroll": 5.0,
+            "positions": [{"id": "p"}],
+        }
+        client = server.app.test_client()
+        with mock.patch.object(server.game_mod, "public_state", return_value=payload), mock.patch.object(
+            server.game_mod, "save_state"
+        ) as save:
+            up = client.get("/api/game/state?qa_tick=up")
+            self.assertEqual(up.status_code, 200)
+            body = up.get_json()
+            self.assertAlmostEqual(body["equity_usd"], 6.64, places=4)
+            self.assertEqual(body["qa_tick"], "up")
+            self.assertEqual(payload["equity_usd"], 6.52)
+            plain = client.post("/api/game/state", json={})
+            self.assertEqual(plain.get_json()["equity_usd"], 6.52)
+            self.assertNotIn("qa_tick", plain.get_json())
+            down = client.post("/api/game/state?qa_tick=down", json={})
+            self.assertEqual(down.get_json()["qa_tick"], "down")
+            self.assertAlmostEqual(down.get_json()["equity_usd"], 6.4, places=4)
+            named = client.get("/api/game/state?qa_tick=both")
+            self.assertEqual(named.get_json()["equity_usd"], 6.52)
+            self.assertNotIn("qa_tick", named.get_json())
+            save.assert_not_called()
+        idle = {"status": "idle", "equity_usd": 5.0}
+        with mock.patch.object(server.game_mod, "public_state", return_value=idle):
+            blocked = client.get("/api/game/state?qa_tick=up")
+            self.assertEqual(blocked.get_json()["qa_tick"], "need-active")
+            self.assertEqual(blocked.get_json()["equity_usd"], 5.0)
+            self.assertEqual(idle["equity_usd"], 5.0)
+
     def test_health_lists_game_finish(self):
         import server
 
         res = server.app.test_client().get("/api/health")
         data = res.get_json()
-        self.assertEqual(data["panel_v"], 63)
+        self.assertEqual(data["panel_v"], 64)
+        self.assertEqual(data["qa_tick"], "page ?qa_tick=both|up|down")
         self.assertIn("game_finish", data["features"])
         self.assertIn("quote_sync", data["features"])
 
@@ -230,6 +304,80 @@ for (const raw of samples) {
   const lab = plainFlagLabel(raw);
   if (!lab || lab.includes("_") || lab === raw) process.exit(12);
 }
+"""
+        subprocess.check_call(["node", "-e", script])
+
+    def test_qa_force_tick_script_crosses_tick_eps_both_ways(self):
+        html = Path("static/index.html").read_text(encoding="utf-8")
+        self.assertIn('fetch("/api/game/state" + qaQs', html)
+        self.assertIn("data-qa-tick", html)
+        self.assertEqual(html.count('beep("tick")'), 1)
+        self.assertIn(f"const QA_TICK_STEP_USD = {game.QA_TICK_STEP_USD}", html)
+        self.assertIn("?qa_tick=both", html)
+        note = html[html.index("function noteEquityTick"):html.index("function notePointSounds")]
+        self.assertLess(note.index("qaSkipNextTick"), note.index("equityTickDecision"))
+        self.assertLess(note.index("applyQaTickRelease"), note.index("equityTickDecision"))
+        self.assertIn("state.qaTickPulseMs || 1400", note)
+        tick = html[html.index("const TICK_EPS"):html.index("function fmtSignedTick")]
+        qa = html[html.index("const QA_TICK_STEP_USD"):html.index("/* qa-tick-pure-end */")]
+        script = tick + "\n" + qa + r"""
+if (readQaTickPlan("both").join(",") !== "up,down") process.exit(20);
+if (readQaTickPlan("UP").join(",") !== "up") process.exit(21);
+if (readQaTickPlan("down").join(",") !== "down") process.exit(22);
+if (readQaTickPlan("nope").length !== 0) process.exit(23);
+const base = 6.52;
+const s = freshQaTickScript(readQaTickPlan("both"));
+const arm = planQaTickRequest(s, 0);
+if (arm.mode !== "" || arm.expect !== "" || s.phase !== "armed") process.exit(24);
+const dup = planQaTickRequest(s, 5);
+if (dup !== arm || s.step !== -1) process.exit(25);
+settleQaTickRequest(s);
+const up = planQaTickRequest(s, 2000);
+if (up.mode !== "up" || up.expect !== "up" || up.dir !== "up" || !s.pulsePending) process.exit(26);
+const upEq = Math.round((base + QA_TICK_STEP_USD) * 1000) / 1000;
+const upDec = equityTickDecision(base, upEq, "active");
+if (upDec.sound !== "tick" || upDec.moodPulse !== "tick") process.exit(27);
+s.pulsePending = false;
+settleQaTickRequest(s);
+const hold = planQaTickRequest(s, 4000);
+if (hold.mode !== "up" || hold.expect !== "" || s.pulsePending) process.exit(28);
+if (equityTickDecision(upEq, upEq, "active").sound !== "") process.exit(29);
+settleQaTickRequest(s);
+const dn = planQaTickRequest(s, s.holdUntil);
+if (dn.mode !== "flat" || dn.expect !== "down" || dn.dir !== "down") process.exit(30);
+const dnDec = equityTickDecision(upEq, base, "active");
+if (dnDec.sound !== "down" || dnDec.moodPulse === "tick") process.exit(31);
+if (!(base <= upEq - 0.005)) process.exit(32);
+s.pulsePending = false;
+settleQaTickRequest(s);
+const done = planQaTickRequest(s, s.holdUntil);
+if (done.release || s.releaseOnce || s.phase !== "done" || done.mode !== "") process.exit(33);
+const upOnly = freshQaTickScript(readQaTickPlan("up"));
+planQaTickRequest(upOnly, 0);
+settleQaTickRequest(upOnly);
+planQaTickRequest(upOnly, 10);
+settleQaTickRequest(upOnly);
+const upEnd = planQaTickRequest(upOnly, upOnly.holdUntil);
+if (!upEnd.release || !upOnly.releaseOnce) process.exit(34);
+const rel = applyQaTickRelease(true, base + QA_TICK_STEP_USD, base);
+if (rel.prev !== base || rel.releaseOnce) process.exit(35);
+if (equityTickDecision(rel.prev, base, "active").sound !== "") process.exit(36);
+const downOnly = freshQaTickScript(["down"]);
+planQaTickRequest(downOnly, 0);
+settleQaTickRequest(downOnly);
+const loss = planQaTickRequest(downOnly, 10);
+if (loss.mode !== "down" || loss.expect !== "down") process.exit(37);
+const lossEq = Math.round((base - QA_TICK_STEP_USD) * 1000) / 1000;
+if (equityTickDecision(base, lossEq, "active").sound !== "down") process.exit(38);
+settleQaTickRequest(downOnly);
+const back = planQaTickRequest(downOnly, downOnly.holdUntil);
+if (!back.release) process.exit(39);
+const backRel = applyQaTickRelease(true, lossEq, base);
+if (equityTickDecision(backRel.prev, base, "active").sound !== "") process.exit(40);
+const keep = applyQaTickRelease(false, base, upEq);
+if (keep.prev !== base || keep.releaseOnce) process.exit(41);
+if (equityTickDecision(keep.prev, upEq, "active").sound !== "tick") process.exit(42);
+if (equityTickDecision(base, upEq, "idle").sound !== "") process.exit(43);
 """
         subprocess.check_call(["node", "-e", script])
 

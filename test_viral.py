@@ -355,13 +355,14 @@ class ViralParseTests(unittest.TestCase):
 
 
 class PanelRouteTests(unittest.TestCase):
-    def test_health_is_v63_with_mcap_progress_flag(self):
+    def test_health_is_v64_with_mcap_progress_flag(self):
         import server
 
         res = server.app.test_client().get("/api/health")
         self.assertEqual(res.status_code, 200)
         data = res.get_json()
-        self.assertEqual(data["panel_v"], 63)
+        self.assertEqual(data["panel_v"], 64)
+        self.assertEqual(data["qa_tick"], "page ?qa_tick=both|up|down")
         self.assertIn("game_finish", data["features"])
         self.assertIn("viral_live", data["features"])
         self.assertIn("coin_detail", data["features"])
@@ -409,12 +410,12 @@ class PanelRouteTests(unittest.TestCase):
             again = client.get("/api/tweets", headers={"If-None-Match": etag})
             self.assertEqual(again.status_code, 304)
 
-    def test_panel_labels_social_tap_v63(self):
+    def test_panel_labels_social_tap_v64(self):
         with open("static/index.html", encoding="utf-8") as fh:
             html = fh.read()
         self.assertIn(">Social Tap<", html)
-        self.assertIn("const PANEL_V = 63", html)
-        self.assertIn("paper only · v63", html)
+        self.assertIn("const PANEL_V = 64", html)
+        self.assertIn("paper only · v64", html)
         self.assertIn("Mcap · % max", html)
         self.assertIn("Market cap progress · paper research", html)
         self.assertIn("Ceiling math:", html)
@@ -439,7 +440,8 @@ class PanelRouteTests(unittest.TestCase):
         self.assertNotIn("?v=60", html)
         self.assertNotIn("?v=61", html)
         self.assertNotIn("?v=62", html)
-        self.assertIn("?v=63", html)
+        self.assertNotIn("?v=63", html)
+        self.assertIn("?v=64", html)
         self.assertIn("Where it’s at · DEX Screener", html)
         self.assertIn("data-quote-live", html)
         self.assertIn("quoteAgeOk", html)
