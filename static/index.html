@@ -2093,6 +2093,74 @@
       #modeFilter .tok > .links { justify-content: flex-start; }
       .coin-hero, .outlook { grid-template-columns: 1fr 1fr; }
     }
+
+    /* SHIP J — top-right dismiss. Eyes: qa/mock-filter-dismiss-chrome-v1 */
+    .dismiss-x {
+      flex: 0 0 auto;
+      width: 28px;
+      height: 28px;
+      margin: 0;
+      padding: 0;
+      border-radius: 8px;
+      border: 1px solid #2a5a40;
+      background: #102018;
+      color: #3ecf8e;
+      font-size: 1rem;
+      font-weight: 900;
+      line-height: 1;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      box-shadow: 0 0 10px rgba(62,207,142,.25);
+    }
+    .dismiss-x[hidden] { display: none !important; }
+    .dismiss-x:hover, .dismiss-x:focus-visible {
+      background: #183828;
+      color: #3ecf8e;
+      outline: none;
+      box-shadow: 0 0 0 2px rgba(62,207,142,.35);
+    }
+    .dismiss-back {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      margin-top: 8px;
+      padding: 5px 10px;
+      border-radius: 8px;
+      border: 1px solid #2a5a40;
+      background: #0e1812;
+      color: #3ecf8e;
+      font-size: 0.68rem;
+      font-weight: 800;
+      width: fit-content;
+      cursor: pointer;
+    }
+    .dismiss-back:hover, .dismiss-back:focus-visible {
+      background: #14301f;
+      outline: none;
+    }
+    .score-detail .sd-head {
+      flex-wrap: nowrap;
+      align-items: flex-start;
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      background: #0a0a0a;
+      padding-top: 2px;
+    }
+    .score-detail .sd-titles {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 12px;
+      align-items: baseline;
+    }
+    .score-detail .sd-head .dismiss-x { margin-left: 8px; }
+    .pane-head .dismiss-x { margin-left: auto; }
+    .coin-sheet-bar { flex-wrap: nowrap; }
+    .coin-sheet-bar #coinSheetHead { flex: 1 1 auto; min-width: 0; overflow: hidden; }
+    .coin-sheet-bar .dismiss-x { margin-left: auto; align-self: flex-start; }
   </style>
 </head>
 <body>
@@ -2102,7 +2170,7 @@
         <div class="logo">N</div>
         <div>
           <h1>Nunu Filter</h1>
-          <p class="sub">Solana Research Panel · paper only · v68</p>
+          <p class="sub">Solana Research Panel · paper only · v69</p>
         </div>
       </div>
       <div class="mode-tabs" role="tablist">
@@ -2401,6 +2469,7 @@
           <div class="pane-head">
             <h2>Trade</h2>
             <span class="sub" id="gMarkHint">Live marks · poll 2s</span>
+            <button type="button" class="dismiss-x" id="gTradeBack" data-dismiss="trade" hidden aria-label="Clear selection" title="Clear selection">✕</button>
           </div>
           <div class="pane-body" id="gTradeBody" data-state="loading">
             <div id="gPickBox"></div>
@@ -2457,7 +2526,7 @@
     </div>
 
     <footer class="app-foot">
-      <div class="foot-live">Paper only · no wallets. <code>?v=67</code></div>
+      <div class="foot-live">Paper only · no wallets. <code>?v=69</code></div>
       <details class="qa-foot">
         <summary>QA fixtures</summary>
         <div>APIs: <code>/api/flagged</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>. Social Tap is coin, meme, and crypto viral from public sources — nothing invented. Checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: <code>&amp;mode=game</code>. Equity tick proof: <code>?qa_tick=both</code>, <code>?qa_tick=up</code>, <code>?qa_tick=down</code>. Display offset only. Do not combine with <code>?fixture=</code>.</div>
@@ -2469,7 +2538,7 @@
   <aside id="coinSheet" class="coin-sheet" hidden data-open="0" data-live="" role="dialog" aria-modal="true" aria-labelledby="coinSheetTitle">
     <div class="coin-sheet-bar">
       <div id="coinSheetHead"></div>
-      <button type="button" class="coin-x" id="coinSheetClose">Close</button>
+      <button type="button" class="dismiss-x" id="coinSheetClose" data-dismiss="coin" aria-label="Back to Token Flow" title="Back to Token Flow">✕</button>
     </div>
     <div id="coinSheetBody"></div>
     <p class="coin-sheet-note" id="coinSheetNote"></p>
@@ -2499,7 +2568,7 @@
 
   <script>
 
-    const PANEL_V = 68;
+    const PANEL_V = 69;
     const SITTING_DROP_MIN = 5;
     const SITTING_NEAR_LEAD_MIN = 1;
     const SITTING_FRESH_MIN = 2;
@@ -2630,6 +2699,7 @@
       GAME_POLL_MS: 2000,
       filterScanBusy: false,
       scoreOpenMint: "",
+      quoteSeq: 0,
       coinMint: "",
       coinSeq: 0,
       coinPreview: {},
@@ -3635,14 +3705,15 @@
       const empty = !factors && !why
         ? '<div class="sd-note">No breakdown stored on this row.</div>'
         : "";
-      return '<div class="sd-head"><strong>Score factors · ' + esc(scoreTxtOf(s12)) + "/12</strong>" +
+      return '<div class="sd-head"><div class="sd-titles"><strong>Score factors · ' + esc(scoreTxtOf(s12)) + "/12</strong>" +
         '<span class="muted">raw ' + esc(raw) + "/100</span>" +
         (trench ? '<span class="muted">trench band</span>' : "") +
-        "</div>" +
+        '</div><button type="button" class="dismiss-x" data-dismiss="score" aria-label="Back to Token Flow" title="Back to Token Flow">✕</button></div>' +
         (factors ? '<div class="factors">' + factors + "</div>" : "") +
         (why ? '<div class="sd-k">Why</div><ul class="why">' + why + "</ul>" : "") +
         hard + ctxHtml + empty +
-        '<p class="sd-note">Points and inputs are stored on the row. Bars are those points against the engine weights (liquidity 30, volume 25, holders 25, socials 20). This panel does not recalculate the score.</p>';
+        '<p class="sd-note">Points and inputs are stored on the row. Bars are those points against the engine weights (liquidity 30, volume 25, holders 25, socials 20). This panel does not recalculate the score.</p>' +
+        '<button type="button" class="dismiss-back" data-dismiss="score">← Back to Token Flow</button>';
     }
 
     function scorePopHtml(r) {
@@ -5755,6 +5826,85 @@
       }
     }
 
+    const GAME_QUOTE_IDLE = 'Type CA / ticker / name → Quote (or Enter). <b>Play</b> on Filter jumps here with the exact mint.';
+
+    function markTradeFocus(on) {
+      const back = document.getElementById("gTradeBack");
+      const trade = document.getElementById("gTradeBody");
+      if (back) back.hidden = !on;
+      if (trade) trade.setAttribute("data-selected", on ? "1" : "0");
+    }
+
+    function clearGameSelection() {
+      state.quoteSeq = (state.quoteSeq || 0) + 1;
+      state.lastQuoteMint = null;
+      state.lastQuotePrice = null;
+      const pick = document.getElementById("gPickBox");
+      const box = document.getElementById("gQuoteBox");
+      const mintEl = document.getElementById("gMint");
+      if (pick) pick.innerHTML = "";
+      if (box) {
+        box.className = "empty";
+        box.removeAttribute("data-mint");
+        box.innerHTML = GAME_QUOTE_IDLE;
+      }
+      if (mintEl) mintEl.value = "";
+      markTradeFocus(false);
+      const g = state.game || {};
+      if (g.status === "active") setGameLine(liveRunLine(g), "ok");
+      else if (g.status === "ended") {
+        const cash = g.final_cash != null ? g.final_cash : g.cash_usd;
+        setGameLine("Session ended · final cash " + fmtGameUsd(cash), "");
+      } else if (g.status) setGameLine("Idle · start a $5 paper run", "");
+    }
+
+    function collapseScore(tok) {
+      if (!tok) return;
+      tok.classList.remove("open");
+      const scoreBtn = tok.querySelector(".score-btn");
+      if (scoreBtn) scoreBtn.setAttribute("aria-expanded", "false");
+      const mint = tok.getAttribute("data-mint") || "";
+      if (!mint || mint === state.scoreOpenMint) state.scoreOpenMint = "";
+      if (tok.scrollIntoView) tok.scrollIntoView({ block: "nearest" });
+    }
+
+    function clearFilterFocus() {
+      const box = document.getElementById("fScanBox");
+      const pick = document.getElementById("fPickBox");
+      if (box) box.innerHTML = "";
+      if (pick) pick.innerHTML = "";
+      const flow = document.querySelector("#modeFilter .token-pane");
+      if (flow && flow.scrollIntoView) flow.scrollIntoView({ block: "nearest" });
+    }
+
+    function dismissScoreView(btn) {
+      if (btn && btn.closest("#coinSheet")) {
+        closeCoinDetail();
+        return;
+      }
+      if (btn && (btn.closest("#fScanBox") || btn.closest("#fPickBox") || btn.closest(".scan-card"))) {
+        clearFilterFocus();
+        if (state.coinMint) closeCoinDetail();
+        return;
+      }
+      const tok = btn && btn.closest(".tok");
+      if (tok) {
+        collapseScore(tok);
+        return;
+      }
+      const open = document.querySelector("#table-wrap .tok.open");
+      if (open) collapseScore(open);
+      else if (state.scoreOpenMint) state.scoreOpenMint = "";
+      if (document.querySelector("#fScanBox .scan-card, #fPickBox .pick-list")) clearFilterFocus();
+    }
+
+    function dismissFrom(btn) {
+      const kind = (btn && btn.getAttribute("data-dismiss")) || "";
+      if (kind === "trade") clearGameSelection();
+      else if (kind === "coin") closeCoinDetail();
+      else dismissScoreView(btn);
+    }
+
     async function gameQuote(mint) {
       if (state.gameBusy) return;
       const decision = emptyQuoteDecision(mint || (document.getElementById("gMint") && document.getElementById("gMint").value) || "");
@@ -5764,22 +5914,30 @@
         setGameLine(msg, "bad");
         toast(msg, true);
         const emptyBox = document.getElementById("gQuoteBox");
-        if (emptyBox) emptyBox.innerHTML = '<div class="err">' + esc(msg) + ". Quote does not start a run.</div>";
+        if (emptyBox) {
+          emptyBox.className = "";
+          emptyBox.innerHTML = '<div class="err">' + esc(msg) + ". Quote does not start a run.</div>";
+        }
+        markTradeFocus(true);
         return;
       }
       mint = decision.mint;
+      const seq = (state.quoteSeq = (state.quoteSeq || 0) + 1);
       const requestedMint = mint;
       document.getElementById("gMint").value = requestedMint;
       const box = document.getElementById("gQuoteBox");
       const pickHost = document.getElementById("gPickBox");
       if (pickHost) pickHost.innerHTML = "";
+      box.className = "";
       box.setAttribute("data-mint", requestedMint);
       box.innerHTML = '<div class="empty">Quoting <code class="ca-full">' + esc(requestedMint) + "</code>…</div>";
+      markTradeFocus(true);
       setGameBusy(true);
       setGameLine("Quoting " + requestedMint.slice(0, 18) + (requestedMint.length > 18 ? "…" : "") + "…", "warn");
       try {
         const res = await fetch("/api/game/quote?fresh=1&mint=" + encodeURIComponent(mint), { cache: "no-store" });
         const data = await res.json();
+        if (seq !== state.quoteSeq) return;
         if (data.need_pick && data.candidates && data.candidates.length) {
           box.innerHTML = '<div class="empty">Pick a match below</div>';
           renderPickList("gPickBox", data.candidates, (c) => {
@@ -5847,10 +6005,12 @@
           "</div>" +
           '<div class="actions" style="margin-top:12px"><button type="button" class="gbtn good" id="gBuyQuoted">Buy this</button> ' +
           '<a class="dex" href="' + esc(q.pair_url) + '" target="_blank" rel="noopener" style="font-size:0.8rem;color:var(--accent2)">DEX</a></div>' +
+          '<button type="button" class="dismiss-back" data-dismiss="trade">← Back / clear selection</button>' +
           "</div>";
         document.getElementById("gBuyQuoted").onclick = () => gameBuy(mint);
         setGameLine("Quoted " + (q.symbol || "?") + " @ " + fmtPx(q.price_usd) + " — live ticks every 2s", "ok");
       } catch (e) {
+        if (seq !== state.quoteSeq) return;
         beep("fail");
         box.innerHTML = '<div class="err">Quote failed — is the server up?</div>';
         setGameLine("Quote failed: " + (e.message || e), "bad");
@@ -6829,8 +6989,9 @@
       const title = head.querySelector(".ticker-line");
       if (title) title.id = "coinSheetTitle";
       const mcap = mcapHeroHtml(row);
+      const back = '<button type="button" class="dismiss-back" data-dismiss="coin">← Back to Token Flow</button>';
       if (!research) {
-        body.innerHTML = mcap + '<p class="opening">Opening…</p>';
+        body.innerHTML = mcap + '<p class="opening">Opening…</p>' + back;
         sheet.setAttribute("data-live", "pending");
         if (note) note.textContent = "Paper research. No target, wallet, or order.";
         return;
@@ -6841,7 +7002,7 @@
         "</details>";
       body.innerHTML = verdictHtml(row, research) + mcap + drawerHero(row, research) +
         printSection(row) + vitalityPlain(row, research.vitality) + signalsPlain(row, research) +
-        flagStrip(row) + raw;
+        flagStrip(row) + raw + back;
       sheet.setAttribute("data-live", phase || "snapshot");
       if (note) note.textContent = "Paper research. No target, wallet, or order.";
     }
@@ -6962,7 +7123,33 @@
       if (state.coinMint) {
         ev.preventDefault();
         closeCoinDetail();
+        return;
       }
+      const typing = ev.target && ev.target.closest && ev.target.closest("input, textarea, select");
+      if (typing) return;
+      const openTok = document.querySelector("#table-wrap .tok.open");
+      if (openTok || state.scoreOpenMint) {
+        ev.preventDefault();
+        if (openTok) collapseScore(openTok);
+        else state.scoreOpenMint = "";
+        return;
+      }
+      if (document.querySelector("#fScanBox .scan-card, #fPickBox .pick-list")) {
+        ev.preventDefault();
+        dismissScoreView(document.querySelector("#fScanBox [data-dismiss='score'], #fPickBox [data-dismiss='score']"));
+        return;
+      }
+      const trade = document.getElementById("gTradeBody");
+      if (trade && trade.getAttribute("data-selected") === "1") {
+        ev.preventDefault();
+        clearGameSelection();
+      }
+    });
+    document.addEventListener("click", (ev) => {
+      const btn = ev.target.closest && ev.target.closest("[data-dismiss]");
+      if (!btn) return;
+      ev.preventDefault();
+      dismissFrom(btn);
     });
 
     document.getElementById("modeFilter").addEventListener("click", (ev) => {

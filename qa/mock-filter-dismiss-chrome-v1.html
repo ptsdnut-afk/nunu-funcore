@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Filter · SHIP J dismiss / Back chrome mock v1 · eyes only</title>
+  <style>
+    :root {
+      --bg: #050505;
+      --panel: #121212;
+      --panel2: #161616;
+      --border: #2a2a2a;
+      --text: #e7e9ea;
+      --muted: #8b98a5;
+      --good: #3ecf8e;
+      --amber: #f0a33a;
+      --warn: #e6b84d;
+      --bad: #f07178;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: var(--sans); background: var(--bg); color: var(--text);
+      min-height: 100vh; line-height: 1.35; font-size: 15px;
+    }
+    .banner {
+      background: linear-gradient(90deg, #101810, #0a0a0a);
+      border-bottom: 1px solid #2a5a40;
+      padding: 9px 16px; font-size: 0.78rem; color: #9ed4b0; font-weight: 700;
+      display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    }
+    .banner code { font-family: var(--mono); color: var(--amber); }
+    .banner .tag {
+      display: inline-block; padding: 2px 8px; border-radius: 999px;
+      background: #102018; border: 1px solid #2a5a40; color: var(--good);
+      font-size: 0.65rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+    }
+    .banner .tag.warn {
+      background: #241e10; border-color: #6a5320; color: var(--amber);
+    }
+    .app { max-width: 1560px; margin: 0 auto; padding: 14px 16px 28px; }
+    .claim {
+      margin: 0 0 6px; font-size: 1.35rem; font-weight: 900; letter-spacing: -0.03em;
+      background: linear-gradient(90deg, #fff, var(--good) 45%, var(--amber));
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .claim span {
+      display: block; font-size: 0.7rem; font-weight: 650; color: var(--muted);
+      letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 4px;
+      background: none; -webkit-background-clip: unset; color: var(--muted);
+    }
+    .lede {
+      margin: 0 0 12px; color: var(--muted); font-size: 0.82rem; max-width: 1200px;
+    }
+    .lede b { color: var(--text); }
+
+    .proof {
+      display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;
+      margin-bottom: 14px; padding: 12px 14px;
+      background: #101410; border: 1px solid #2a5a40; border-radius: 12px;
+    }
+    .proof h3 {
+      margin: 0 0 6px; font-size: 0.72rem; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--good);
+    }
+    .proof p { margin: 0; font-size: 0.76rem; color: var(--muted); line-height: 1.45; }
+    .proof b { color: var(--text); }
+    .proof .id {
+      font-family: var(--mono); font-size: 0.68rem; font-weight: 800;
+      color: var(--amber); margin-bottom: 4px;
+    }
+
+    .story-label {
+      display: flex; align-items: baseline; gap: 10px; margin: 6px 0 10px; flex-wrap: wrap;
+    }
+    .story-label h2 {
+      margin: 0; font-size: 0.78rem; text-transform: uppercase; letter-spacing: .08em; color: var(--good);
+    }
+    .story-label .sub { color: var(--muted); font-size: 0.72rem; font-family: var(--mono); }
+
+    .story {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;
+    }
+    .story.three { grid-template-columns: 1fr 1fr 1fr; }
+    @media (max-width: 1100px) {
+      .story, .story.three, .proof { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+      overflow: hidden; display: flex; flex-direction: column;
+    }
+    .panel.before { border-color: #3a3a3a; }
+    .panel.after { border-color: #2a5a40; box-shadow: 0 0 18px rgba(62,207,142,.18); }
+
+    .panel-head {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 10px 12px; border-bottom: 1px solid var(--border); background: #0e0e0e;
+    }
+    .panel-head .state {
+      font-size: 0.74rem; font-weight: 900; letter-spacing: .04em; text-transform: uppercase;
+    }
+    .panel.before .panel-head .state { color: var(--muted); }
+    .panel.after .panel-head .state { color: var(--good); }
+    .badge {
+      font-size: 0.6rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+      padding: 2px 7px; border-radius: 999px; border: 1px solid var(--border);
+      color: var(--muted); background: #1a1a1a;
+    }
+    .badge.ex { border-color: #5a4a20; color: var(--amber); background: #241e10; }
+    .badge.stuck { border-color: #5a3030; color: var(--bad); background: #241010; }
+    .badge.fix { border-color: #2a5a40; color: var(--good); background: #102018; }
+    .panel-head .rule {
+      margin-left: auto; font-size: 0.62rem; color: var(--muted); font-family: var(--mono);
+    }
+
+    .stage { padding: 12px; flex: 1; display: flex; flex-direction: column; gap: 8px; background: #0a0a0a; }
+
+    /* Score factors sheet */
+    .score-sheet {
+      background: #141414; border: 1px solid #2a2a2a; border-radius: 12px;
+      padding: 12px 14px; position: relative;
+    }
+    .score-sheet.after { border-color: #2a5a40; }
+    .score-top {
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
+      margin-bottom: 10px;
+    }
+    .score-title {
+      font-size: 0.78rem; font-weight: 800; color: var(--text);
+    }
+    .score-title .band {
+      display: block; margin-top: 2px; font-size: 0.62rem; color: var(--muted); font-weight: 600;
+      font-family: var(--mono);
+    }
+    .dismiss-x {
+      width: 28px; height: 28px; border-radius: 8px; border: 1px solid #2a5a40;
+      background: #102018; color: var(--good); font-size: 1rem; font-weight: 900;
+      display: grid; place-items: center; flex-shrink: 0; cursor: default;
+      box-shadow: 0 0 10px rgba(62,207,142,.25);
+    }
+    .dismiss-x:hover { background: #183828; }
+    .back-link {
+      display: inline-flex; align-items: center; gap: 5px;
+      margin-top: 8px; padding: 5px 10px; border-radius: 8px;
+      border: 1px solid #2a5a40; background: #0e1812; color: var(--good);
+      font-size: 0.68rem; font-weight: 800; width: fit-content;
+    }
+    .missing-slot {
+      width: 28px; height: 28px; border-radius: 8px; border: 1px dashed #444;
+      background: #1a1a1a; color: #555; font-size: 0.7rem;
+      display: grid; place-items: center; flex-shrink: 0;
+    }
+    .metrics {
+      display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 10px;
+    }
+    .metric {
+      background: #0e0e0e; border: 1px solid #2a2a2a; border-radius: 8px; padding: 7px 8px;
+    }
+    .metric .lbl {
+      font-size: 0.52rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase;
+      color: var(--muted); margin-bottom: 3px;
+    }
+    .metric .val { font-size: 0.68rem; font-weight: 700; font-family: var(--mono); }
+    .metric .bar {
+      margin-top: 5px; height: 3px; border-radius: 999px; background: #222; overflow: hidden;
+    }
+    .metric .bar i {
+      display: block; height: 100%; background: var(--good); border-radius: 999px;
+    }
+    .metric.zero .val { color: var(--muted); }
+    .metric.zero .bar i { background: #444; width: 0 !important; }
+    .why {
+      margin: 0; padding: 0 0 0 14px; font-size: 0.68rem; color: var(--muted);
+    }
+    .why li { margin: 2px 0; }
+    .why b { color: var(--text); font-weight: 650; }
+    .foot-note {
+      margin-top: 8px; font-size: 0.58rem; color: #666; font-family: var(--mono);
+    }
+
+    /* Trade sheet */
+    .trade-wrap {
+      display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 8px;
+    }
+    .trade-left, .trade-right {
+      background: #141414; border: 1px solid #2a2a2a; border-radius: 12px; padding: 12px;
+      position: relative;
+    }
+    .trade-left.after { border-color: #2a5a40; }
+    .trade-hdr {
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
+      margin-bottom: 8px;
+    }
+    .trade-hdr h4 {
+      margin: 0; font-size: 0.72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--amber);
+    }
+    .trade-hdr .sub {
+      margin: 3px 0 0; font-size: 0.62rem; color: var(--muted);
+    }
+    .coin-name {
+      font-size: 1.05rem; font-weight: 900; margin: 4px 0 2px;
+    }
+    .coin-name .sym { color: var(--muted); font-weight: 650; font-size: 0.75rem; }
+    .ca {
+      font-family: var(--mono); font-size: 0.58rem; color: #666; margin-bottom: 8px;
+      word-break: break-all;
+    }
+    .big-nums {
+      display: flex; gap: 14px; align-items: baseline; margin-bottom: 8px;
+    }
+    .big-nums .px { font-size: 1.15rem; font-weight: 800; font-family: var(--mono); }
+    .big-nums .mc { font-size: 1.05rem; font-weight: 800; color: var(--good); font-family: var(--mono); }
+    .stat-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-bottom: 10px;
+    }
+    .stat-grid .cell {
+      background: #0e0e0e; border: 1px solid #222; border-radius: 7px; padding: 6px 8px;
+    }
+    .stat-grid .cell .k {
+      font-size: 0.52rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--muted);
+    }
+    .stat-grid .cell .v {
+      font-size: 0.72rem; font-weight: 700; font-family: var(--mono); margin-top: 2px;
+    }
+    .stat-grid .cell .v.up { color: var(--good); }
+    .buy-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      padding: 8px 14px; border-radius: 8px; background: #102018; border: 1px solid #2a5a40;
+      color: var(--good); font-weight: 800; font-size: 0.78rem; width: 100%;
+    }
+    .session {
+      font-size: 0.68rem; color: var(--muted);
+    }
+    .session .title {
+      font-size: 0.7rem; font-weight: 800; color: var(--amber); text-transform: uppercase;
+      letter-spacing: .04em; margin-bottom: 6px;
+    }
+    .session .cash { font-family: var(--mono); color: var(--text); font-weight: 700; }
+    .tape {
+      margin-top: 8px; border-top: 1px solid #222; padding-top: 6px;
+      font-size: 0.58rem; font-family: var(--mono); color: var(--muted);
+    }
+    .tape .row { margin: 3px 0; }
+    .tape .g { color: var(--good); }
+    .tape .r { color: var(--bad); }
+    .tape .a { color: var(--amber); }
+
+    /* Coin drawer */
+    .drawer {
+      background: #141414; border: 1px solid #2a5a40; border-radius: 12px;
+      padding: 12px 14px; position: relative;
+      box-shadow: 0 0 16px rgba(62,207,142,.12);
+    }
+    .drawer-top {
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
+      margin-bottom: 8px;
+    }
+    .drawer .name { font-size: 0.95rem; font-weight: 900; }
+    .drawer .meta { font-size: 0.62rem; color: var(--muted); font-family: var(--mono); margin-top: 2px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 5px; margin: 8px 0; }
+    .chip {
+      font-size: 0.6rem; font-weight: 800; padding: 3px 8px; border-radius: 999px;
+      border: 1px solid #2a5a40; background: #102018; color: var(--good);
+    }
+    .chip.amber { border-color: #6a5320; background: #241e10; color: var(--amber); }
+    .chip.muted { border-color: #444; background: #1a1a1a; color: var(--muted); }
+    .drawer p {
+      margin: 0; font-size: 0.72rem; color: var(--muted); line-height: 1.4;
+    }
+    .drawer p b { color: var(--text); }
+
+    .callout {
+      margin-top: 6px; padding: 7px 10px; border-radius: 8px;
+      font-size: 0.68rem; line-height: 1.4;
+    }
+    .callout.bad {
+      background: #241010; border: 1px solid #5a3030; color: #f0a0a5;
+    }
+    .callout.good {
+      background: #102018; border: 1px solid #2a5a40; color: #9ed4b0;
+    }
+
+    .footer-acs {
+      margin-top: 4px; padding: 12px 14px;
+      background: #0e0e0e; border: 1px solid var(--border); border-radius: 12px;
+      font-size: 0.72rem; color: var(--muted);
+    }
+    .footer-acs h3 {
+      margin: 0 0 8px; font-size: 0.72rem; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--good);
+    }
+    .footer-acs table { width: 100%; border-collapse: collapse; }
+    .footer-acs th, .footer-acs td {
+      text-align: left; padding: 5px 8px; border-bottom: 1px solid #222;
+      font-size: 0.7rem; vertical-align: top;
+    }
+    .footer-acs th { color: var(--muted); font-weight: 700; font-size: 0.62rem; text-transform: uppercase; letter-spacing: .04em; }
+    .footer-acs td.id { font-family: var(--mono); color: var(--amber); font-weight: 800; white-space: nowrap; }
+    .footer-acs .out {
+      margin-top: 8px; font-size: 0.68rem; color: #666;
+    }
+  </style>
+</head>
+<body>
+  <div class="banner">
+    <span class="tag">EYES ONLY</span>
+    <span class="tag warn">NOT A PR</span>
+    <span class="tag warn">EXAMPLE $</span>
+    <span>SHIP J · Dismiss / Back chrome · SoT <code>qa/mock-filter-dismiss-chrome-v1</code></span>
+    <span style="margin-left:auto;font-family:var(--mono);font-size:0.65rem;color:#666">AC-D01 · AC-D02 · AC-D03</span>
+  </div>
+
+  <div class="app">
+    <p class="claim">
+      <span>Proto eyes · SHIP J</span>
+      X / Back when you drill in — leave without browser Back
+    </p>
+    <p class="lede">
+      Owner stuck on <b>score factors</b> + <b>Trade “Buy this”</b> with no clear dismiss.
+      Mock shows BEFORE (stuck) → AFTER (top-right <b>X</b> + optional <b>Back to Token Flow</b>).
+      Esc nice-to-have; <b>button required</b>. All $ / tickers are <b>EXAMPLE</b>.
+    </p>
+
+    <div class="proof">
+      <div>
+        <div class="id">AC-D01</div>
+        <h3>Score / coin detail</h3>
+        <p>Clear <b>X</b> or <b>Back</b> on score-factors / coin detail; click closes to Token Flow.</p>
+      </div>
+      <div>
+        <div class="id">AC-D02</div>
+        <h3>Trade selection</h3>
+        <p>Trade with a selected coin shows <b>X</b> or <b>Back</b>; click clears / exits selection.</p>
+      </div>
+      <div>
+        <div class="id">AC-D03</div>
+        <h3>No stuck overlay</h3>
+        <p>After dismiss, Token Flow / Filter still usable — no stuck overlay.</p>
+      </div>
+    </div>
+
+    <!-- SCORE FACTORS -->
+    <div class="story-label">
+      <h2>1 · Score factors</h2>
+      <span class="sub">AC-D01 · BEFORE stuck → AFTER top-right X + Back</span>
+    </div>
+    <div class="story">
+      <div class="panel before">
+        <div class="panel-head">
+          <span class="state">BEFORE · stuck</span>
+          <span class="badge stuck">no X</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">browser Back only</span>
+        </div>
+        <div class="stage">
+          <div class="score-sheet">
+            <div class="score-top">
+              <div class="score-title">
+                Score factors · 10.1/12 raw 84.2/100 trench band
+                <span class="band">EXAMPLE · HACHI-shaped · no dismiss chrome</span>
+              </div>
+              <div class="missing-slot" title="missing">—</div>
+            </div>
+            <div class="metrics">
+              <div class="metric"><div class="lbl">Liquidity</div><div class="val">liq $43.3k</div><div class="bar"><i style="width:70%"></i></div></div>
+              <div class="metric"><div class="lbl">Volume</div><div class="val">1h $637.2k</div><div class="bar"><i style="width:100%"></i></div></div>
+              <div class="metric"><div class="lbl">Holders</div><div class="val">LP 100%</div><div class="bar"><i style="width:100%"></i></div></div>
+              <div class="metric"><div class="lbl">Socials</div><div class="val">X web</div><div class="bar"><i style="width:52%"></i></div></div>
+              <div class="metric zero"><div class="lbl">Flow</div><div class="val">B/S 8.2k/7.0k</div><div class="bar"><i style="width:0"></i></div></div>
+            </div>
+            <ul class="why">
+              <li><b>WHY</b> · liq $43,311 — 21/30</li>
+              <li>vol1h $637,226 — 25/25 · LP ~100% locked</li>
+              <li>RugCheck score 1 (clean) · has X/twitter · has website</li>
+            </ul>
+            <div class="callout bad">Stuck — top-right empty. No X · no Back. Must use browser Back.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel after">
+        <div class="panel-head">
+          <span class="state">AFTER · dismiss</span>
+          <span class="badge fix">X + Back</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">AC-D01</span>
+        </div>
+        <div class="stage">
+          <div class="score-sheet after">
+            <div class="score-top">
+              <div class="score-title">
+                Score factors · 10.1/12 raw 84.2/100 trench band
+                <span class="band">EXAMPLE · same sheet · clear dismiss</span>
+              </div>
+              <div class="dismiss-x" title="Close">✕</div>
+            </div>
+            <div class="metrics">
+              <div class="metric"><div class="lbl">Liquidity</div><div class="val">liq $43.3k</div><div class="bar"><i style="width:70%"></i></div></div>
+              <div class="metric"><div class="lbl">Volume</div><div class="val">1h $637.2k</div><div class="bar"><i style="width:100%"></i></div></div>
+              <div class="metric"><div class="lbl">Holders</div><div class="val">LP 100%</div><div class="bar"><i style="width:100%"></i></div></div>
+              <div class="metric"><div class="lbl">Socials</div><div class="val">X web</div><div class="bar"><i style="width:52%"></i></div></div>
+              <div class="metric zero"><div class="lbl">Flow</div><div class="val">B/S 8.2k/7.0k</div><div class="bar"><i style="width:0"></i></div></div>
+            </div>
+            <ul class="why">
+              <li><b>WHY</b> · liq $43,311 — 21/30</li>
+              <li>vol1h $637,226 — 25/25 · LP ~100% locked</li>
+              <li>RugCheck score 1 (clean) · has X/twitter · has website</li>
+            </ul>
+            <div class="back-link">← Back to Token Flow</div>
+            <div class="callout good">Top-right <b>X</b> closes panel. Optional Back returns to Filter Token Flow. Esc OK too.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TRADE -->
+    <div class="story-label">
+      <h2>2 · Trade selection</h2>
+      <span class="sub">AC-D02 · BEFORE stuck → AFTER X / Back clears selection</span>
+    </div>
+    <div class="story">
+      <div class="panel before">
+        <div class="panel-head">
+          <span class="state">BEFORE · stuck</span>
+          <span class="badge stuck">no X</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">Trade · Buy this</span>
+        </div>
+        <div class="stage">
+          <div class="trade-wrap">
+            <div class="trade-left">
+              <div class="trade-hdr">
+                <div>
+                  <h4>TRADE · Start a run</h4>
+                  <p class="sub">or just Buy — auto-starts</p>
+                </div>
+                <div class="missing-slot">—</div>
+              </div>
+              <div class="coin-name">wiener <span class="sym">WI</span></div>
+              <div class="ca">6C31wh…eBPump · EXAMPLE mint</div>
+              <div class="big-nums">
+                <span class="px">9.468e-6</span>
+                <span class="mc">$9.5k</span>
+              </div>
+              <div class="stat-grid">
+                <div class="cell"><div class="k">Price</div><div class="v">9.468e-6</div></div>
+                <div class="cell"><div class="k">Liquidity</div><div class="v">$18.8k</div></div>
+                <div class="cell"><div class="k">1H Change</div><div class="v up">+14.3%</div></div>
+                <div class="cell"><div class="k">Vol 1H</div><div class="v">$134.6k</div></div>
+              </div>
+              <div class="buy-btn">Buy this</div>
+              <div class="callout bad" style="margin-top:8px">No X / Back on Trade select — trapped until browser Back.</div>
+            </div>
+            <div class="trade-right">
+              <div class="session">
+                <div class="title">Session ended</div>
+                <div>Final cash <span class="cash">$6.52</span></div>
+                <div style="margin-top:4px;font-size:0.58rem">2026-10-27 · EXAMPLE seat</div>
+                <div class="tape">
+                  <div class="row r">manual · PnL $+0.048 (+1.6%)</div>
+                  <div class="row g">buy · Bought Bow $3.000</div>
+                  <div class="row a">high · New equity high $7.204</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel after">
+        <div class="panel-head">
+          <span class="state">AFTER · dismiss</span>
+          <span class="badge fix">X / Back</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">AC-D02</span>
+        </div>
+        <div class="stage">
+          <div class="trade-wrap">
+            <div class="trade-left after">
+              <div class="trade-hdr">
+                <div>
+                  <h4>TRADE · Start a run</h4>
+                  <p class="sub">or just Buy — auto-starts</p>
+                </div>
+                <div class="dismiss-x" title="Clear selection">✕</div>
+              </div>
+              <div class="coin-name">wiener <span class="sym">WI</span></div>
+              <div class="ca">6C31wh…eBPump · EXAMPLE mint</div>
+              <div class="big-nums">
+                <span class="px">9.468e-6</span>
+                <span class="mc">$9.5k</span>
+              </div>
+              <div class="stat-grid">
+                <div class="cell"><div class="k">Price</div><div class="v">9.468e-6</div></div>
+                <div class="cell"><div class="k">Liquidity</div><div class="v">$18.8k</div></div>
+                <div class="cell"><div class="k">1H Change</div><div class="v up">+14.3%</div></div>
+                <div class="cell"><div class="k">Vol 1H</div><div class="v">$134.6k</div></div>
+              </div>
+              <div class="buy-btn">Buy this</div>
+              <div class="back-link">← Back / clear selection</div>
+              <div class="callout good" style="margin-top:8px">X clears selected coin / exits Trade select. Not trapped.</div>
+            </div>
+            <div class="trade-right">
+              <div class="session">
+                <div class="title">Session ended</div>
+                <div>Final cash <span class="cash">$6.52</span></div>
+                <div style="margin-top:4px;font-size:0.58rem">2026-10-27 · EXAMPLE seat</div>
+                <div class="tape">
+                  <div class="row r">manual · PnL $+0.048 (+1.6%)</div>
+                  <div class="row g">buy · Bought Bow $3.000</div>
+                  <div class="row a">high · New equity high $7.204</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- COIN DRAWER OPTIONAL -->
+    <div class="story-label">
+      <h2>3 · Coin drawer (optional AFTER)</h2>
+      <span class="sub">Same dismiss pattern · AC-D01 / AC-D03</span>
+    </div>
+    <div class="story three">
+      <div class="panel after" style="grid-column: span 1;">
+        <div class="panel-head">
+          <span class="state">AFTER · coin drawer</span>
+          <span class="badge fix">X</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">AC-D01 · D03</span>
+        </div>
+        <div class="stage">
+          <div class="drawer">
+            <div class="drawer-top">
+              <div>
+                <div class="name">PEBBLE</div>
+                <div class="meta">EXAMPLE · trench · score 9.4/12</div>
+              </div>
+              <div class="dismiss-x">✕</div>
+            </div>
+            <div class="chips">
+              <span class="chip">LP locked</span>
+              <span class="chip amber">mcap $12.4k</span>
+              <span class="chip muted">age 42m</span>
+            </div>
+            <p>Plain-English read. <b>X</b> closes drawer → Token Flow usable (no stuck overlay).</p>
+            <div class="back-link">← Back to Token Flow</div>
+          </div>
+        </div>
+      </div>
+      <div class="panel after" style="grid-column: span 2;">
+        <div class="panel-head">
+          <span class="state">Chrome rules</span>
+          <span class="badge fix">prefer top-right X</span>
+          <span class="rule">match existing Game chrome</span>
+        </div>
+        <div class="stage">
+          <div class="callout good">
+            <b>Prefer top-right X</b> matching existing chrome on score-factors, Trade select, and coin drawer.
+            Optional text Back (“Back to Token Flow” / “clear selection”) under the sheet.
+            Esc may dismiss; <b>visible button required</b>.
+          </div>
+          <div class="callout good" style="margin-top:8px">
+            After dismiss: Filter Token Flow / list still interactive — <b>AC-D03</b> no stuck overlay, no full refresh.
+          </div>
+          <p style="margin:10px 0 0;font-size:0.68rem;color:var(--muted)">
+            Out: Token Flow new-coin sound (SHIP I) · new nav IA · Game rocket / SFX.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer-acs">
+      <h3>Locked cut ACs — match exactly</h3>
+      <table>
+        <thead>
+          <tr><th>ID</th><th>Proof</th><th>Expected</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="id">AC-D01</td>
+            <td>Screenshot</td>
+            <td>Coin detail / score-factors shows X or Back; click closes it</td>
+          </tr>
+          <tr>
+            <td class="id">AC-D02</td>
+            <td>Screenshot</td>
+            <td>Trade with a selected coin shows X or Back; click clears / exits selection</td>
+          </tr>
+          <tr>
+            <td class="id">AC-D03</td>
+            <td>Note</td>
+            <td>After dismiss, Token Flow / Filter still usable (no stuck overlay)</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="out">Cut: <code>qa/cut-2026-10-27-ship-j-dismiss-back.md</code> · Eyes only · not a PR · EXAMPLE $ · Proto optional SoT</p>
+    </div>
+  </div>
+</body>
+</html>
