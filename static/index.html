@@ -2386,6 +2386,144 @@
     .coin-sheet-bar { flex-wrap: nowrap; }
     .coin-sheet-bar #coinSheetHead { flex: 1 1 auto; min-width: 0; overflow: hidden; }
     .coin-sheet-bar .dismiss-x { margin-left: auto; align-self: flex-start; }
+
+    /* ship-r-follow-start */
+    /* Narrow bottom-edge chip. Clicks pass through around it so Token Flow stays usable. */
+    body.follow-live {
+      height: 100%;
+      overflow: hidden;
+    }
+    body.follow-live .app {
+      height: calc(100vh - 56px);
+      min-height: 0;
+      overflow: auto;
+    }
+    #gameFollow.game-follow {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 45;
+      display: flex;
+      justify-content: flex-end;
+      align-items: flex-end;
+      pointer-events: none;
+      padding: 0 16px 12px;
+    }
+    #gameFollow[hidden] { display: none !important; }
+    #gameFollow .game-follow-scrim {
+      position: fixed;
+      inset: 0;
+      border: 0;
+      margin: 0;
+      padding: 0;
+      background: rgba(0,0,0,.28);
+      pointer-events: auto;
+      cursor: pointer;
+    }
+    #gameFollow .game-follow-dock {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      width: min(360px, calc(100vw - 24px));
+      pointer-events: none;
+    }
+    #gameFollow .game-follow-chip {
+      pointer-events: auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      width: max-content;
+      max-width: min(260px, calc(100vw - 24px));
+      height: 36px;
+      margin: 0;
+      padding: 0 12px 0 10px;
+      border-radius: 999px;
+      border: 1px solid #2a5a40;
+      background: #102018;
+      color: #e7e9ea;
+      font: inherit;
+      font-weight: 800;
+      font-size: 0.78rem;
+      line-height: 1;
+      box-shadow: 0 8px 22px rgba(0,0,0,.45);
+      cursor: pointer;
+    }
+    #gameFollow .game-follow-chip:focus-visible {
+      outline: 2px solid #3ecf8e;
+      outline-offset: 2px;
+    }
+    #gameFollow .gf-k {
+      font-size: 0.62rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #8b98a5;
+      font-weight: 800;
+    }
+    #gameFollow .gf-sym {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 9ch;
+    }
+    #gameFollow .gf-n { color: #f0a33a; font-size: 0.62rem; font-weight: 800; }
+    #gameFollow .gf-pnl.up { color: #3ecf8e; }
+    #gameFollow .gf-pnl.dn { color: #f07178; }
+    #gameFollow .game-follow-sheet {
+      pointer-events: auto;
+      width: min(360px, calc(100vw - 24px));
+      max-height: min(48vh, 420px);
+      overflow: auto;
+      background: #121212;
+      border: 1px solid #2a5a40;
+      border-radius: 14px;
+      padding: 10px 12px 12px;
+      box-shadow: 0 16px 40px rgba(0,0,0,.55);
+      text-align: left;
+    }
+    #gameFollow .gf-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    #gameFollow .gf-bar h3 { margin: 0; flex: 1; font-size: 0.92rem; }
+    #gameFollow .gf-card + .gf-card {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid #2a2a2a;
+    }
+    #gameFollow .gf-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: baseline;
+    }
+    #gameFollow .gf-ticker { font-size: 1rem; }
+    #gameFollow .gf-kicker { margin: 2px 0 0; color: #8b98a5; font-size: 0.68rem; }
+    #gameFollow .gf-stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px 10px;
+      margin: 8px 0;
+    }
+    #gameFollow .gf-stats div { display: flex; flex-direction: column; gap: 1px; font-size: 0.72rem; }
+    #gameFollow .gf-stats .u { color: #8b98a5; font-size: 0.62rem; }
+    #gameFollow .gf-stats b { font-family: var(--mono); font-size: 0.82rem; font-weight: 800; }
+    #gameFollow .gf-actions { display: flex; gap: 10px; align-items: center; }
+    #gameFollow .gf-sell {
+      background: linear-gradient(135deg, #4a1a22, #2a1014);
+      border: 1px solid #f07178;
+      color: #ffc9ce;
+      font-weight: 800;
+      border-radius: 10px;
+      padding: 8px 14px;
+      cursor: pointer;
+    }
+    #gameFollow .gf-sell:disabled { opacity: 0.45; cursor: not-allowed; }
+    #gameFollow .gf-dex { color: #f0a33a; font-size: 0.78rem; font-weight: 800; text-decoration: none; }
+    @media (max-width: 960px) {
+      #modeFilter:has(.panes.side-traders) #gameFollow { bottom: calc(34vh + 16px); }
+    }
+    /* ship-r-follow-end */
   </style>
 </head>
 <body>
@@ -2395,7 +2533,7 @@
         <div class="logo">N</div>
         <div>
           <h1>Nunu Filter</h1>
-          <p class="sub">Solana Research Panel · paper only · v77</p>
+          <p class="sub">Solana Research Panel · paper only · v78</p>
         </div>
       </div>
       <div class="mode-tabs" role="tablist">
@@ -2578,6 +2716,14 @@
             <span id="tradersTiming">Side closed</span>
           </div>
         </section>
+      </div>
+
+      <div id="gameFollow" class="game-follow" data-feature="game_follow_tab" data-state="flat" data-open="0" data-covers-flow="0" data-replaces-flow="0" hidden>
+        <button type="button" class="game-follow-scrim" id="gameFollowScrim" hidden tabindex="-1" aria-label="Collapse follow tab"></button>
+        <div class="game-follow-dock">
+          <section class="game-follow-sheet" id="gameFollowSheet" hidden role="dialog" aria-modal="false" aria-label="Open paper position"></section>
+          <button type="button" class="game-follow-chip" id="gameFollowChip" aria-expanded="false" aria-controls="gameFollowSheet">Game</button>
+        </div>
       </div>
     </div>
 
@@ -2804,7 +2950,7 @@
     </div>
 
     <footer class="app-foot">
-      <div class="foot-live">Paper only · no wallets. <code>?v=77</code></div>
+      <div class="foot-live">Paper only · no wallets. <code>?v=78</code></div>
       <details class="qa-foot">
         <summary>QA fixtures</summary>
         <div>APIs: <code>/api/flagged</code> · <code>/api/update-now</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>. Social Tap is coin, meme, and crypto viral from public sources — nothing invented. Checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: <code>&amp;mode=game</code>. Equity tick proof: <code>?qa_tick=both</code>, <code>?qa_tick=up</code>, <code>?qa_tick=down</code>. Display offset only. Do not combine with <code>?fixture=</code>. 24h end proof: <code>?qa_end=1</code> (one-shot, then Start 24h). Does not auto-start. An ended run opens a paper Review (dismiss, or Start next 24h — same restart as the main button). Mute silences the soft review cue. Max fixture proof: <code>?qa_max=1</code> (one synthetic bonding row, badge QA MAX). Absent query leaves the live feed unchanged. Do not combine with <code>?fixture=</code>. Gold fixture proof: <code>?qa_gold=1</code> (one synthetic rare card in Gold picks, no chime on the seeded load) or <code>?qa_gold=arrive</code> (same card, one ♪ GOLD). Mute silences the gold cue. It is not the Token Flow new-token chime. Absent query leaves Gold empty unless a live row clears the stricter 7-gate stack. Do not combine with <code>?fixture=</code>.</div>
@@ -2846,7 +2992,7 @@
 
   <script>
 
-    const PANEL_V = 77;
+    const PANEL_V = 78;
     const QA_MAX_NOTE = "QA Max fixture — synthetic bonding row QAMAX. Live unknown rows stay Max-empty. Not a real mint.";
     const QA_GOLD_NOTE = "QA Gold fixture — synthetic rare card QAGOLD in Gold picks. Not a live mint. The normal page stays empty unless the 7-gate stack clears.";
     const QA_GOLD_ARRIVE_NOTE = "QA Gold arrive — one ♪ GOLD for the synthetic card. Mute silences it. This cue is not the Token Flow new-token chime. ?qa_gold=1 seeds quietly.";
@@ -3008,6 +3154,8 @@
       chartFailedKey: "",
       chartGen: 0,
       chartTimer: 0,
+      followOpen: false,
+      followSig: "",
     };
 
     function trenchHoursNow() {
@@ -3865,9 +4013,19 @@
       document.getElementById("tabGame").classList.toggle("on", mode === "game");
       if (mode !== "filter" && typeof closeCoinDetail === "function") closeCoinDetail();
       if (mode === "game") {
+        if (state.game) renderGame();
         loadGame(true);
         if (!state.gameTimer) state.gameTimer = setInterval(() => loadGame(true), state.GAME_POLL_MS || 2000);
       }
+      if (typeof paintFollowTab === "function") paintFollowTab();
+    }
+
+    function ensureGamePoll() {
+      // Same Game book the follow tab reads. Marks, stops, and sells stay on
+      // /api/game/state + /api/game/sell — Filter does not keep a second ledger.
+      if (state.gameTimer) return;
+      state.gameTimer = setInterval(() => loadGame(true), state.GAME_POLL_MS || 2000);
+      loadGame(true);
     }
 
     function feedLoopMin(feed) {
@@ -5403,6 +5561,7 @@
         const el = document.getElementById(id);
         if (el) el.disabled = !!busy;
       });
+      document.querySelectorAll("[data-follow-sell]").forEach((el) => { el.disabled = !!busy; });
     }
 
     const TICK_EPS = 0.005;
@@ -5903,6 +6062,7 @@
 
     function planQaTickForFetch(now) {
       if (gameFixtureOn()) return "";
+      if (state.mode !== "game") return "";
       const plan = ensureQaTickPlan();
       if (!plan.length) return "";
       if (!state.qaTickScript) state.qaTickScript = freshQaTickScript(plan);
@@ -6439,6 +6599,147 @@
       return (g.positions || []).filter((p) => p && p.mint);
     }
 
+    /* ship-r-pure-start */
+    function followTabDecision(g, mode) {
+      g = g || {};
+      const status = g.status || "idle";
+      const remain = Number(g.remain_seconds);
+      const ended = status === "ended" || (status === "active" && Number.isFinite(remain) && remain <= 0);
+      const raw = ended ? [] : (Array.isArray(g.positions) ? g.positions : []);
+      const positions = raw.filter((p) => p && p.id && p.mint);
+      const show = mode !== "game" && positions.length > 0;
+      return {
+        show: show,
+        flat: !show,
+        count: show ? positions.length : 0,
+        ids: show ? positions.map((p) => String(p.id)) : [],
+        replacesFlow: false,
+      };
+    }
+    /* ship-r-pure-end */
+
+    function followPositions() {
+      if (typeof gameFixtureOn === "function" && gameFixtureOn()) return [];
+      const decision = followTabDecision(state.game || {}, state.mode || "filter");
+      if (!decision.show) return [];
+      const want = {};
+      decision.ids.forEach((id) => { want[id] = 1; });
+      return openPositions().filter((p) => p && want[String(p.id)]);
+    }
+
+    function followGlance(positions) {
+      const p = positions[0] || {};
+      const pct = p.pnl_pct != null ? Number(p.pnl_pct) : 0;
+      const cls = pct >= 0 ? "up" : "dn";
+      const extra = positions.length > 1
+        ? ('<span class="gf-n">' + positions.length + " open</span>")
+        : "";
+      return extra +
+        '<span class="gf-k">Game</span><span class="gf-sym">' + esc(p.symbol || "?") + "</span>" +
+        '<span class="gf-pnl ' + cls + '">' + esc(fmtPct(pct)) + "</span>";
+    }
+
+    function followCardHtml(p) {
+      const pnlPctP = p.pnl_pct != null ? Number(p.pnl_pct) : 0;
+      const pnlUsdP = p.pnl_usd != null ? Number(p.pnl_usd) : 0;
+      const mark = p.mark_usd != null ? Number(p.mark_usd) : Number(p.stake_usd || 0);
+      const liveOn = p.quote_live === true && p.live_price_usd != null && Number.isFinite(Number(p.live_price_usd)) && quoteAgeOk(p.quoted_at, p.quote_sla_s);
+      const last = liveOn ? Number(p.live_price_usd) : NaN;
+      const pnlCls = pnlPctP >= 0 ? "up" : "dn";
+      const dex = p.pair_url
+        ? ('<a class="gf-dex" href="' + esc(p.pair_url) + '" target="_blank" rel="noopener">DEX</a>')
+        : "";
+      return '<article class="gf-card" data-id="' + esc(p.id) + '" data-mint="' + esc(p.mint || "") + '">' +
+        '<div class="gf-top"><strong class="gf-ticker">' + esc(p.symbol || "?") + "</strong>" +
+        '<span class="gf-pnl ' + pnlCls + '" data-family="paper">' + (pnlUsdP >= 0 ? "+" : "-") + "$" + Math.abs(pnlUsdP).toFixed(2) + " · " + esc(fmtPct(pnlPctP)) + "</span></div>" +
+        '<p class="gf-kicker">P&amp;L · paper $ · same Game book</p>' +
+        '<div class="gf-stats">' +
+        '<div data-family="paper"><span>Mark</span><span class="u">position $</span><b>' + esc(fmtGameUsd(mark)) + "</b></div>" +
+        '<div data-family="paper"><span>Stake</span><span class="u">paper $</span><b>' + esc(fmtGameUsd(p.stake_usd)) + "</b></div>" +
+        '<div data-family="price"><span>Entry</span><span class="u">token price</span><b>' + esc(fmtPx(p.entry_price_usd)) + "</b></div>" +
+        '<div data-family="price"><span>Last</span><span class="u">token price</span><b>' + (liveOn ? esc(fmtPx(last)) : "—") + "</b></div>" +
+        "</div>" +
+        '<div class="gf-actions"><button type="button" class="gbtn gf-sell" data-follow-sell="' + esc(p.id) + '">Sell this</button>' + dex + "</div>" +
+        "</article>";
+    }
+
+    function paintFollowTab() {
+      const root = document.getElementById("gameFollow");
+      if (!root) return;
+      const positions = followPositions();
+      const live = positions.length > 0;
+      document.body.classList.toggle("follow-live", live);
+      const sheet = document.getElementById("gameFollowSheet");
+      const scrim = document.getElementById("gameFollowScrim");
+      const chip = document.getElementById("gameFollowChip");
+      if (!live) {
+        state.followOpen = false;
+        state.followSig = "";
+        root.hidden = true;
+        root.setAttribute("data-state", "flat");
+        root.setAttribute("data-open", "0");
+        if (sheet) { sheet.hidden = true; sheet.innerHTML = ""; }
+        if (scrim) scrim.hidden = true;
+        if (chip) chip.setAttribute("aria-expanded", "false");
+        return;
+      }
+      root.hidden = false;
+      root.setAttribute("data-state", "live");
+      const open = !!state.followOpen;
+      root.setAttribute("data-open", open ? "1" : "0");
+      if (chip) chip.setAttribute("aria-expanded", open ? "true" : "false");
+      if (scrim) scrim.hidden = !open;
+      if (sheet) sheet.hidden = !open;
+      const sig = (open ? "1" : "0") + "|" + positions.map((p) => [
+        p.id, p.symbol, p.pnl_usd, p.pnl_pct, p.mark_usd, p.stake_usd,
+        p.entry_price_usd, p.live_price_usd, p.quote_live, p.quoted_at, p.pair_url
+      ].join("~")).join("|");
+      if (state.followSig === sig) return;
+      state.followSig = sig;
+      if (chip) {
+        const sym = (positions[0] && positions[0].symbol) || "coin";
+        const pct = positions[0] && positions[0].pnl_pct != null ? fmtPct(positions[0].pnl_pct) : "";
+        chip.setAttribute("aria-label", "Game follow " + sym + " " + pct + ". " + (open ? "Collapse" : "Expand") + " position");
+        chip.innerHTML = followGlance(positions);
+      }
+      if (sheet) {
+        sheet.innerHTML = open
+          ? ('<div class="gf-bar"><h3 id="gameFollowTitle">How it\'s going</h3><button type="button" class="dismiss-x" data-follow-close aria-label="Collapse follow tab" title="Collapse">✕</button></div>' +
+            positions.map(followCardHtml).join(""))
+          : "";
+      }
+      if (state.gameBusy) {
+        root.querySelectorAll("[data-follow-sell]").forEach((el) => { el.disabled = true; });
+      }
+    }
+
+    function wireFollowTab() {
+      const root = document.getElementById("gameFollow");
+      if (!root || root.getAttribute("data-wired") === "1") return;
+      root.setAttribute("data-wired", "1");
+      root.addEventListener("click", (ev) => {
+        const close = ev.target.closest("[data-follow-close], #gameFollowScrim");
+        if (close) {
+          ev.preventDefault();
+          state.followOpen = false;
+          paintFollowTab();
+          return;
+        }
+        const sell = ev.target.closest("[data-follow-sell]");
+        if (sell) {
+          ev.preventDefault();
+          gameSell(sell.getAttribute("data-follow-sell"));
+          return;
+        }
+        if (ev.target.closest("#gameFollowChip")) {
+          ev.preventDefault();
+          state.followOpen = !state.followOpen;
+          paintFollowTab();
+        }
+      });
+    }
+    /* ship-r-ui-end */
+
     function resolveChartTarget() {
       if (typeof gameFixtureOn === "function" && gameFixtureOn()) return null;
       const positions = openPositions();
@@ -6651,6 +6952,7 @@
       if (gameFixtureOn()) {
         applyGameFixture();
         paintTradeChart();
+        paintFollowTab();
         return;
       }
       const g = state.game || {};
@@ -6856,6 +7158,7 @@
       applySessionChrome(g);
       paintTradeChart();
       paintRunReview(g);
+      paintFollowTab();
 
       // Keep quote-card live price ticking when a quote is on screen
       if (state.lastQuoteMint && status === "active") {
@@ -7003,7 +7306,7 @@
       const gen = state.gameGen || 0;
       let qaEnd = false;
       try {
-        qaEnd = takeQaEndOnce();
+        qaEnd = state.mode === "game" && takeQaEndOnce();
         if (qaEnd) state.qaEndSent = true;
         const qaMode = planQaTickForFetch(Date.now());
         const params = [];
@@ -7028,6 +7331,10 @@
         const wasDown = state.gameFailCount > 0 || state.lastGameErr;
         state.lastGameErr = null;
         state.gameFailCount = 0;
+        if (state.mode !== "game") {
+          paintFollowTab();
+          return;
+        }
         renderGame();
         if (gameFixtureOn()) return;
         if (sessionEndView(state.game).ended) clearBootGameLine();
@@ -7042,8 +7349,10 @@
         const box = document.getElementById("gPositions");
         if (gameFixtureOn()) {
           applyGameFixture();
+          paintFollowTab();
           return;
         }
+        if (state.mode !== "game") return;
         if (!state.gameLoaded || n >= 3) {
           if (body) body.setAttribute("data-state", "error");
           if (box) {
@@ -7614,12 +7923,18 @@
           if (!data.sound) beep("fail");
           setGameLine(data.error || "Sell failed", "bad");
           toast(data.error || "Sell failed", true);
-          if (data.state) { state.game = data.state; state.gameLoaded = true; renderGame(); }
+          if (data.state) {
+            state.game = data.state;
+            state.gameLoaded = true;
+            if (state.mode === "game") renderGame();
+            else paintFollowTab();
+          }
           return;
         }
         state.game = data.state;
         state.gameLoaded = true;
-        renderGame();
+        if (state.mode === "game") renderGame();
+        else paintFollowTab();
         playResponseSound(data);
         setGameLine("Sold", "ok");
         toast("Sold");
@@ -8084,6 +8399,7 @@
       setMuteUi(true);
       markSound("mute", "silent");
     });
+    wireFollowTab();
     document.getElementById("gPositions").addEventListener("click", (ev) => {
       const btn = ev.target.closest(".g-sell");
       if (btn) {
@@ -8670,6 +8986,12 @@
         closeCoinDetail();
         return;
       }
+      if (state.followOpen) {
+        ev.preventDefault();
+        state.followOpen = false;
+        paintFollowTab();
+        return;
+      }
       const typing = ev.target && ev.target.closest && ev.target.closest("input, textarea, select");
       if (typing) return;
       const openTok = document.querySelector("#table-wrap .tok.open");
@@ -8872,6 +9194,7 @@
     loadData(true);
     resumeUpdateNow();
     schedulePoll();
+    ensureGamePoll();
     if (state.tickTimer) clearInterval(state.tickTimer);
     state.tickTimer = setInterval(tickAge, 1000);
   </script>
