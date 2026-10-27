@@ -201,7 +201,7 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 79,
+            "panel_v": 80,
             "time": _utc(),
             "qa_tick": "page ?qa_tick=both|up|down",
             "qa_end": "page ?qa_end=1 (one-shot) or POST /api/game/end",
@@ -233,7 +233,14 @@ def api_health():
                 "Gold annotate is cached on flagged mtime. RugCheck summaries skip hard-fails and already-ran. "
                 "Mint universe stays boosts+profiles. Not a buy."
             ),
-            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture", "game_ai_review", "gold_scar", "game_follow_tab", "filter_smart"],
+            "profile_custom_pic": (
+                "Game Edit profile can take a still PNG, JPEG, or WebP from files or photos "
+                "(upload max 8 MB). Preview, then Save stores a small crop on this paper profile "
+                "with the name and points. Cancel, a non-image, or an oversized file keeps the last "
+                "good avatar. Rocket, Star, Flame, and Moon presets stay. Not an account. "
+                "Not synced across devices. GIF and video animation are not saved."
+            ),
+            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture", "game_ai_review", "gold_scar", "game_follow_tab", "filter_smart", "profile_custom_pic"],
             "sitting_drop_min": 5.0,
             "sitting_aged_min": 180.0,
             "sitting_keep": True,
@@ -271,7 +278,7 @@ def api_gold():
     return jsonify(
         {
             "ok": True,
-            "panel_v": 79,
+            "panel_v": 80,
             "feature": "gold_scar",
             "count": len(picks),
             "empty_ok": True,
@@ -734,6 +741,8 @@ def api_game_profile():
         kwargs["name"] = body.get("name")
     if "pfp" in body:
         kwargs["pfp"] = body.get("pfp")
+    if "pfp_data" in body:
+        kwargs["pfp_data"] = body.get("pfp_data")
     result = game_mod.update_profile(**kwargs)
     code = 200 if result.get("ok") else 400
     if result.get("ok"):

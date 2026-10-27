@@ -207,7 +207,7 @@ class ShipKRestartTests(unittest.TestCase):
         res = server.app.test_client().get("/api/health")
         data = res.get_json()
         self.assertTrue(data["ok"])
-        self.assertEqual(data["panel_v"], 79)
+        self.assertEqual(data["panel_v"], 80)
         self.assertIn("game_24h_restart", data["features"])
         self.assertIn("dismiss_back", data["features"])
         self.assertIn("game_polish", data["features"])
@@ -219,10 +219,10 @@ class ShipKRestartTests(unittest.TestCase):
 class ShipKPanelTests(unittest.TestCase):
     def test_panel_resets_rocket_and_hides_ghost_open(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
-        self.assertIn("const PANEL_V = 79", html)
-        self.assertIn("paper only · v79", html)
+        self.assertIn("const PANEL_V = 80", html)
+        self.assertIn("paper only · v80", html)
         self.assertNotIn("?v=76", html)
-        self.assertIn("?v=79", html)
+        self.assertIn("?v=80", html)
         self.assertIn("function sessionEndView(", html)
         self.assertIn("function freshRunBaseline(", html)
         self.assertIn("function rocketResetDecision(", html)

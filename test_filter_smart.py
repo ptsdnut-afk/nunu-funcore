@@ -285,7 +285,7 @@ class HealthAndGameSmokeTests(unittest.TestCase):
     def test_health_bumps_filter_smart_and_keeps_disclaimer(self):
         data = server.app.test_client().get("/api/health").get_json()
         self.assertTrue(data["ok"])
-        self.assertEqual(data["panel_v"], 79)
+        self.assertEqual(data["panel_v"], 80)
         for feature in ("filter_smart", "gold_scar", "game_follow_tab", "sitting_keep", "game_ai_review"):
             self.assertIn(feature, data["features"])
         self.assertIn("Paper research only. Not financial advice. No trades placed.", data["disclaimer"])
