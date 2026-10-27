@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import threading
 import time
@@ -624,6 +625,13 @@ POINTS_DAILY_CAP = 400
 EARLY_SELL_SEC = 5 * 60
 BLOW_EQUITY_USD = 1.0
 PFPS = ("rocket", "star", "flame", "moon")
+CUSTOM_PFP = "custom"
+# Upload cap is what the file picker may hand us. Stored cap is the cropped still
+# kept on the same paper profile as the name (data URL, not a second account).
+PFP_FILE_MAX_BYTES = 8 * 1024 * 1024
+PFP_DATA_MAX_CHARS = 120_000
+PFP_IMAGE_MAX_BYTES = 90_000
+_PFP_MIMES = ("image/png", "image/jpeg", "image/webp")
 _MISSING = object()
 
 # Prices match the dopamine v2b shop. Nebula + Plain are owned starters.
@@ -653,10 +661,63 @@ def _today() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
+def _image_magic_ok(mime: str, blob: bytes) -> bool:
+    if mime == "image/jpeg":
+        return blob.startswith(b"\xff\xd8\xff")
+    if mime == "image/png":
+        return blob.startswith(b"\x89PNG\r\n\x1a\n")
+    if mime == "image/webp":
+        return len(blob) >= 12 and blob.startswith(b"RIFF") and blob[8:12] == b"WEBP"
+    return False
+
+
+def normalize_pfp_data(raw) -> tuple[str | None, str | None]:
+    """Return (data_url, error). A bad file does not produce a URL."""
+    if not isinstance(raw, str):
+        return None, "That file is not a valid image. Use a PNG, JPEG, or WebP."
+    text = "".join(raw.split())
+    if len(text) > PFP_DATA_MAX_CHARS:
+        return None, (
+            "Picture is too large. Upload up to 8 MB; the saved still must stay under "
+            f"{PFP_DATA_MAX_CHARS // 1000} KB."
+        )
+    if not text.startswith("data:image/") or "," not in text:
+        return None, "That file is not a valid image. Use a PNG, JPEG, or WebP."
+    header, b64 = text.split(",", 1)
+    if not header.endswith(";base64"):
+        return None, "That file is not a valid image. Use a PNG, JPEG, or WebP."
+    mime = header[5:-7].strip().lower()
+    if mime == "image/jpg":
+        mime = "image/jpeg"
+    if mime not in _PFP_MIMES:
+        return None, "That file is not a valid image. Use a PNG, JPEG, or WebP."
+    try:
+        blob = base64.b64decode(b64, validate=True)
+    except (ValueError, TypeError):
+        return None, "That file is not a valid image. Use a PNG, JPEG, or WebP."
+    if not blob:
+        return None, "That file is not a valid image. Use a PNG, JPEG, or WebP."
+    if len(blob) > PFP_IMAGE_MAX_BYTES:
+        return None, (
+            "Picture is too large. Upload up to 8 MB; the saved still must stay under "
+            f"{PFP_DATA_MAX_CHARS // 1000} KB."
+        )
+    if not _image_magic_ok(mime, blob):
+        return None, "That file is not a valid image. Use a PNG, JPEG, or WebP."
+    canon = "data:" + mime + ";base64," + base64.b64encode(blob).decode("ascii")
+    if len(canon) > PFP_DATA_MAX_CHARS:
+        return None, (
+            "Picture is too large. Upload up to 8 MB; the saved still must stay under "
+            f"{PFP_DATA_MAX_CHARS // 1000} KB."
+        )
+    return canon, None
+
+
 def empty_profile() -> dict:
     return {
         "name": "Pilot",
         "pfp": "rocket",
+        "pfp_data": "",
         "points": 0,
         "owned": list(STARTER_OWNED),
         "equipped": DEFAULT_EQUIPPED,
@@ -675,8 +736,22 @@ def _clean_profile(raw: dict) -> dict:
         profile.update({k: raw.get(k) for k in base})
     name = " ".join(str(profile.get("name") or "").split())
     profile["name"] = name[:24] if name else "Pilot"
-    pfp = str(profile.get("pfp") or "")
-    profile["pfp"] = pfp if pfp in PFPS else "rocket"
+    pfp = str(profile.get("pfp") or "").strip()
+    raw_pic = profile.get("pfp_data") if isinstance(profile.get("pfp_data"), str) else ""
+    if pfp == CUSTOM_PFP:
+        cleaned, err = normalize_pfp_data(raw_pic)
+        if err:
+            profile["pfp"] = "rocket"
+            profile["pfp_data"] = ""
+        else:
+            profile["pfp"] = CUSTOM_PFP
+            profile["pfp_data"] = cleaned
+    elif pfp in PFPS:
+        profile["pfp"] = pfp
+        profile["pfp_data"] = ""
+    else:
+        profile["pfp"] = "rocket"
+        profile["pfp_data"] = ""
     try:
         profile["points"] = int(profile.get("points") or 0)
     except (TypeError, ValueError):
@@ -847,6 +922,7 @@ def public_profile(profile: dict | None = None) -> dict:
     return {
         "name": profile.get("name") or "Pilot",
         "pfp": profile.get("pfp") or "rocket",
+        "pfp_data": profile.get("pfp_data") or "",
         "points": bal,
         "owned": [row["id"] for row in SHOP if row["id"] in owned],
         "equipped": equipped,
@@ -859,23 +935,51 @@ def public_profile(profile: dict | None = None) -> dict:
         "shop": shop,
         "ledger": list(profile.get("ledger") or [])[:12],
         "pfps": list(PFPS),
+        "pfp_limits": {
+            "max_file_bytes": PFP_FILE_MAX_BYTES,
+            "max_stored_chars": PFP_DATA_MAX_CHARS,
+            "types": list(_PFP_MIMES),
+            "note": "Still image on this paper profile. Not synced across devices.",
+        },
     }
 
 
-def update_profile(name=_MISSING, pfp=_MISSING) -> dict:
-    if name is _MISSING and pfp is _MISSING:
+def update_profile(name=_MISSING, pfp=_MISSING, pfp_data=_MISSING) -> dict:
+    if name is _MISSING and pfp is _MISSING and pfp_data is _MISSING:
         return _fail("name or pfp required")
     with _lock:
         profile = load_profile()
+        clean_name = None
         if name is not _MISSING:
-            clean = " ".join(str(name or "").split())
-            if not clean or len(clean) > 24:
+            clean_name = " ".join(str(name or "").split())
+            if not clean_name or len(clean_name) > 24:
                 return _fail("Name must be 1–24 characters", profile=public_profile(profile))
-            profile["name"] = clean
-        if pfp is not _MISSING:
-            if str(pfp or "") not in PFPS:
+        next_pfp = None
+        next_data = None
+        if pfp is not _MISSING or pfp_data is not _MISSING:
+            # A picture payload with no preset id is a custom still. An explicit
+            # preset replaces any custom bytes, even if the body also sent them.
+            if pfp is _MISSING:
+                choice = CUSTOM_PFP
+            else:
+                choice = str(pfp or "").strip()
+            if choice in PFPS:
+                next_pfp = choice
+                next_data = ""
+            elif choice == CUSTOM_PFP:
+                raw = pfp_data if pfp_data is not _MISSING else profile.get("pfp_data")
+                cleaned, err = normalize_pfp_data(raw)
+                if err:
+                    return _fail(err, profile=public_profile(profile))
+                next_pfp = CUSTOM_PFP
+                next_data = cleaned
+            else:
                 return _fail("Pick a picture", profile=public_profile(profile))
-            profile["pfp"] = str(pfp)
+        if clean_name is not None:
+            profile["name"] = clean_name
+        if next_pfp is not None:
+            profile["pfp"] = next_pfp
+            profile["pfp_data"] = next_data
         save_profile(profile)
         return {"ok": True, "profile": public_profile(profile)}
 

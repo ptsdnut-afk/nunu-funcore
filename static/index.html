@@ -2098,13 +2098,15 @@
     }
     body.mode-game .profile-chip { display: inline-flex; }
     .profile-chip .pf-av {
-      width: 28px; height: 28px; border-radius: 50%;
+      width: 28px; height: 28px; border-radius: 50%; overflow: hidden;
       display: grid; place-items: center; font-weight: 900; font-size: 0.85rem;
       background: #1a1a1a; border: 2px solid var(--amber); color: var(--text);
     }
-    .profile-chip .pf-av.star { background: #241e10; }
-    .profile-chip .pf-av.flame { background: #2a140c; }
-    .profile-chip .pf-av.moon { background: #141820; }
+    .profile-chip .pf-av.star, .pf-preview .av.star { background: #241e10; }
+    .profile-chip .pf-av.flame, .pf-preview .av.flame { background: #2a140c; }
+    .profile-chip .pf-av.moon, .pf-preview .av.moon { background: #141820; }
+    .profile-chip .pf-av.custom { border-color: var(--good); }
+    .profile-chip .pf-av img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .profile-chip .pf-meta { display: flex; flex-direction: column; line-height: 1.15; text-align: left; }
     .profile-chip .name { font-weight: 800; font-size: 0.78rem; }
     .profile-chip .pts { font-family: var(--mono); font-size: 0.68rem; color: var(--amber); font-weight: 700; }
@@ -2301,7 +2303,32 @@
       border-radius: 12px; padding: 10px 0; cursor: pointer; font-size: 1.3rem;
     }
     .pf-picks button.on { border-color: var(--amber); box-shadow: 0 0 12px rgba(240,163,58,.3); }
+    .pf-picks[data-custom="1"] button { opacity: 0.72; }
     .pf-picks button span { display: block; font-size: 0.62rem; font-weight: 800; letter-spacing: .04em; color: var(--muted); margin-top: 4px; }
+    .pf-upload { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 4px; }
+    .pf-lab { font-size: 0.72rem; color: var(--muted); font-weight: 700; }
+    .pf-upload-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+    .pf-upload-btns .gbtn { font-size: 0.78rem; }
+    .pf-file {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; pointer-events: none;
+    }
+    .pf-hint, .pf-preview .note { margin: 0; font-size: 0.68rem; color: var(--muted); line-height: 1.35; }
+    .pf-err {
+      margin: 0; font-size: 0.72rem; line-height: 1.35; color: var(--bad);
+      background: #241418; border: 1px solid #6a2a32; border-radius: 8px; padding: 6px 8px;
+    }
+    .pf-err:empty { display: none; }
+    .pf-preview { display: flex; gap: 10px; align-items: center; }
+    .pf-preview .av {
+      width: 72px; height: 72px; border-radius: 50%; overflow: hidden; flex-shrink: 0;
+      display: grid; place-items: center; font-size: 1.6rem;
+      background: #141414; border: 2px solid #3a5a80;
+    }
+    .pf-preview .av.custom { border-color: var(--good); }
+    .pf-preview .av img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .pf-preview .lab { font-weight: 800; font-size: 0.78rem; }
+    .pf-preview .file { font-family: var(--mono); font-size: 0.68rem; color: var(--muted); word-break: break-all; }
     @media (max-width: 960px) {
       .finish-row { grid-template-columns: 1fr; }
       .shop-strip { grid-template-columns: 1fr 1fr; }
@@ -2533,7 +2560,7 @@
         <div class="logo">N</div>
         <div>
           <h1>Nunu Filter</h1>
-          <p class="sub">Solana Research Panel · paper only · v79</p>
+          <p class="sub">Solana Research Panel · paper only · v80</p>
         </div>
       </div>
       <div class="mode-tabs" role="tablist">
@@ -2950,7 +2977,7 @@
     </div>
 
     <footer class="app-foot">
-      <div class="foot-live">Paper only · no wallets. <code>?v=79</code></div>
+      <div class="foot-live">Paper only · no wallets. <code>?v=80</code></div>
       <details class="qa-foot">
         <summary>QA fixtures</summary>
         <div>APIs: <code>/api/flagged</code> · <code>/api/update-now</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>. Social Tap is coin, meme, and crypto viral from public sources — nothing invented. Checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: <code>&amp;mode=game</code>. Equity tick proof: <code>?qa_tick=both</code>, <code>?qa_tick=up</code>, <code>?qa_tick=down</code>. Display offset only. Do not combine with <code>?fixture=</code>. 24h end proof: <code>?qa_end=1</code> (one-shot, then Start 24h). Does not auto-start. An ended run opens a paper Review (dismiss, or Start next 24h — same restart as the main button). Mute silences the soft review cue. Max fixture proof: <code>?qa_max=1</code> (one synthetic bonding row, badge QA MAX). Absent query leaves the live feed unchanged. Do not combine with <code>?fixture=</code>. Gold fixture proof: <code>?qa_gold=1</code> (one synthetic rare card in Gold picks, no chime on the seeded load) or <code>?qa_gold=arrive</code> (same card, one ♪ GOLD). Mute silences the gold cue. It is not the Token Flow new-token chime. Absent query leaves Gold empty unless a live row clears the stricter 7-gate stack. Do not combine with <code>?fixture=</code>.</div>
@@ -2977,7 +3004,26 @@
       <label>Name
         <input id="pfName" maxlength="24" autocomplete="nickname" />
       </label>
-      <div class="pf-picks" id="pfPicks">
+      <div class="pf-upload" data-feature="profile_custom_pic">
+        <span class="pf-lab">Custom picture</span>
+        <div class="pf-upload-btns">
+          <button type="button" class="gbtn" id="pfPhoto">Use photo</button>
+          <button type="button" class="gbtn" id="pfFileBtn">Choose from files</button>
+        </div>
+        <input id="pfFile" class="pf-file" type="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" aria-label="Choose a profile image" />
+        <p class="pf-hint" id="pfPicHint">PNG, JPEG, or WebP. Up to 8 MB. Saved as a small still on this paper profile — not synced to other devices. Cancel keeps the current avatar.</p>
+        <p class="pf-err" id="pfPicError" role="alert"></p>
+        <div class="pf-preview" id="pfPreview">
+          <div class="av" id="pfPreviewAv" aria-hidden="true"></div>
+          <div>
+            <div class="lab" id="pfPreviewLab">Current avatar</div>
+            <div class="file" id="pfPreviewFile"></div>
+            <p class="note" id="pfPreviewNote">Save applies this to the header chip.</p>
+          </div>
+        </div>
+      </div>
+      <div class="pf-lab">Or pick a preset</div>
+      <div class="pf-picks" id="pfPicks" data-custom="0">
         <button type="button" data-pfp="rocket" class="on">🚀<span>Rocket</span></button>
         <button type="button" data-pfp="star">⭐<span>Star</span></button>
         <button type="button" data-pfp="flame">🔥<span>Flame</span></button>
@@ -2992,7 +3038,7 @@
 
   <script>
 
-    const PANEL_V = 79;
+    const PANEL_V = 80;
     const QA_MAX_NOTE = "QA Max fixture — synthetic bonding row QAMAX. Live unknown rows stay Max-empty. Not a real mint.";
     const QA_GOLD_NOTE = "QA Gold fixture — synthetic rare card QAGOLD in Gold picks. Not a live mint. The normal page stays empty unless the 7-gate stack clears.";
     const QA_GOLD_ARRIVE_NOTE = "QA Gold arrive — one ♪ GOLD for the synthetic card. Mute silences it. This cue is not the Token Flow new-token chime. ?qa_gold=1 seeds quietly.";
@@ -3142,6 +3188,10 @@
       pointsReady: false,
       seenPointAt: "",
       pfpDraft: "rocket",
+      pfpDataDraft: "",
+      pfpFileName: "",
+      pfpPickSeq: 0,
+      pfpReading: false,
       GAME_POLL_MS: 2000,
       filterScanBusy: false,
       scoreOpenMint: "",
@@ -6398,6 +6448,184 @@
       }
     }
 
+    const PFP_MAX_FILE_BYTES = 8 * 1024 * 1024;
+    const PFP_MAX_DATA_CHARS = 120000;
+    const PFP_EDGE = 128;
+    const PFP_GLYPH = { rocket: "🚀", star: "⭐", flame: "🔥", moon: "🌙" };
+    const PFP_LABEL = { rocket: "Rocket", star: "Star", flame: "Flame", moon: "Moon" };
+
+    function safePfpData(url) {
+      if (typeof url !== "string" || url.length > PFP_MAX_DATA_CHARS) return "";
+      if (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/.test(url)) return "";
+      return url;
+    }
+
+    function paintAvatarEl(el, pfp, dataUrl, letter) {
+      if (!el) return;
+      const gen = (Number(el.dataset.avGen) || 0) + 1;
+      el.dataset.avGen = String(gen);
+      const safe = pfp === "custom" ? safePfpData(dataUrl) : "";
+      const preset = PFP_GLYPH[pfp] ? pfp : "rocket";
+      const shown = safe ? "custom" : preset;
+      ["rocket", "star", "flame", "moon", "custom"].forEach((name) => el.classList.remove(name));
+      el.classList.add(shown);
+      if (safe) {
+        let img = el.querySelector("img");
+        if (!img) {
+          el.textContent = "";
+          img = document.createElement("img");
+          img.alt = "";
+          el.appendChild(img);
+        }
+        img.onerror = () => {
+          if (el.dataset.avGen !== String(gen)) return;
+          el.classList.remove("custom");
+          el.textContent = letter || "P";
+        };
+        if (img.getAttribute("src") !== safe) img.setAttribute("src", safe);
+        return;
+      }
+      el.textContent = PFP_GLYPH[shown] || letter || "P";
+    }
+
+    function setPfpError(msg) {
+      const el = document.getElementById("pfPicError");
+      if (el) el.textContent = msg || "";
+    }
+
+    function profileFileKind(file) {
+      const type = String((file && file.type) || "").toLowerCase();
+      const name = String((file && file.name) || "").toLowerCase();
+      const ext = name.indexOf(".") >= 0 ? name.split(".").pop() : "";
+      if (type === "image/gif" || ext === "gif" || type.indexOf("video/") === 0) return "motion";
+      if (type === "image/png" || type === "image/jpeg" || type === "image/jpg" || type === "image/webp") return "image";
+      if (ext === "png" || ext === "jpg" || ext === "jpeg" || ext === "webp") return "image";
+      if (type.indexOf("image/") === 0) return "other-image";
+      return "bad";
+    }
+
+    function cropProfileFile(file) {
+      return new Promise((resolve, reject) => {
+        const blobUrl = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+          URL.revokeObjectURL(blobUrl);
+          const w = img.naturalWidth || img.width;
+          const h = img.naturalHeight || img.height;
+          if (!w || !h) { reject(new Error("unread")); return; }
+          const side = Math.min(w, h);
+          const sx = Math.floor((w - side) / 2);
+          const sy = Math.floor((h - side) / 2);
+          const canvas = document.createElement("canvas");
+          canvas.width = PFP_EDGE;
+          canvas.height = PFP_EDGE;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) { reject(new Error("unread")); return; }
+          ctx.drawImage(img, sx, sy, side, side, 0, 0, PFP_EDGE, PFP_EDGE);
+          let quality = 0.82;
+          let dataUrl = "";
+          try {
+            dataUrl = canvas.toDataURL("image/jpeg", quality);
+            while (dataUrl.length > PFP_MAX_DATA_CHARS && quality > 0.4) {
+              quality = Math.round((quality - 0.12) * 100) / 100;
+              dataUrl = canvas.toDataURL("image/jpeg", quality);
+            }
+          } catch (e) {
+            reject(new Error("unread"));
+            return;
+          }
+          if (!safePfpData(dataUrl)) { reject(new Error(dataUrl.length > PFP_MAX_DATA_CHARS ? "large" : "unread")); return; }
+          resolve(dataUrl);
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(blobUrl);
+          reject(new Error("unread"));
+        };
+        img.src = blobUrl;
+      });
+    }
+
+    function paintProfileDraft() {
+      const profile = (state.game && state.game.profile) || {};
+      const savedPfp = profile.pfp || "rocket";
+      const savedData = profile.pfp_data || "";
+      const draft = state.pfpDraft || "rocket";
+      const data = state.pfpDataDraft || "";
+      const dirty = draft !== savedPfp || (draft === "custom" && data !== savedData);
+      document.querySelectorAll("#pfPicks button").forEach((btn) => {
+        btn.classList.toggle("on", btn.getAttribute("data-pfp") === draft);
+      });
+      const picks = document.getElementById("pfPicks");
+      if (picks) picks.setAttribute("data-custom", draft === "custom" ? "1" : "0");
+      paintAvatarEl(document.getElementById("pfPreviewAv"), draft, data, "P");
+      const lab = document.getElementById("pfPreviewLab");
+      const file = document.getElementById("pfPreviewFile");
+      const note = document.getElementById("pfPreviewNote");
+      if (lab) {
+        if (draft === "custom") lab.textContent = dirty ? "Chosen · not saved yet" : "Current picture";
+        else lab.textContent = (PFP_LABEL[draft] || "Preset") + (dirty ? " · not saved yet" : "");
+      }
+      if (file) {
+        file.textContent = draft === "custom"
+          ? (state.pfpFileName || (savedPfp === "custom" && !dirty ? "Saved on this paper profile" : ""))
+          : "";
+      }
+      if (note) {
+        note.textContent = dirty
+          ? "Save applies this to the header chip. Cancel keeps the current avatar."
+          : "Save keeps this avatar on the header chip.";
+      }
+    }
+
+    function releasePfpRead() {
+      state.pfpReading = false;
+      const saveBtn = document.getElementById("pfSave");
+      if (saveBtn) saveBtn.disabled = false;
+    }
+
+    async function onProfileFile(file) {
+      const seq = ++state.pfpPickSeq;
+      if (!file) return;
+      const kind = profileFileKind(file);
+      if (kind === "motion") {
+        setPfpError("GIF and video are not used. Pick a PNG, JPEG, or WebP. The current avatar is unchanged.");
+        return;
+      }
+      if (kind === "bad") {
+        setPfpError("That file is not an image. Pick a PNG, JPEG, or WebP. The current avatar is unchanged.");
+        return;
+      }
+      if (!file.size) {
+        setPfpError("That file is empty. The current avatar is unchanged.");
+        return;
+      }
+      if (file.size > PFP_MAX_FILE_BYTES) {
+        const mb = (file.size / (1024 * 1024)).toFixed(1);
+        setPfpError("That picture is " + mb + " MB. The limit is 8 MB. The current avatar is unchanged.");
+        return;
+      }
+      state.pfpReading = true;
+      const saveBtn = document.getElementById("pfSave");
+      if (saveBtn) saveBtn.disabled = true;
+      setPfpError("");
+      try {
+        const dataUrl = await cropProfileFile(file);
+        if (seq !== state.pfpPickSeq) return;
+        state.pfpDraft = "custom";
+        state.pfpDataDraft = dataUrl;
+        state.pfpFileName = file.name || "photo";
+        paintProfileDraft();
+      } catch (err) {
+        if (seq !== state.pfpPickSeq) return;
+        const large = err && err.message === "large";
+        setPfpError(large
+          ? "That picture is still too large after cropping. Pick a smaller PNG, JPEG, or WebP. The current avatar is unchanged."
+          : "This browser could not read that picture. Pick a PNG, JPEG, or WebP. The current avatar is unchanged.");
+      } finally {
+        if (seq === state.pfpPickSeq) releasePfpRead();
+      }
+    }
+
     function paintFinish(g) {
       const profile = (g && g.profile) || null;
       const name = (profile && profile.name) || "Pilot";
@@ -6409,9 +6637,7 @@
       if (chipPts) chipPts.textContent = fmtPts(pts) + " pts";
       if (chipAv) {
         const pfp = (profile && profile.pfp) || "rocket";
-        const glyph = { rocket: "🚀", star: "⭐", flame: "🔥", moon: "🌙" }[pfp] || name.slice(0, 1).toUpperCase();
-        chipAv.textContent = glyph;
-        chipAv.className = "pf-av " + pfp;
+        paintAvatarEl(chipAv, pfp, profile && profile.pfp_data, (name || "P").slice(0, 1).toUpperCase());
       }
       const cap = document.getElementById("gPointsCap");
       if (cap) {
@@ -6493,35 +6719,55 @@
     }
 
     function openProfile() {
+      state.pfpPickSeq = (state.pfpPickSeq || 0) + 1;
+      releasePfpRead();
       const profile = (state.game && state.game.profile) || {};
       const input = document.getElementById("pfName");
       if (input) input.value = profile.name || "Pilot";
       state.pfpDraft = profile.pfp || "rocket";
-      document.querySelectorAll("#pfPicks button").forEach((btn) => {
-        btn.classList.toggle("on", btn.getAttribute("data-pfp") === state.pfpDraft);
-      });
+      state.pfpDataDraft = profile.pfp === "custom" ? (profile.pfp_data || "") : "";
+      state.pfpFileName = "";
+      setPfpError("");
+      const fileInput = document.getElementById("pfFile");
+      if (fileInput) fileInput.value = "";
+      paintProfileDraft();
       const modal = document.getElementById("profileModal");
       if (modal) modal.classList.add("on");
       if (input) input.focus();
     }
 
     function closeProfile() {
+      state.pfpPickSeq = (state.pfpPickSeq || 0) + 1;
+      releasePfpRead();
+      setPfpError("");
+      const fileInput = document.getElementById("pfFile");
+      if (fileInput) fileInput.value = "";
       const modal = document.getElementById("profileModal");
       if (modal) modal.classList.remove("on");
     }
 
     async function saveProfile() {
+      if (state.pfpReading) return;
       const input = document.getElementById("pfName");
       const name = input ? input.value : "";
+      const pfp = state.pfpDraft || "rocket";
+      if (pfp === "custom" && !safePfpData(state.pfpDataDraft)) {
+        setPfpError("Pick a PNG, JPEG, or WebP first. The current avatar is unchanged.");
+        return;
+      }
+      const payload = { name: name, pfp: pfp };
+      if (pfp === "custom") payload.pfp_data = state.pfpDataDraft;
       try {
         const res = await fetch("/api/game/profile", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: name, pfp: state.pfpDraft }),
+          body: JSON.stringify(payload),
         });
         const data = await res.json();
         if (!res.ok || !data || data.ok === false) {
-          toast((data && data.error) || "Could not save profile", true);
+          const msg = (data && data.error) || "Could not save profile";
+          setPfpError(msg + " The current avatar is unchanged.");
+          toast(msg, true);
           return;
         }
         if (data.state) {
@@ -8371,12 +8617,28 @@
     }
     document.querySelectorAll("#pfPicks button").forEach((btn) => {
       btn.addEventListener("click", () => {
+        state.pfpPickSeq = (state.pfpPickSeq || 0) + 1;
+        releasePfpRead();
         state.pfpDraft = btn.getAttribute("data-pfp") || "rocket";
-        document.querySelectorAll("#pfPicks button").forEach((el) => {
-          el.classList.toggle("on", el === btn);
-        });
+        state.pfpDataDraft = "";
+        state.pfpFileName = "";
+        setPfpError("");
+        paintProfileDraft();
       });
     });
+    const pfFile = document.getElementById("pfFile");
+    const openPfFile = () => { if (pfFile) pfFile.click(); };
+    const pfPhoto = document.getElementById("pfPhoto");
+    const pfFileBtn = document.getElementById("pfFileBtn");
+    if (pfPhoto) pfPhoto.addEventListener("click", openPfFile);
+    if (pfFileBtn) pfFileBtn.addEventListener("click", openPfFile);
+    if (pfFile) {
+      pfFile.addEventListener("change", () => {
+        const file = pfFile.files && pfFile.files[0];
+        pfFile.value = "";
+        if (file) onProfileFile(file);
+      });
+    }
     const gShop = document.getElementById("gShop");
     if (gShop) {
       gShop.addEventListener("click", (ev) => {
