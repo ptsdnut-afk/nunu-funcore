@@ -2170,7 +2170,7 @@
         <div class="logo">N</div>
         <div>
           <h1>Nunu Filter</h1>
-          <p class="sub">Solana Research Panel · paper only · v69</p>
+          <p class="sub">Solana Research Panel · paper only · v70</p>
         </div>
       </div>
       <div class="mode-tabs" role="tablist">
@@ -2526,10 +2526,10 @@
     </div>
 
     <footer class="app-foot">
-      <div class="foot-live">Paper only · no wallets. <code>?v=69</code></div>
+      <div class="foot-live">Paper only · no wallets. <code>?v=70</code></div>
       <details class="qa-foot">
         <summary>QA fixtures</summary>
-        <div>APIs: <code>/api/flagged</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>. Social Tap is coin, meme, and crypto viral from public sources — nothing invented. Checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: <code>&amp;mode=game</code>. Equity tick proof: <code>?qa_tick=both</code>, <code>?qa_tick=up</code>, <code>?qa_tick=down</code>. Display offset only. Do not combine with <code>?fixture=</code>.</div>
+        <div>APIs: <code>/api/flagged</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>. Social Tap is coin, meme, and crypto viral from public sources — nothing invented. Checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: <code>&amp;mode=game</code>. Equity tick proof: <code>?qa_tick=both</code>, <code>?qa_tick=up</code>, <code>?qa_tick=down</code>. Display offset only. Do not combine with <code>?fixture=</code>. 24h end proof: <code>?qa_end=1</code> (one-shot, then Start 24h). Does not auto-start.</div>
       </details>
     </footer>
   </div>
@@ -2568,7 +2568,7 @@
 
   <script>
 
-    const PANEL_V = 69;
+    const PANEL_V = 70;
     const SITTING_DROP_MIN = 5;
     const SITTING_NEAR_LEAD_MIN = 1;
     const SITTING_FRESH_MIN = 2;
@@ -2685,8 +2685,16 @@
       rocketPulse: "",
       rocketPulseUntil: 0,
       rocketFloat: 0,
+      rocketPhase: "",
       lastTickDir: "",
+      lastTickShown: null,
+      lastTickSign: "",
       qaTickPlan: null,
+      qaEndChecked: false,
+      qaEndArmed: false,
+      qaEndSent: false,
+      qaEndNote: "",
+      deadEndFor: "",
       qaTickChecked: false,
       qaTickScript: null,
       qaTickPulseMs: 0,
@@ -4651,9 +4659,17 @@
 
     function applySessionChrome(g) {
       g = g || state.game || {};
+      const view = sessionEndView(g);
       const line = document.getElementById("gLine");
       const text = (line && line.textContent) || "";
-      const decision = sessionChromeDecision(g.status || "idle", text);
+      if (view.ended) {
+        if (!/Session ended/.test(text)) {
+          const cash = g.final_cash != null ? g.final_cash : g.cash_usd;
+          setGameLine("Session ended · final cash " + fmtGameUsd(cash), "");
+        }
+        return;
+      }
+      const decision = sessionChromeDecision(view.status || "idle", text);
       if (!decision.replace) return;
       if (decision.reason === "stale-ended" || decision.reason === "boot-active") {
         setGameLine(liveRunLine(g), "ok");
@@ -4928,6 +4944,64 @@
 
     /* qa-tick-pure-end */
 
+    /* ship-k-pure-start */
+    function sessionEndView(g) {
+      g = g || {};
+      const status = g.status || "idle";
+      const remain = Number(g.remain_seconds);
+      const deadClock = status === "active" && Number.isFinite(remain) && remain <= 0;
+      const ended = status === "ended" || deadClock;
+      const positions = ended ? [] : (Array.isArray(g.positions) ? g.positions : []);
+      return {
+        ended: ended,
+        deadClock: deadClock,
+        status: ended ? "ended" : status,
+        chip: ended ? "Session ended" : (status === "active" ? "ACTIVE" : "Idle"),
+        clock: ended ? "00:00:00" : (status === "active" ? "" : "24:00:00"),
+        openCount: positions.length,
+        showOpen: !ended && status === "active" && positions.length > 0,
+      };
+    }
+
+    function freshRunBaseline(g) {
+      g = g || {};
+      const start = Number(g.start_bankroll);
+      const cash = Number(g.cash_usd);
+      const equity = g.equity_usd != null ? Number(g.equity_usd) : cash;
+      const positions = Array.isArray(g.positions) ? g.positions : [];
+      const startOk = Number.isFinite(start) ? start : 5;
+      const level = Number.isFinite(cash) && Math.abs(cash - startOk) < 0.000001
+        && Number.isFinite(equity) && Math.abs(equity - startOk) < 0.000001;
+      return {
+        ok: g.status === "active" && !g.ended_at && positions.length === 0 && level,
+        mood: "idle",
+        chip: "none",
+        tick: "clear",
+      };
+    }
+
+    function rocketResetDecision(prev, next) {
+      const view = sessionEndView(next);
+      const sid = (next && next.session_id) || "";
+      const prevSid = (prev && prev.sessionId) || "";
+      const fresh = !!(sid && sid !== prevSid && next && next.status === "active");
+      if (view.ended) {
+        return { reset: true, mood: "idle", chip: "none", tick: "clear", reason: "ended" };
+      }
+      if (fresh) {
+        const base = freshRunBaseline(next);
+        return {
+          reset: true,
+          mood: "idle",
+          chip: base.ok ? "none" : "open",
+          tick: "clear",
+          reason: "fresh-run",
+        };
+      }
+      return { reset: false, mood: "keep", chip: "keep", tick: "keep", reason: "same-run" };
+    }
+    /* ship-k-pure-end */
+
     function ensureQaTickPlan() {
       if (state.qaTickChecked) return state.qaTickPlan || [];
       state.qaTickChecked = true;
@@ -5130,11 +5204,16 @@
       set("gRocketSub", sub);
       const floatEl = document.getElementById("gFloatDelta");
       if (floatEl) floatEl.textContent = mood === "tick" ? fmtSignedTick(floatDelta) : "";
-      const pos = positions[0];
+      const pos = (g.status === "ended") ? null : positions[0];
       const posChip = document.getElementById("gPosChip");
       if (posChip) {
-        if (!pos) posChip.textContent = stage === "demo" ? "no open · chart cruise" : "no open";
-        else posChip.textContent = "OPEN · " + (pos.symbol || "?") + (pos.pnl_usd != null ? (" · " + fmtSignedTick(pos.pnl_usd)) : "");
+        if (!pos) {
+          posChip.textContent = stage === "demo" ? "no open · chart cruise" : "no open";
+          posChip.setAttribute("data-open", "0");
+        } else {
+          posChip.textContent = "OPEN · " + (pos.symbol || "?") + (pos.pnl_usd != null ? (" · " + fmtSignedTick(pos.pnl_usd)) : "");
+          posChip.setAttribute("data-open", "1");
+        }
       }
       const eqEl = document.getElementById("gRocketEquity");
       if (eqEl) {
@@ -5167,9 +5246,54 @@
       paintChart(mood);
     }
 
+    function clearRocketCue() {
+      state.rocketPulse = "";
+      state.rocketPulseUntil = 0;
+      state.lastTickDir = "";
+      state.lastTickShown = null;
+      state.lastTickSign = "";
+      state.rocketFloat = 0;
+    }
+
+    function paintFreshRocket() {
+      clearRocketCue();
+      const profile = (state.game && state.game.profile) || {};
+      const start = state.game && state.game.start_bankroll != null ? state.game.start_bankroll : 5;
+      paintRocket({
+        status: "idle",
+        positions: [],
+        equity_usd: start,
+        pnl_usd: 0,
+        cash_usd: start,
+        start_bankroll: start,
+        profile: profile,
+      }, "idle", 0);
+    }
+
     function noteEquityTick(g, eq, status) {
-      const sid = g && g.session_id;
-      if (sid !== state.rocketSession) {
+      g = g || {};
+      const shown = Object.assign({}, g, { status: status || g.status });
+      const sid = g.session_id || "";
+      const reset = rocketResetDecision(
+        { sessionId: state.rocketSession || "", phase: state.rocketPhase || "" },
+        shown
+      );
+      if (reset.reason === "ended") {
+        if (state.rocketPhase !== "ended") clearRocketCue();
+        state.lastEquity = null;
+        state.rocketSession = sid || state.rocketSession;
+        state.rocketPhase = "ended";
+        paintRocket(Object.assign({}, shown, { status: "ended", positions: [] }), "idle", 0);
+        return;
+      }
+      if (reset.reason === "fresh-run" || state.rocketPhase === "ended") {
+        const hadSession = !!(state.rocketSession && state.rocketSession !== sid);
+        clearRocketCue();
+        state.lastEquity = null;
+        state.rocketSession = sid || null;
+        state.rocketPhase = "active";
+        if (hadSession && state.qaTickPlan && state.qaTickPlan.length) state.qaSkipNextTick = true;
+      } else if (sid !== state.rocketSession) {
         const hadSession = state.rocketSession != null && state.rocketSession !== "";
         state.rocketSession = sid || null;
         state.lastEquity = null;
@@ -5435,7 +5559,10 @@
       }
       const g = state.game || {};
       applyQaTickResponse(g);
-      const status = g.status || "idle";
+      const view = sessionEndView(g);
+      const status = view.status;
+      document.body.setAttribute("data-game-session", status || "idle");
+      if (view.deadClock) requestDeadClockEnd(g);
       const cashKnown = g.cash_usd != null && !Number.isNaN(Number(g.cash_usd));
       const cash = cashKnown ? Number(g.cash_usd) : null;
       const eq = g.equity_usd != null ? Number(g.equity_usd) : cash;
@@ -5479,9 +5606,9 @@
         clockHint.textContent = "not started";
       }
       const statusEl = document.getElementById("gStatus");
-      statusEl.textContent = status;
+      statusEl.textContent = status === "ended" ? "ENDED" : status;
       statusEl.className = "status-inline " + (status === "active" ? "good" : (status === "ended" ? "bad" : ""));
-      const openN = (g.positions || []).length;
+      const openN = view.openCount;
       document.getElementById("gCashHint").textContent = status === "active"
         ? (openN + " open · paper")
         : (status === "ended" ? "final cash" : "bankroll on start");
@@ -5524,12 +5651,14 @@
       const tradeBody = document.getElementById("gTradeBody");
       if (tradeBody) tradeBody.setAttribute("data-state", (g.positions || []).length ? "ready" : "empty");
 
-      const pos = g.positions || [];
+      const pos = view.ended ? [] : (g.positions || []);
       const box = document.getElementById("gPositions");
       const prevPx = state.lastPosPrices || {};
       const nextPx = {};
       if (!pos.length) {
-        box.innerHTML = '<div class="empty">No open positions — Quote then Buy</div>';
+        box.innerHTML = view.ended
+          ? '<div class="empty">No open positions — session ended</div>'
+          : '<div class="empty">No open positions — Quote then Buy</div>';
         state.lastPosPrices = {};
       } else {
         box.innerHTML = pos.map((p) => {
@@ -5620,8 +5749,10 @@
       if (mh) {
         const liveHint = status === "active"
           ? ("Live · " + openN + " open · poll 2s · server " + ((g.server_time || "").slice(11, 19) || "—"))
-          : "Start a run (or just Buy — auto-starts)";
-        mh.textContent = state.qaTickNote ? state.qaTickNote : liveHint;
+          : (status === "ended"
+            ? "Session ended · Start 24h ($5) for a fresh run"
+            : "Start a run (or just Buy — auto-starts)");
+        mh.textContent = state.qaTickNote || state.qaEndNote || liveHint;
       }
 
       noteEquityTick(g, eq, status);
@@ -5727,11 +5858,55 @@
       });
     }
 
+    function armQaEnd() {
+      if (state.qaEndChecked) return;
+      state.qaEndChecked = true;
+      let raw = "";
+      try { raw = new URLSearchParams(location.search).get("qa_end") || ""; }
+      catch (e) { raw = ""; }
+      state.qaEndArmed = /^(1|true|yes|end)$/i.test(String(raw).trim());
+    }
+
+    function takeQaEndOnce() {
+      armQaEnd();
+      if (!state.qaEndArmed || state.qaEndSent) return false;
+      return true;
+    }
+
+    function requestDeadClockEnd(g) {
+      const sid = (g && g.session_id) || "";
+      if (!sid || state.deadEndFor === sid || state.gameBusy) return;
+      state.deadEndFor = sid;
+      const gen = state.gameGen || 0;
+      fetch("/api/game/end", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+        cache: "no-store",
+      }).then(async (res) => {
+        if (!res.ok) return null;
+        return res.json();
+      }).then((data) => {
+        if (!data || gen !== (state.gameGen || 0)) return;
+        if (data.state) {
+          state.game = data.state;
+          state.gameLoaded = true;
+          renderGame();
+        }
+      }).catch(() => {});
+    }
+
     async function loadGame(forceTick) {
       const gen = state.gameGen || 0;
+      let qaEnd = false;
       try {
+        qaEnd = takeQaEndOnce();
+        if (qaEnd) state.qaEndSent = true;
         const qaMode = planQaTickForFetch(Date.now());
-        const qaQs = qaMode ? ("?qa_tick=" + encodeURIComponent(qaMode)) : "";
+        const params = [];
+        if (qaMode) params.push("qa_tick=" + encodeURIComponent(qaMode));
+        if (qaEnd) params.push("qa_end=1");
+        const qaQs = params.length ? ("?" + params.join("&")) : "";
         const res = await fetch("/api/game/state" + qaQs, {
           method: forceTick ? "POST" : "GET",
           headers: forceTick ? { "Content-Type": "application/json" } : {},
@@ -5742,14 +5917,21 @@
         if (gen !== (state.gameGen || 0)) return;
         state.game = await res.json();
         state.gameLoaded = true;
+        if (qaEnd) {
+          state.qaEndNote = state.game && state.game.status === "ended"
+            ? "QA force-end closed this 24h run. Start 24h begins a fresh $5 run. This does not auto-start."
+            : "QA force-end: no active 24h run to close.";
+        }
         const wasDown = state.gameFailCount > 0 || state.lastGameErr;
         state.lastGameErr = null;
         state.gameFailCount = 0;
         renderGame();
         if (gameFixtureOn()) return;
-        if (wasDown) setGameLine("Back online — live marks resumed", "ok");
+        if (sessionEndView(state.game).ended) clearBootGameLine();
+        else if (wasDown) setGameLine("Back online — live marks resumed", "ok");
         else clearBootGameLine();
       } catch (e) {
+        if (qaEnd) state.qaEndSent = false;
         state.lastGameErr = String(e.message || e);
         state.gameFailCount = (state.gameFailCount || 0) + 1;
         const n = state.gameFailCount;
@@ -5782,13 +5964,18 @@
     async function gameStart() {
       if (state.gameBusy) return;
       const fromIdleFixture = state.fixture === "game-idle";
-      const active = !fromIdleFixture && state.game && state.game.status === "active";
+      const view = sessionEndView(state.game || {});
+      const active = !fromIdleFixture && state.game && state.game.status === "active" && !view.ended;
       const force = active || fromIdleFixture;
       if (force && !confirm(fromIdleFixture
         ? "Start a fresh $5 paper run? This ends the current session on the server."
         : "Restart and wipe current 24h run + open positions?")) return;
       setGameBusy(true);
       state.gameGen = (state.gameGen || 0) + 1;
+      state.rocketPhase = "";
+      state.rocketSession = null;
+      state.lastEquity = null;
+      paintFreshRocket();
       setGameLine(force ? "Starting fresh $5 paper run…" : "Starting 24h run…", "warn");
       try {
         const res = await fetch("/api/game/start", {
@@ -5802,13 +5989,10 @@
         state.gameLoaded = true;
         state.lastPeak = 0;
         state.seenEventAt = null;
-        state.lastEquity = null;
-        state.rocketPulse = "";
-        state.rocketPulseUntil = 0;
+        state.rocketPhase = "";
         state.rocketSession = null;
-        state.lastTickDir = "";
-        state.lastTickShown = null;
-        state.lastTickSign = "";
+        state.lastEquity = null;
+        clearRocketCue();
         if (fromIdleFixture) clearGameFixture();
         const cashTxt = state.game && state.game.cash_usd != null ? fmtGameUsd(state.game.cash_usd) : "—";
         const endTxt = state.game && state.game.ends_at ? fmtUtc(state.game.ends_at) : "";

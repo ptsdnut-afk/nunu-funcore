@@ -126,10 +126,11 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 69,
+            "panel_v": 70,
             "time": _utc(),
             "qa_tick": "page ?qa_tick=both|up|down",
-            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back"],
+            "qa_end": "page ?qa_end=1 (one-shot) or POST /api/game/end",
+            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart"],
             "sitting_drop_min": 5.0,
             "sitting_near_lead_min": 1.0,
             "sitting_fresh_min": 2.0,
@@ -334,8 +335,24 @@ def api_paper():
 # —— 24h $5 game ——
 
 
+def _wants_qa_end() -> bool:
+    """One-shot 24h force-end. Persists the close. Does not start a new run."""
+    raw = (request.args.get("qa_end") or "").strip().lower()
+    if raw in ("1", "true", "yes", "end"):
+        return True
+    if request.method != "POST":
+        return False
+    body = request.get_json(silent=True) or {}
+    flag = body.get("qa_end")
+    if flag is True or flag == 1:
+        return True
+    return str(flag or "").strip().lower() in ("1", "true", "yes", "end")
+
+
 @app.get("/api/game/state")
 def api_game_state():
+    if _wants_qa_end():
+        game_mod.force_end_session()
     return jsonify(game_mod.qa_tick_view(game_mod.public_state(), request.args.get("qa_tick")))
 
 
@@ -345,8 +362,18 @@ def api_game_state_tick():
 
     Optional ?qa_tick=up|down|flat nudges this response only. The paper book
     is saved by public_state before that view, and the nudge is not written back.
+    Optional ?qa_end=1 force-ends an active run (persisted) and does not start another.
     """
+    if _wants_qa_end():
+        game_mod.force_end_session()
     return jsonify(game_mod.qa_tick_view(game_mod.public_state(), request.args.get("qa_tick")))
+
+
+@app.post("/api/game/end")
+def api_game_end():
+    """Force-end the active 24h paper run. Same close as the clock. No auto-start."""
+    st = game_mod.force_end_session()
+    return jsonify({"ok": True, "state": game_mod.public_state(st), "sound": "end"})
 
 
 @app.post("/api/game/start")
