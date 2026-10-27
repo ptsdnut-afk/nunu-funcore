@@ -951,12 +951,66 @@ def _fail(error: str, st: dict | None = None, **extra) -> dict:
     return out
 
 
+def _run_expired(st: dict, now: datetime | None = None) -> bool:
+    """True when an active 24h clock is done, including a missing clock.
+
+    The panel prints remain as whole seconds, so the last partial second
+    already reads 00:00:00. That display is the end of the run.
+    """
+    if st.get("status") != "active":
+        return False
+    now = now or datetime.now(timezone.utc)
+    ends = _parse_utc(st.get("ends_at"))
+    if ends is None:
+        return True
+    return (ends - now).total_seconds() < 1.0
+
+
+def _force_close_opens(st: dict) -> None:
+    """Close whatever is still open at the last mark. Caller holds _lock."""
+    for pos in list(st.get("positions") or []):
+        px = _f(pos.get("last_price_usd")) or _f(pos.get("entry_price_usd")) or 0.0
+        _close_position(st, pos, float(px), "force_24h")
+    st["positions"] = []
+
+
+def _mark_ended(st: dict) -> None:
+    """Flip an active run to ended. Caller holds _lock and has closed opens."""
+    if st.get("status") == "ended":
+        st["positions"] = []
+        return
+    st["positions"] = []
+    st["status"] = "ended"
+    st["final_cash"] = round(float(st.get("cash_usd") or 0), 6)
+    st["ended_at"] = st.get("ended_at") or _utc()
+    _record_score(st)
+    settle_run_points(st)
+    _push_event(st, "end", f"24h over — final ${st['final_cash']:.3f}")
+
+
+def force_end_session() -> dict:
+    """Close the active 24h run the same way the clock does.
+
+    Does not start another run. A future ends_at is pulled back so tick_session
+    takes the natural force-sell path (live mark when DEX answers, else last mark).
+    """
+    with _lock:
+        st = load_state()
+        if st.get("status") != "active":
+            return st
+        past = datetime.now(timezone.utc) - timedelta(seconds=2)
+        st["ends_at"] = past.strftime("%Y-%m-%dT%H:%M:%SZ")
+        save_state(st)
+        return tick_session(st)
+
+
 def start_session(force: bool = False) -> dict:
     with _lock:
         st = load_state()
         if st.get("status") == "active" and not force:
             st = tick_session(st)
-            return st
+            if st.get("status") == "active":
+                return st
         now = datetime.now(timezone.utc)
         ends = now + timedelta(hours=SESSION_HOURS)
         st = {
@@ -1014,9 +1068,8 @@ def tick_session(st: dict | None = None) -> dict:
         if st.get("status") != "active":
             return st
 
-        ends = _parse_utc(st.get("ends_at"))
         now = datetime.now(timezone.utc)
-        timed_out = bool(ends and now >= ends)
+        timed_out = _run_expired(st, now)
 
         mints = list({p.get("mint") for p in (st.get("positions") or []) if p.get("mint")})
         quotes: dict[str, dict] = {}
@@ -1091,12 +1144,8 @@ def tick_session(st: dict | None = None) -> dict:
             _push_event(st, "high", f"New equity high ${eq:.3f}")
 
         if timed_out:
-            st["status"] = "ended"
-            st["final_cash"] = round(float(st.get("cash_usd") or 0), 6)
-            st["ended_at"] = _utc()
-            _record_score(st)
-            settle_run_points(st)
-            _push_event(st, "end", f"24h over — final ${st['final_cash']:.3f}")
+            _force_close_opens(st)
+            _mark_ended(st)
 
         save_state(st)
         return st
