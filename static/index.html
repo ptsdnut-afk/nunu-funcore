@@ -673,7 +673,7 @@
       color: var(--muted); font-size: 0.72rem;
     }
     /* Game mode */
-    #modeGame { display: none; }
+    #modeGame { display: none; position: relative; }
     body.mode-game #modeFilter { display: none; }
     body.mode-game #modeGame { display: block; }
     body.mode-game .filter-only { display: none; }
@@ -801,6 +801,55 @@
     }
     .end-readout .end-title { font-weight: 800; margin-bottom: 4px; }
     .end-readout div { font-family: var(--mono); font-size: 0.78rem; margin-top: 2px; }
+    /* SHIP P — post-game review. No backdrop, so Trade / closed history stay clickable. */
+    .review-sheet {
+      position: absolute; z-index: 8; top: 12px; right: 12px;
+      width: min(420px, calc(100% - 24px));
+      max-height: min(78vh, 640px); overflow: auto;
+      background: #12151c; border: 1px solid #2a5a40; border-radius: 14px;
+      padding: 14px 36px 12px 14px;
+      box-shadow: 0 16px 40px rgba(0,0,0,.5);
+    }
+    .review-sheet[hidden] { display: none !important; }
+    .review-sheet[data-phase="cooking"] { border-color: #3a4a6a; }
+    .review-sheet .dismiss-x { position: absolute; top: 10px; right: 10px; }
+    .review-kicker {
+      font-size: 0.62rem; font-weight: 800; letter-spacing: .08em;
+      text-transform: uppercase; color: var(--muted); margin: 0 0 6px;
+    }
+    .review-grade-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+    .review-grade { font-size: 1.6rem; font-weight: 900; color: var(--good); line-height: 1; }
+    .review-grade-note { font-size: 0.66rem; color: var(--muted); }
+    .review-sheet h3 { margin: 0 0 6px; font-size: 1.02rem; letter-spacing: -0.02em; }
+    .review-arc, .review-summary { margin: 0 0 8px; font-size: 0.84rem; line-height: 1.4; }
+    .review-arc { font-family: var(--mono); font-size: 0.74rem; color: #d5dbe3; }
+    .review-bullets { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+    .review-bullet {
+      display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; align-items: start;
+      font-size: 0.78rem; line-height: 1.35;
+    }
+    .review-bullet .tag {
+      font-size: 0.58rem; font-weight: 800; letter-spacing: .04em;
+      padding: 2px 0; color: var(--muted);
+    }
+    .review-bullet[data-tag="BEST"] .tag { color: var(--good); }
+    .review-bullet[data-tag="WORST"] .tag { color: var(--bad); }
+    .review-bullet[data-tag="TIMING"] .tag { color: var(--amber); }
+    .review-disclaimer { margin: 0 0 4px; font-size: 0.72rem; font-weight: 750; color: #d5dbe3; }
+    .review-humility, .review-open-note { margin: 0 0 8px; font-size: 0.68rem; color: var(--muted); line-height: 1.4; }
+    .review-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .review-bar { height: 3px; border-radius: 99px; margin: 0 0 10px; background: #1c2433; overflow: hidden; }
+    .review-sheet[data-phase="cooking"] .review-bar::after {
+      content: ""; display: block; height: 100%; width: 40%;
+      background: #9bb8e8; animation: review-cook 1.1s ease-in-out infinite;
+    }
+    @keyframes review-cook {
+      0% { transform: translateX(-120%); }
+      100% { transform: translateX(320%); }
+    }
+    @media (max-width: 800px) {
+      .review-sheet { position: relative; top: auto; right: auto; width: auto; margin: 0 0 10px; }
+    }
     #gTradeBody[data-state="error"] .err { margin: 8px 0; }
     .quote-card, .pos-card, .score-row {
       background: var(--panel2); border: 1px solid var(--border);
@@ -2268,7 +2317,7 @@
         <div class="logo">N</div>
         <div>
           <h1>Nunu Filter</h1>
-          <p class="sub">Solana Research Panel · paper only · v75</p>
+          <p class="sub">Solana Research Panel · paper only · v76</p>
         </div>
       </div>
       <div class="mode-tabs" role="tablist">
@@ -2277,7 +2326,7 @@
       </div>
       <span class="net-pill"><span class="live-dot" id="liveDot"></span>Solana Mainnet</span>
       <div class="top-actions">
-        <div class="sound-toggle" id="gSoundToggle" role="group" aria-label="Sound" title="Sound on plays the Token Flow new-coin chime and Game win/loss hits. Mute silences both.">
+        <div class="sound-toggle" id="gSoundToggle" role="group" aria-label="Sound" title="Sound on plays the Token Flow new-coin chime, Game win/loss hits, and the soft post-game review cue. Mute silences them.">
           <button type="button" class="seg on" id="gSoundOnBtn" aria-pressed="true">Sound on</button>
           <button type="button" class="seg mute" id="gSoundMuteBtn" aria-pressed="false">Mute</button>
           <input type="checkbox" id="gMute" hidden />
@@ -2428,6 +2477,14 @@
     </div>
 
     <div id="modeGame">
+      <div id="gReviewSheet" class="review-sheet" hidden data-feature="game_ai_review" data-blocks-trade="0" data-phase="closed" role="dialog" aria-modal="false" aria-labelledby="gReviewTitle">
+        <button type="button" class="dismiss-x" id="gReviewClose" aria-label="Dismiss review" title="Dismiss review">✕</button>
+        <div id="gReviewBody"></div>
+        <div class="review-actions">
+          <button type="button" class="gbtn primary" id="gReviewRestart">Start next 24h</button>
+          <button type="button" class="gbtn" id="gReviewDismiss">Dismiss</button>
+        </div>
+      </div>
       <section class="rocket-live" id="gRocket" data-mood="idle" data-skin="nebula" data-stage="demo" data-sfx="off" data-stage-hook="chart-v1" data-sfx-hook="casino-cues" aria-label="Rocket">
         <div class="rocket-head">
           <span class="state" id="gRocketState">Idle / flat</span>
@@ -2553,6 +2610,7 @@
       <div class="game-search">
         <span class="sess" id="gSessChip">Idle</span>
         <button type="button" class="gbtn primary" id="gStart">Start 24h ($5)</button>
+        <button type="button" class="gbtn" id="gReview" hidden data-feature="game_ai_review">Review</button>
         <input type="text" id="gMint" placeholder="CA, ticker, or name (TikTok) — Play from Filter is safest." spellcheck="false" autocomplete="off" />
         <button type="button" class="gbtn" id="gQuote">Quote</button>
         <label class="gfield">Stake $<input type="number" id="gStake" value="1" min="0.01" step="0.01" /></label>
@@ -2641,10 +2699,10 @@
     </div>
 
     <footer class="app-foot">
-      <div class="foot-live">Paper only · no wallets. <code>?v=75</code></div>
+      <div class="foot-live">Paper only · no wallets. <code>?v=76</code></div>
       <details class="qa-foot">
         <summary>QA fixtures</summary>
-        <div>APIs: <code>/api/flagged</code> · <code>/api/update-now</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>. Social Tap is coin, meme, and crypto viral from public sources — nothing invented. Checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: <code>&amp;mode=game</code>. Equity tick proof: <code>?qa_tick=both</code>, <code>?qa_tick=up</code>, <code>?qa_tick=down</code>. Display offset only. Do not combine with <code>?fixture=</code>. 24h end proof: <code>?qa_end=1</code> (one-shot, then Start 24h). Does not auto-start. Max fixture proof: <code>?qa_max=1</code> (one synthetic bonding row, badge QA MAX). Absent query leaves the live feed unchanged. Do not combine with <code>?fixture=</code>.</div>
+        <div>APIs: <code>/api/flagged</code> · <code>/api/update-now</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>. Social Tap is coin, meme, and crypto viral from public sources — nothing invented. Checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: <code>&amp;mode=game</code>. Equity tick proof: <code>?qa_tick=both</code>, <code>?qa_tick=up</code>, <code>?qa_tick=down</code>. Display offset only. Do not combine with <code>?fixture=</code>. 24h end proof: <code>?qa_end=1</code> (one-shot, then Start 24h). Does not auto-start. An ended run opens a paper Review (dismiss, or Start next 24h — same restart as the main button). Mute silences the soft review cue. Max fixture proof: <code>?qa_max=1</code> (one synthetic bonding row, badge QA MAX). Absent query leaves the live feed unchanged. Do not combine with <code>?fixture=</code>.</div>
       </details>
     </footer>
   </div>
@@ -2683,7 +2741,7 @@
 
   <script>
 
-    const PANEL_V = 75;
+    const PANEL_V = 76;
     const QA_MAX_NOTE = "QA Max fixture — synthetic bonding row QAMAX. Live unknown rows stay Max-empty. Not a real mint.";
     const SITTING_DROP_MIN = 5;
     const SITTING_AGED_MIN = 180;
@@ -2813,6 +2871,10 @@
       qaEndArmed: false,
       qaEndSent: false,
       qaEndNote: "",
+      reviewForcedSid: "",
+      reviewCookSid: "",
+      reviewReadySid: "",
+      reviewCookTimer: 0,
       deadEndFor: "",
       qaTickChecked: false,
       qaTickScript: null,
@@ -3081,15 +3143,18 @@
       points: [[988, 0.04], [1318, 0.07]],
       tax: [[196, 0.05], [98, 0.09]],
       unlock: [[740, 0.04], [988, 0.045], [1568, 0.08]],
+      review: [[523.25, 0.07], [659.25, 0.11]],
     };
     const SOUND_WAVE = {
       buy: "square", sell: "sine", fail: "sawtooth", stop: "triangle",
       tp: "square", high: "triangle", start: "triangle", ready: "sine",
       tick: "square", down: "sawtooth", newtoken: "sine", points: "triangle", tax: "square", unlock: "triangle",
+      review: "sine",
     };
     const SOUND_GAIN = {
       buy: 0.07, sell: 0.11, fail: 0.045, high: 0.06, ready: 0.05,
       tick: 0.08, down: 0.09, newtoken: 0.07, points: 0.045, tax: 0.04, unlock: 0.05,
+      review: 0.03,
     };
 
     function soundLabel(kind, outcome) {
@@ -3109,6 +3174,7 @@
         points: "points",
         tax: "points tax",
         unlock: "shop unlock",
+        review: "review ready",
       }[kind] || (kind ? ("sound: " + kind) : "Sound on");
       if (outcome === "silent") return base + " · muted";
       if (outcome === "blocked") return base + " · audio blocked";
@@ -3365,7 +3431,7 @@
         toggle.setAttribute("data-flow-audio", plan.outcome || "idle");
         toggle.title = plan.outcome === "blocked"
           ? "Browser blocked the Token Flow chime. Tap Sound on to allow the next new coin."
-          : "Sound on plays the Token Flow new-coin chime and Game win/loss hits. Mute silences both.";
+          : "Sound on plays the Token Flow new-coin chime, Game win/loss hits, and the soft post-game review cue. Mute silences them.";
       }
       if (flash) {
         flash.hidden = !copy.flash;
@@ -4618,6 +4684,7 @@
 
     function applyGameFixture() {
       if (!gameFixtureOn()) return;
+      hideRunReviewChrome();
       const fx = state.fixture;
       const body = document.getElementById("gTradeBody");
       const box = document.getElementById("gPositions");
@@ -5254,6 +5321,185 @@
       return { reset: false, mood: "keep", chip: "keep", tick: "keep", reason: "same-run" };
     }
     /* ship-k-pure-end */
+
+    /* ship-p-pure-start */
+    const REVIEW_COOK_MS = 800;
+    const REVIEW_COOKING = {
+      kicker: "AI run review · this 24h",
+      title: "AI reviewing your run…",
+      summary: "Reading this session's tape. Short recap, not a novel.",
+      disclaimer: "Paper research review. Not financial advice.",
+      note: "You can dismiss anytime. Start / Restart still works. Soft cue if sound is on — Mute silences it.",
+    };
+
+    function reviewSheetDecision(g, dismissedSid) {
+      g = g || {};
+      const review = g.review || {};
+      const sid = g.session_id || "";
+      const ready = g.status === "ended" && review.status === "ready" && !!sid;
+      const dismissed = !!(ready && dismissedSid && dismissedSid === sid);
+      return {
+        offer: ready,
+        open: ready && !dismissed,
+        dismissed: dismissed,
+        trap: false,
+        sessionId: sid,
+      };
+    }
+
+    function reviewCueDecision(muted) {
+      return { play: !muted, visual: true, kind: "review", loop: false };
+    }
+
+    function reviewCopyAllowed(text) {
+      const s = String(text || "").toLowerCase();
+      const banned = [
+        "this is the one",
+        "to the moon",
+        "moon'd",
+        "mooned",
+        "guaran" + "teed",
+        "you'd have",
+        "you would have",
+        "would've",
+        "sure thing",
+      ];
+      for (let i = 0; i < banned.length; i++) {
+        if (s.indexOf(banned[i]) !== -1) return false;
+      }
+      return true;
+    }
+    /* ship-p-pure-end */
+
+    function reviewStoreGet(key) {
+      try { return sessionStorage.getItem(key) || ""; }
+      catch (e) { return state[key] || ""; }
+    }
+
+    function reviewStoreSet(key, val) {
+      state[key] = val || "";
+      try {
+        if (val) sessionStorage.setItem(key, val);
+        else sessionStorage.removeItem(key);
+      } catch (e) {}
+    }
+
+    function hideRunReviewChrome() {
+      const sheet = document.getElementById("gReviewSheet");
+      const btn = document.getElementById("gReview");
+      if (sheet) {
+        sheet.hidden = true;
+        sheet.setAttribute("data-phase", "closed");
+      }
+      if (btn) btn.hidden = true;
+    }
+
+    function dismissRunReview() {
+      const sid = (state.game && state.game.session_id) || "";
+      if (sid) reviewStoreSet("nunu-review-dismiss", sid);
+      state.reviewForcedSid = "";
+      clearTimeout(state.reviewCookTimer);
+      const sheet = document.getElementById("gReviewSheet");
+      if (sheet) {
+        sheet.hidden = true;
+        sheet.setAttribute("data-phase", "closed");
+      }
+    }
+
+    function openRunReview() {
+      const sid = (state.game && state.game.session_id) || "";
+      if (!sid) return;
+      state.reviewForcedSid = sid;
+      if (reviewStoreGet("nunu-review-dismiss") === sid) reviewStoreSet("nunu-review-dismiss", "");
+      renderGame();
+    }
+
+    function maybeReviewCue(sid) {
+      if (!sid || reviewStoreGet("nunu-review-cued") === sid) return;
+      reviewStoreSet("nunu-review-cued", sid);
+      const muted = !!(state.mute || (document.getElementById("gMute") && document.getElementById("gMute").checked));
+      const decision = reviewCueDecision(muted);
+      if (!decision.play) {
+        markSound("review", "silent");
+        return;
+      }
+      beep("review");
+    }
+
+    function ensureReviewPhase(sid) {
+      if (state.reviewReadySid === sid || reviewStoreGet("nunu-review-seen") === sid) {
+        state.reviewReadySid = sid;
+        return "ready";
+      }
+      if (state.reviewCookSid !== sid) {
+        state.reviewCookSid = sid;
+        maybeReviewCue(sid);
+        clearTimeout(state.reviewCookTimer);
+        state.reviewCookTimer = setTimeout(() => {
+          state.reviewReadySid = sid;
+          reviewStoreSet("nunu-review-seen", sid);
+          const dismissed = reviewStoreGet("nunu-review-dismiss") === sid;
+          if (dismissed && state.reviewForcedSid !== sid) return;
+          if (state.game && state.game.session_id === sid) paintRunReview(state.game);
+        }, REVIEW_COOK_MS);
+      }
+      return "cooking";
+    }
+
+    function reviewReadyHtml(review) {
+      review = review || {};
+      const bullets = Array.isArray(review.bullets) ? review.bullets : [];
+      const items = bullets.map((b) =>
+        '<li class="review-bullet" data-tag="' + esc(b && b.tag || "") + '"><span class="tag">' +
+        esc(b && b.tag || "") + '</span><span>' + esc(b && b.text || "") + "</span></li>"
+      ).join("");
+      return '<div class="review-kicker">' + esc(review.label || REVIEW_COOKING.kicker) + "</div>" +
+        '<div class="review-grade-row"><span class="review-grade">' + esc(review.grade || "—") + "</span>" +
+        '<span class="review-grade-note">' + esc(review.grade_note || "paper label · this run only") + "</span></div>" +
+        '<h3 id="gReviewTitle">' + esc(review.headline || "Run review") + "</h3>" +
+        '<p class="review-arc">' + esc(review.arc || "") + "</p>" +
+        '<p class="review-summary">' + esc(review.summary || "") + "</p>" +
+        (items ? ('<ul class="review-bullets">' + items + "</ul>") : "") +
+        '<p class="review-disclaimer">' + esc(review.disclaimer || REVIEW_COOKING.disclaimer) + "</p>" +
+        '<p class="review-humility">' + esc(review.humility || "") + "</p>" +
+        '<p class="review-open-note">Closed trades stay on the Trade pane. Sell stays usable. This sheet does not cover them.</p>';
+    }
+
+    function reviewCookingHtml() {
+      return '<div class="review-bar" aria-hidden="true"></div>' +
+        '<div class="review-kicker">' + esc(REVIEW_COOKING.kicker) + "</div>" +
+        '<h3 id="gReviewTitle">' + esc(REVIEW_COOKING.title) + "</h3>" +
+        '<p class="review-summary">' + esc(REVIEW_COOKING.summary) + "</p>" +
+        '<p class="review-disclaimer">' + esc(REVIEW_COOKING.disclaimer) + "</p>" +
+        '<p class="review-humility">' + esc(REVIEW_COOKING.note) + "</p>";
+    }
+
+    function paintRunReview(g) {
+      const sheet = document.getElementById("gReviewSheet");
+      const btn = document.getElementById("gReview");
+      const body = document.getElementById("gReviewBody");
+      if (!sheet || !body) return;
+      g = g || {};
+      const sid = g.session_id || "";
+      const decision = reviewSheetDecision(g, reviewStoreGet("nunu-review-dismiss"));
+      if (btn) btn.hidden = !decision.offer;
+      const forced = !!(decision.offer && state.reviewForcedSid && state.reviewForcedSid === sid);
+      const wantOpen = decision.open || forced;
+      if (!wantOpen) {
+        sheet.hidden = true;
+        sheet.setAttribute("data-phase", "closed");
+        return;
+      }
+      const phase = ensureReviewPhase(sid);
+      const stamp = sid + ":" + phase;
+      sheet.hidden = false;
+      sheet.setAttribute("data-phase", phase);
+      sheet.setAttribute("data-blocks-trade", "0");
+      if (sheet.getAttribute("data-stamp") !== stamp) {
+        sheet.setAttribute("data-stamp", stamp);
+        body.innerHTML = phase === "ready" ? reviewReadyHtml(g.review) : reviewCookingHtml();
+      }
+    }
 
     function ensureQaTickPlan() {
       if (state.qaTickChecked) return state.qaTickPlan || [];
@@ -6248,6 +6494,7 @@
       paintFinish(g);
       applySessionChrome(g);
       paintTradeChart();
+      paintRunReview(g);
 
       // Keep quote-card live price ticking when a quote is on screen
       if (state.lastQuoteMint && status === "active") {
@@ -7401,6 +7648,14 @@
       if (state.mode === "game") loadGame(true);
     });
     document.getElementById("gStart").addEventListener("click", gameStart);
+    const gReviewBtn = document.getElementById("gReview");
+    if (gReviewBtn) gReviewBtn.addEventListener("click", openRunReview);
+    const gReviewDismiss = document.getElementById("gReviewDismiss");
+    if (gReviewDismiss) gReviewDismiss.addEventListener("click", dismissRunReview);
+    const gReviewClose = document.getElementById("gReviewClose");
+    if (gReviewClose) gReviewClose.addEventListener("click", dismissRunReview);
+    const gReviewRestart = document.getElementById("gReviewRestart");
+    if (gReviewRestart) gReviewRestart.addEventListener("click", gameStart);
     document.getElementById("gQuote").addEventListener("click", (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
@@ -8032,6 +8287,12 @@
     if (coinBack) coinBack.addEventListener("click", () => closeCoinDetail());
     document.addEventListener("keydown", (ev) => {
       if (ev.key !== "Escape") return;
+      const reviewSheet = document.getElementById("gReviewSheet");
+      if (reviewSheet && !reviewSheet.hidden) {
+        ev.preventDefault();
+        dismissRunReview();
+        return;
+      }
       const modal = document.getElementById("profileModal");
       if (modal && modal.classList.contains("on")) {
         ev.preventDefault();
