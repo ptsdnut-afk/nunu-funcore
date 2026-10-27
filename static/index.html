@@ -1479,6 +1479,25 @@
       color: #3ecf8e;
       border-color: rgba(62,207,142,.45);
     }
+    #modeFilter .badge.sitting {
+      background: #241418;
+      color: #f07178;
+      border: 1px solid #6a2a32;
+    }
+    #modeFilter .sit[data-sitting-band="over"] .lab {
+      display: block;
+      color: #f07178;
+    }
+    #modeFilter .sit-keep-note {
+      margin: 0 0 8px;
+      padding: 6px 10px;
+      border: 1px solid #6a2a32;
+      border-radius: 8px;
+      background: #241418;
+      color: #f07178;
+      font-size: 0.72rem;
+      font-weight: 750;
+    }
     #modeFilter .wb.lp, #modeFilter .wb.copy {
       color: #f0a33a; background: #050505; border-color: #f0a33a;
     }
@@ -2206,7 +2225,7 @@
         <div class="logo">N</div>
         <div>
           <h1>Nunu Filter</h1>
-          <p class="sub">Solana Research Panel · paper only · v71</p>
+          <p class="sub">Solana Research Panel · paper only · v72</p>
         </div>
       </div>
       <div class="mode-tabs" role="tablist">
@@ -2281,7 +2300,7 @@
         <section class="pane token-pane" data-flow-hook="new-token">
           <div class="pane-head">
             <h2>Token flow</h2>
-            <span class="sub" id="filterSub">On-chain · filtered · sitting drop 5m</span>
+            <span class="sub" id="filterSub">On-chain · filtered · sitting kept past 5m</span>
             <span class="muted" id="metaCompact">—</span>
             <span class="muted" id="tweetsCollapseReason" hidden></span>
             <span class="muted" id="sideTiming"></span>
@@ -2566,7 +2585,7 @@
     </div>
 
     <footer class="app-foot">
-      <div class="foot-live">Paper only · no wallets. <code>?v=71</code></div>
+      <div class="foot-live">Paper only · no wallets. <code>?v=72</code></div>
       <details class="qa-foot">
         <summary>QA fixtures</summary>
         <div>APIs: <code>/api/flagged</code> · <code>/api/update-now</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>. Social Tap is coin, meme, and crypto viral from public sources — nothing invented. Checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: <code>&amp;mode=game</code>. Equity tick proof: <code>?qa_tick=both</code>, <code>?qa_tick=up</code>, <code>?qa_tick=down</code>. Display offset only. Do not combine with <code>?fixture=</code>. 24h end proof: <code>?qa_end=1</code> (one-shot, then Start 24h). Does not auto-start.</div>
@@ -2608,8 +2627,9 @@
 
   <script>
 
-    const PANEL_V = 71;
+    const PANEL_V = 72;
     const SITTING_DROP_MIN = 5;
+    const SITTING_AGED_MIN = 180;
     const SITTING_NEAR_LEAD_MIN = 1;
     const SITTING_FRESH_MIN = 2;
     const SOCIAL_TAP_FRESH_MIN = 5;
@@ -2873,9 +2893,9 @@
       const drop = sittingDropMin(r);
       const val = fmtSitting(mins);
       const hint = band === "near"
-        ? ("near ~" + drop + "m drop")
+        ? ("near ~" + drop + "m · stays")
         : (band === "over"
-          ? ("past ~" + drop + "m drop")
+          ? ((r && r.sitting_aged_hold) ? "aged · still listed" : "still listed")
           : (band === "unknown" ? "" : "inside window"));
       const valCls = band === "over" ? "over" : (band === "near" ? "near" : (band === "fresh" ? "ok" : ""));
       const hintCls = band === "over" ? "bad" : (band === "near" ? "warn" : "");
@@ -4172,6 +4192,7 @@
       const watching = (state.watch || []).some((w) => w.mint === mint);
       const open = !!(mint && state.scoreOpenMint === mint);
       const sitBand = sittingBand(r);
+      if (sitBand === "over") badge += '<span class="badge sitting">Sitting</span>';
       const chgCls = chg == null ? "" : (Number(chg) >= 0 ? "chg-up" : "chg-dn");
       const bsMain = (buys != null || sells != null)
         ? (fmtCount(buys) + "/" + fmtCount(sells))
@@ -4216,15 +4237,91 @@
         rows.map((r) => rowHtml(r, dupTickers)).join("") + "</div>";
     }
 
+    function scanHasLiveScores(latest) {
+      const evaluated = Number(latest && latest.evaluated);
+      const top = latest && latest.top_scores;
+      return !!(latest && latest.data_as_of) &&
+        Number.isFinite(evaluated) && evaluated > 0 &&
+        Array.isArray(top) && top.length > 0;
+    }
+
+    function sittingRescueRows(latest) {
+      /* Real scan rows only. Never promote a sub-threshold top score. */
+      if (!latest) return [];
+      const tops = Array.isArray(latest.top_scores) ? latest.top_scores : [];
+      const byMint = new Map();
+      for (const t of tops) {
+        if (t && t.mint) byMint.set(t.mint, t);
+      }
+      const drop = Number(latest.thresholds && latest.thresholds.sitting_drop_min);
+      const dropMin = Number.isFinite(drop) && drop > 0 ? drop : SITTING_DROP_MIN;
+      const sources = [];
+      if (Array.isArray(latest.sitting_kept)) sources.push([latest.sitting_kept, true]);
+      if (Array.isArray(latest.sitting_dropped)) sources.push([latest.sitting_dropped, true]);
+      sources.push([tops.filter((t) => t && t.flagged), false]);
+      const seen = new Set();
+      const out = [];
+      for (const pair of sources) {
+        const list = pair[0];
+        const fromSit = pair[1];
+        for (const src of list) {
+          if (!src) continue;
+          const mint = src.mint || "";
+          const ticker = src.ticker || "";
+          const key = mint || ticker;
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          const top = mint && byMint.get(mint) ? byMint.get(mint) : {};
+          const score = src.score != null ? src.score : top.score;
+          const mins = src.sitting_minutes != null ? src.sitting_minutes : top.sitting_minutes;
+          const minsN = mins == null ? null : Number(mins);
+          const over = fromSit || (minsN != null && Number.isFinite(minsN) && minsN > dropMin);
+          const s12 = top.score_12 != null ? top.score_12
+            : (src.score_12 != null ? src.score_12
+              : (score != null && Number.isFinite(Number(score))
+                ? Math.round((Number(score) / 100) * 12 * 10) / 10 : null));
+          out.push({
+            ticker: ticker || top.ticker || "?",
+            name: src.name || top.name || ticker || top.ticker || "",
+            mint: mint,
+            score: score,
+            score_12: s12,
+            flagged: true,
+            trench_band: !!(src.trench_band || top.trench_band || (s12 != null && s12 >= 10)),
+            sitting_minutes: minsN != null && Number.isFinite(minsN) ? minsN : null,
+            sitting_band: over ? "over" : (src.sitting_band || "unknown"),
+            sitting_drop_min: dropMin,
+            sitting_kept: !!over,
+            sitting_aged_hold: !!src.sitting_aged_hold,
+            metrics: {},
+          });
+        }
+      }
+      return out;
+    }
+
     function render() {
       const wrap = document.getElementById("table-wrap");
-      if (wrap) wrap.setAttribute("data-sitting-drop-min", String(SITTING_DROP_MIN));
+      if (wrap) {
+        wrap.setAttribute("data-sitting-drop-min", String(SITTING_DROP_MIN));
+        wrap.setAttribute("data-sitting-aged-min", String(SITTING_AGED_MIN));
+        wrap.setAttribute("data-sitting-keep", "1");
+      }
       const latest = state.latest || {};
-      const flagged = Array.isArray(state.flagged) ? state.flagged : [];
+      let flagged = Array.isArray(state.flagged) ? state.flagged : [];
+      let rescued = false;
+      if (!flagged.length && state.fixture !== "flagged-empty") {
+        const rescue = sittingRescueRows(latest);
+        if (rescue.length) {
+          flagged = rescue;
+          rescued = true;
+        }
+      }
       const status = state.status;
       const finished = latest.run_finished || "unknown";
       const dataAsOf = latest.data_as_of || finished;
-      const trenchN = latest.trench_band_count ?? flagged.filter((r) => score12Of(r) >= 10).length;
+      const trenchFromRows = flagged.filter((r) => score12Of(r) >= 10 || r.trench_band).length;
+      const trenchN = rescued ? trenchFromRows : (latest.trench_band_count ?? trenchFromRows);
       const botRunning = status && status.bot && status.bot.running;
       const visible = applyFilters(flagged);
       const dupTickers = sameTickerMap(flagged);
@@ -4241,7 +4338,7 @@
       const mc = document.getElementById("metaCompact");
       if (mc) {
         mc.innerHTML = "Flagged <strong>" + flagged.length + "</strong> · showing <strong>" +
-          visible.length + "</strong> · trench <strong>" + trenchN + "</strong> · sitting drop <strong>" +
+          visible.length + "</strong> · trench <strong>" + trenchN + "</strong> · sitting kept past <strong>" +
           SITTING_DROP_MIN + "m</strong> · " +
           (botRunning ? '<span class="pill ok">bot on</span>' : '<span class="pill off">bot idle</span>');
       }
@@ -4257,8 +4354,24 @@
       }
 
       if (!flagged.length) {
-        wrap.innerHTML = '<div class="empty">No tokens flagged this run. Re-run <code>python3 bot.py --once</code>.</div>';
-        wrap.setAttribute("data-state", "empty");
+        const liveScores = state.fixture !== "flagged-empty" && scanHasLiveScores(latest);
+        if (liveScores) {
+          const top = (latest.top_scores && latest.top_scores[0]) || {};
+          const topScore = top.score != null ? String(top.score) : "—";
+          wrap.innerHTML = '<div class="empty" data-empty="scored">Bot scan evaluated <strong>' +
+            esc(String(latest.evaluated)) + "</strong> coins. None cleared the flag line. Top score " +
+            esc(top.ticker || "—") + " " + esc(topScore) + ". Nothing invented.</div>";
+          wrap.setAttribute("data-state", "scored-empty");
+          if (mc) {
+            mc.innerHTML = "Flagged <strong>0</strong> · evaluated <strong>" + esc(String(latest.evaluated)) +
+              "</strong> · top <strong>" + esc(top.ticker || "—") + " " + esc(topScore) +
+              "</strong> · sitting kept past <strong>" + SITTING_DROP_MIN + "m</strong> · " +
+              (botRunning ? '<span class="pill ok">bot on</span>' : '<span class="pill off">bot idle</span>');
+          }
+        } else {
+          wrap.innerHTML = '<div class="empty">No tokens flagged this run. Re-run <code>python3 bot.py --once</code>.</div>';
+          wrap.setAttribute("data-state", "empty");
+        }
         renderTraders();
         return;
       }
@@ -4286,7 +4399,11 @@
 
       const t0 = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
       const scroll = wrap.scrollTop;
-      wrap.innerHTML =
+      const keepNote = (rescued || flagged.some((r) => sittingBand(r) === "over"))
+        ? '<div class="sit-keep-note" data-sitting-keep="1">Sitting coins stay listed past ' +
+          SITTING_DROP_MIN + "m. They are not removed from Token Flow.</div>"
+        : "";
+      wrap.innerHTML = keepNote +
         renderSection("new", "New · under 30m", buckets.new, dupTickers) +
         renderSection("trench", "Trench · 10–12", buckets.trench, dupTickers) +
         renderSection("late", "Late · chase", buckets.late, dupTickers) +

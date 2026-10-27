@@ -62,14 +62,22 @@ LATE_CHASE_MIN_H1_PCT = 100.0
 SCORE_STABLE_DELTA = 1.0
 FLAG_HISTORY_TTL_H = 24.0
 
-# Sitting window (this cut). Pair age stays MAX_PAIR_AGE_HOURS (72h).
-# A flagged coin leaves the board on the scan where sitting_minutes exceeds this.
+# Sitting window. Pair age stays MAX_PAIR_AGE_HOURS (72h).
+# SHIP S: SITTING_DROP_MIN is a Sitting chrome mark, not a hard-drop.
+# A flagged coin with sitting_minutes > 5.0 stays on Token Flow (band "over").
+# SHIP F's "no silent forever-stale" bound is the Sitting label plus the
+# existing flag gates — see apply_sitting_rule() and
+# qa/ship-s-sitting-keep-rule.md. Nothing is removed for sitting time.
 SITTING_DROP_MIN = 5.0
-# Amber near-window cue while the coin is still on the board.
-# 4.0m of a 5m window reads near; 3.6m stays a normal row.
+# Amber near-window cue while the coin is still inside the mark.
+# 4.0m of a 5m mark reads near; 3.6m stays a normal row. Near rows stay listed.
 SITTING_NEAR_LEAD_MIN = 1.0
 # Green "fresh" sit. Display only — does not change who stays on the board.
 SITTING_FRESH_MIN = 2.0
+# Aged chrome (minutes). Past this, the row stays listed and the hint
+# escalates to "aged · still listed". 180.0 stays a normal Sitting row;
+# 180.1 is aged. This does not remove the coin.
+SITTING_AGED_MIN = 180.0
 
 # Rate limiting / fetch / cache (tuned for speed; fail soft)
 HTTP_TIMEOUT_S = 8
@@ -710,7 +718,11 @@ def update_flag_history(
 
 
 def sitting_band(minutes: float | None) -> str:
-    """fresh / inside / near / over / unknown. `over` is past SITTING_DROP_MIN."""
+    """fresh / inside / near / over / unknown.
+
+    `over` is past SITTING_DROP_MIN. SHIP S keeps `over` rows on the board
+    with Sitting chrome. It does not mean the row was removed.
+    """
     if minutes is None:
         return "unknown"
     try:
@@ -726,42 +738,58 @@ def sitting_band(minutes: float | None) -> str:
     return "inside"
 
 
-def drop_stale_sitters(
+def _sitting_minutes(row: dict[str, Any]) -> float | None:
+    raw = row.get("sitting_minutes")
+    try:
+        return float(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def apply_sitting_rule(
     flagged: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Split the board. sitting_minutes > SITTING_DROP_MIN leaves on this scan.
+    """Keep sitting coins on Token Flow. Do not hard-drop for sitting time.
 
-    Comparison uses the rounded sitting_minutes already stored on the row
-    (one decimal), so the number QA reads and the drop decision match.
-    A row with no sitting_minutes stays — only a measured sit past the
-    window is removed. Score fields are left as evaluate() wrote them.
+    SHIP S rule (qa/ship-s-sitting-keep-rule.md):
+
+    - Rounded sitting_minutes > SITTING_DROP_MIN (5.0) stays flagged.
+      sitting_band is "over", sitting_kept is true. 5.0 stays "near".
+    - Rounded sitting_minutes > SITTING_AGED_MIN (180) stays too, with
+      sitting_aged_hold. The panel hint becomes "aged · still listed".
+    - The second list is always empty. sitting_dropped_count stays 0.
+      A coin leaves only when it misses the normal flag gates (score,
+      liquidity, 1h volume, or pair age), which is the SHIP F anti-spam
+      bound. Sitting time never deletes a qualifying row.
+    - A row with no sitting_minutes stays. Score fields are untouched.
+      Comparison uses the rounded sitting_minutes already on the row.
     """
-    kept: list[dict[str, Any]] = []
-    dropped: list[dict[str, Any]] = []
+    stamped: list[dict[str, Any]] = []
     for row in flagged:
-        raw = row.get("sitting_minutes")
-        try:
-            mins = float(raw) if raw is not None else None
-        except (TypeError, ValueError):
-            mins = None
+        mins = _sitting_minutes(row)
         band = sitting_band(mins)
+        aged = mins is not None and mins > SITTING_AGED_MIN
         row["sitting_drop_min"] = SITTING_DROP_MIN
+        row["sitting_aged_min"] = SITTING_AGED_MIN
         row["sitting_band"] = band
-        if band == "over":
-            row["flagged"] = False
-            row["sitting_dropped"] = True
-            dropped.append(row)
-            continue
-        kept.append(row)
-    return kept, dropped
+        row["sitting_kept"] = band == "over" or aged
+        row["sitting_aged_hold"] = aged
+        row.pop("sitting_dropped", None)
+        row.pop("sitting_aged_out", None)
+        row["flagged"] = True
+        stamped.append(row)
+    return stamped, []
 
 
 def finalize_flagged(
     flagged: list[dict[str, Any]], now_iso: str
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Attach sitting time, then drop coins that have sat past the window."""
+    """Attach sitting time, then keep sitters on the board (SHIP S).
+
+    The second list is always empty. The 5-minute hard-drop is retired.
+    """
     update_flag_history(flagged, now_iso)
-    return drop_stale_sitters(flagged)
+    return apply_sitting_rule(flagged)
 
 
 def evaluate(
@@ -1085,19 +1113,27 @@ def main() -> int:
     flagged = [r for r in evaluated if r["flagged"]]
 
     finished = utc_now_iso()
-    flagged, sitting_dropped = finalize_flagged(flagged, finished)
+    flagged, _aged_out = finalize_flagged(flagged, finished)
 
     trench_count = sum(1 for r in flagged if r.get("trench_band"))
     late_count = sum(1 for r in flagged if r.get("late_chase"))
-    dropped_summary = [
-        {
-            "ticker": r.get("ticker"),
-            "mint": r.get("mint"),
-            "sitting_minutes": r.get("sitting_minutes"),
-            "score": r.get("score"),
-        }
-        for r in sitting_dropped[:20]
-    ]
+    sitting_kept = [r for r in flagged if r.get("sitting_kept")]
+    sitting_aged_hold = [r for r in flagged if r.get("sitting_aged_hold")]
+
+    def _sit_summary(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [
+            {
+                "ticker": r.get("ticker"),
+                "mint": r.get("mint"),
+                "sitting_minutes": r.get("sitting_minutes"),
+                "score": r.get("score"),
+                "sitting_band": r.get("sitting_band"),
+            }
+            for r in rows[:20]
+        ]
+
+    kept_summary = _sit_summary(sitting_kept)
+    aged_hold_summary = _sit_summary(sitting_aged_hold)
 
     latest = {
         "run_started": started,
@@ -1109,14 +1145,22 @@ def main() -> int:
         "flagged_count": len(flagged),
         "trench_band_count": trench_count,
         "late_chase_count": late_count,
-        "sitting_dropped_count": len(sitting_dropped),
-        "sitting_dropped": dropped_summary,
+        "sitting_dropped_count": 0,
+        "sitting_dropped": [],
+        "sitting_kept_count": len(sitting_kept),
+        "sitting_kept": kept_summary,
+        "sitting_aged_hold_count": len(sitting_aged_hold),
+        "sitting_aged_hold": aged_hold_summary,
+        "sitting_aged_out_count": 0,
+        "sitting_aged_out": [],
         "thresholds": {
             "min_liquidity_usd": MIN_LIQUIDITY_USD,
             "min_volume_h1_usd": MIN_VOLUME_H1_USD,
             "max_pair_age_hours": MAX_PAIR_AGE_HOURS,
             "min_score_to_flag": MIN_SCORE_TO_FLAG,
             "sitting_drop_min": SITTING_DROP_MIN,
+            "sitting_aged_min": SITTING_AGED_MIN,
+            "sitting_keep": True,
             "sitting_near_lead_min": SITTING_NEAR_LEAD_MIN,
             "sitting_fresh_min": SITTING_FRESH_MIN,
             "late_chase_min_age_h": LATE_CHASE_MIN_AGE_H,
@@ -1159,7 +1203,8 @@ def main() -> int:
         f"{finished} scanned={len(mints)} pairs={len(pairs)} "
         f"evaluated={len(evaluated)} flagged={len(flagged)} "
         f"trench={trench_count} late={late_count} "
-        f"sitting_dropped={len(sitting_dropped)} "
+        f"sitting_dropped=0 sitting_kept={len(sitting_kept)} "
+        f"sitting_aged_hold={len(sitting_aged_hold)} "
         f"rug_ok={rug_ok} rug_fail={rug_fail} elapsed_s={elapsed:.2f}\n"
     )
     with RUNS_LOG.open("a", encoding="utf-8") as f:
