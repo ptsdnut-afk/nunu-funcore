@@ -309,7 +309,7 @@
       color: #1a1206; background: #f0d48a; border-radius: 999px; padding: 2px 7px;
     }
     .gold-score { margin-left: auto; font-family: var(--mono); color: #f3d48a; font-size: 0.75rem; }
-    .gold-why { margin: 6px 0 0; color: #f6edd8; font-size: 0.8rem; line-height: 1.35; }
+    .gold-why { margin: 6px 0 0; color: #f6edd8; font-size: 0.8rem; line-height: 1.35; overflow-wrap: anywhere; }
     .gold-links { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
     .gold-links a, .gold-links .copy-ca {
       border: 1px solid #a6843c; color: #f6e7c1; background: #1a150c;
@@ -457,8 +457,8 @@
       padding: 3px 7px;
     }
     .score-detail .bd b { font-family: var(--mono); color: var(--text); font-weight: 700; }
-    .score-detail .why { margin: 0; padding-left: 16px; color: var(--text); font-size: 0.74rem; line-height: 1.35; }
-    .score-detail .why li { margin: 1px 0; }
+    .score-detail .why { margin: 0; padding-left: 16px; color: var(--text); font-size: 0.74rem; line-height: 1.35; overflow-wrap: anywhere; }
+    .score-detail .why li { margin: 1px 0; overflow-wrap: anywhere; }
     .score-detail .sd-note { margin: 6px 0 0; font-size: 0.64rem; color: var(--muted); }
     .tok:hover { border-color: #3a4560; background: #1c2230; }
     .tok.late-row { box-shadow: inset 3px 0 0 var(--bad); }
@@ -1029,7 +1029,7 @@
     .modal label input { width: 100%; }
     .modal .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
     .toast {
-      position: fixed; bottom: 18px; right: 18px; z-index: 60;
+      position: fixed; bottom: var(--toast-bottom, 18px); right: 18px; z-index: 60;
       background: #102018; border: 1px solid #2a5a40; color: #d4f5d8;
       padding: 10px 14px; border-radius: 10px; font-size: 0.8rem;
       box-shadow: 0 8px 24px rgba(0,0,0,.35);
@@ -1150,8 +1150,8 @@
       font-family: var(--mono); font-size: 1.8rem; font-weight: 800; margin: 6px 0;
     }
     .scan-card .score-big.trench { color: var(--amber); }
-    .scan-card .why { margin-top: 8px; font-size: 0.75rem; color: var(--muted); line-height: 1.35; }
-    .scan-card .why li { margin: 2px 0; }
+    .scan-card .why { margin-top: 8px; font-size: 0.75rem; color: var(--muted); line-height: 1.35; overflow-wrap: anywhere; }
+    .scan-card .why li { margin: 2px 0; overflow-wrap: anywhere; }
     /* Game surface keeps these overrides. Filter uses the same near-black + green/amber tokens. */
     body.mode-game {
       --bg: #050505;
@@ -1788,7 +1788,9 @@
     .factor .fv {
       display: flex; justify-content: space-between; gap: 6px; align-items: baseline;
       font-family: var(--mono); font-size: 0.78rem; font-weight: 750; margin-top: 2px;
+      min-width: 0;
     }
+    .factor .fv span:first-child { min-width: 0; overflow-wrap: anywhere; }
     .factor .pts { color: #f0a33a; font-size: 0.72rem; }
     .factor .pts.neg { color: #f07178; }
     .factor .bar { height: 3px; border-radius: 2px; background: #1c1c1c; overflow: hidden; margin-top: 4px; }
@@ -1816,7 +1818,7 @@
     .score-detail .sd-p { font-family: var(--mono); font-weight: 800; color: #3ecf8e; }
     .score-detail .sd-p.neg { color: #f07178; }
     .score-detail .sd-p.zero { color: #8b98a5; }
-    .score-detail .sd-in { color: #8b98a5; font-family: var(--mono); font-size: 0.66rem; }
+    .score-detail .sd-in { color: #8b98a5; font-family: var(--mono); font-size: 0.66rem; overflow-wrap: anywhere; }
     .score-detail .sd-in b { color: #e7e9ea; font-weight: 700; margin-right: 6px; }
     .score-pop .sd-minis { display: flex; flex-direction: column; gap: 1px; margin-bottom: 4px; }
     .score-pop .sd-mini { display: block; color: #c0c8d0; }
@@ -2050,7 +2052,7 @@
     .cd-sec h3 { margin: 0; color: #8b98a5; font-size: 0.72rem; }
     .coin-hero .sub { font-size: 0.82rem; color: #e7e9ea; }
     .cd-sec .pct { font-size: 1.35rem; margin: 0; }
-    .cd-sec .why { margin: 6px 0 0; color: #e7e9ea; font-size: 0.95rem; line-height: 1.35; }
+    .cd-sec .why { margin: 6px 0 0; color: #e7e9ea; font-size: 0.95rem; line-height: 1.35; overflow-wrap: anywhere; }
     .cd-sec .note { font-size: 0.9rem; }
     .raw-fold { margin: 8px 0 0; }
     .raw-fold > summary {
@@ -2424,6 +2426,7 @@
       height: calc(100vh - 56px);
       min-height: 0;
       overflow: auto;
+      padding-bottom: var(--follow-clearance, 72px);
     }
     #gameFollow.game-follow {
       position: fixed;
@@ -2455,7 +2458,9 @@
       flex-direction: column;
       align-items: center;
       gap: 8px;
-      width: min(360px, calc(100vw - 24px));
+      width: min(360px, 100%);
+      max-width: 100%;
+      min-width: 0;
       pointer-events: none;
     }
     #gameFollow .game-follow-chip {
@@ -2464,7 +2469,7 @@
       align-items: center;
       gap: 8px;
       width: max-content;
-      max-width: min(260px, calc(100vw - 24px));
+      max-width: min(260px, 100%);
       height: 36px;
       margin: 0;
       padding: 0 12px 0 10px;
@@ -2501,7 +2506,8 @@
     #gameFollow .gf-pnl.dn { color: #f07178; }
     #gameFollow .game-follow-sheet {
       pointer-events: auto;
-      width: min(360px, calc(100vw - 24px));
+      width: 100%;
+      max-width: 100%;
       max-height: min(48vh, 420px);
       overflow: auto;
       background: #121212;
@@ -2524,7 +2530,14 @@
       gap: 8px;
       align-items: baseline;
     }
-    #gameFollow .gf-ticker { font-size: 1rem; }
+    #gameFollow .gf-ticker {
+      font-size: 1rem;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #gameFollow .gf-stats b { overflow-wrap: anywhere; }
     #gameFollow .gf-kicker { margin: 2px 0 0; color: #8b98a5; font-size: 0.68rem; }
     #gameFollow .gf-stats {
       display: grid;
@@ -2551,6 +2564,29 @@
       #modeFilter:has(.panes.side-traders) #gameFollow { bottom: calc(34vh + 16px); }
     }
     /* ship-r-follow-end */
+
+    /* ship-q-polish-start */
+    @media (max-width: 420px) {
+      .app { padding-left: 8px; padding-right: 8px; }
+      .topbar { gap: 8px; max-width: 100%; }
+      .brand { max-width: 100%; }
+      .brand .sub { overflow-wrap: anywhere; }
+      .net-pill { margin-left: 0; }
+      .top-actions, .update-cluster { max-width: 100%; }
+      .update-hint { max-width: 7.5rem; }
+      .lag-copy { min-width: 0; }
+      .filter-search input[type="text"] { min-width: 0; flex: 1 1 100%; }
+      .pick-row { grid-template-columns: minmax(0, 1fr); }
+      .game-search input[type="text"] { min-width: 0; flex: 1 1 8rem; }
+      .game-status-row .game-status { min-width: 0; }
+      body.mode-game .profile-chip { max-width: 100%; }
+      body.mode-game .profile-chip .name {
+        max-width: 8.5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .toast { left: 10px; right: 10px; max-width: none; }
+      #modeFilter .tok { padding: 6px; }
+    }
+    /* ship-q-polish-end */
   </style>
 </head>
 <body>
@@ -2560,7 +2596,7 @@
         <div class="logo">N</div>
         <div>
           <h1>Nunu Filter</h1>
-          <p class="sub">Solana Research Panel · paper only · v80</p>
+          <p class="sub">Solana Research Panel · paper only · v81</p>
         </div>
       </div>
       <div class="mode-tabs" role="tablist">
@@ -2977,7 +3013,7 @@
     </div>
 
     <footer class="app-foot">
-      <div class="foot-live">Paper only · no wallets. <code>?v=80</code></div>
+      <div class="foot-live">Paper only · no wallets. <code>?v=81</code></div>
       <details class="qa-foot">
         <summary>QA fixtures</summary>
         <div>APIs: <code>/api/flagged</code> · <code>/api/update-now</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>. Social Tap is coin, meme, and crypto viral from public sources — nothing invented. Checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: <code>&amp;mode=game</code>. Equity tick proof: <code>?qa_tick=both</code>, <code>?qa_tick=up</code>, <code>?qa_tick=down</code>. Display offset only. Do not combine with <code>?fixture=</code>. 24h end proof: <code>?qa_end=1</code> (one-shot, then Start 24h). Does not auto-start. An ended run opens a paper Review (dismiss, or Start next 24h — same restart as the main button). Mute silences the soft review cue. Max fixture proof: <code>?qa_max=1</code> (one synthetic bonding row, badge QA MAX). Absent query leaves the live feed unchanged. Do not combine with <code>?fixture=</code>. Gold fixture proof: <code>?qa_gold=1</code> (one synthetic rare card in Gold picks, no chime on the seeded load) or <code>?qa_gold=arrive</code> (same card, one ♪ GOLD). Mute silences the gold cue. It is not the Token Flow new-token chime. Absent query leaves Gold empty unless a live row clears the stricter 7-gate stack. Do not combine with <code>?fixture=</code>.</div>
@@ -3038,7 +3074,7 @@
 
   <script>
 
-    const PANEL_V = 80;
+    const PANEL_V = 81;
     const QA_MAX_NOTE = "QA Max fixture — synthetic bonding row QAMAX. Live unknown rows stay Max-empty. Not a real mint.";
     const QA_GOLD_NOTE = "QA Gold fixture — synthetic rare card QAGOLD in Gold picks. Not a live mint. The normal page stays empty unless the 7-gate stack clears.";
     const QA_GOLD_ARRIVE_NOTE = "QA Gold arrive — one ♪ GOLD for the synthetic card. Mute silences it. This cue is not the Token Flow new-token chime. ?qa_gold=1 seeds quietly.";
@@ -3192,6 +3228,11 @@
       pfpFileName: "",
       pfpPickSeq: 0,
       pfpReading: false,
+      pfpGhostUntil: 0,
+      pfpPickerArmed: false,
+      pfpPickerBlurred: false,
+      pfpPickerGotFile: false,
+      pfpPickerSnap: null,
       GAME_POLL_MS: 2000,
       filterScanBusy: false,
       scoreOpenMint: "",
@@ -3436,11 +3477,31 @@
       return s.slice(0, max - 1) + "…";
     }
 
+    function syncToastOffset() {
+      const root = document.documentElement;
+      const follow = document.getElementById("gameFollow");
+      const live = !!(follow && !follow.hidden && document.body.classList.contains("follow-live"));
+      const dock = live ? follow.querySelector(".game-follow-dock") : null;
+      if (!dock) {
+        root.style.removeProperty("--toast-bottom");
+        root.style.removeProperty("--follow-clearance");
+        return;
+      }
+      const chip = follow.querySelector(".game-follow-chip");
+      const dockTop = dock.getBoundingClientRect().top;
+      const chipTop = (chip || dock).getBoundingClientRect().top;
+      const toastLift = Math.max(18, Math.round(window.innerHeight - dockTop + 10));
+      const clearance = Math.max(56, Math.round(window.innerHeight - chipTop + 8));
+      root.style.setProperty("--toast-bottom", toastLift + "px");
+      root.style.setProperty("--follow-clearance", clearance + "px");
+    }
+
     function toast(msg, bad) {
       const el = document.getElementById("toast");
       el.textContent = msg;
       const silent = bad === "silent";
       el.className = "toast on" + (silent ? " silent" : bad ? " bad" : "");
+      syncToastOffset();
       clearTimeout(toast._t);
       toast._t = setTimeout(() => { el.className = "toast"; }, 3200);
     }
@@ -6454,6 +6515,20 @@
     const PFP_GLYPH = { rocket: "🚀", star: "⭐", flame: "🔥", moon: "🌙" };
     const PFP_LABEL = { rocket: "Rocket", star: "Star", flame: "Flame", moon: "Moon" };
 
+    /* ship-q-pure-start */
+    function pfpGhostBlocksPreset(now, until) {
+      return Number(until) > Number(now);
+    }
+    function pfpDraftAfterRejectedFile(snapshot) {
+      const snap = snapshot || {};
+      return {
+        pfpDraft: snap.pfpDraft || "rocket",
+        pfpDataDraft: snap.pfpDataDraft || "",
+        pfpFileName: snap.pfpFileName || "",
+      };
+    }
+    /* ship-q-pure-end */
+
     function safePfpData(url) {
       if (typeof url !== "string" || url.length > PFP_MAX_DATA_CHARS) return "";
       if (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/.test(url)) return "";
@@ -6583,25 +6658,77 @@
       if (saveBtn) saveBtn.disabled = false;
     }
 
+    function rememberPfpDraft() {
+      return pfpDraftAfterRejectedFile({
+        pfpDraft: state.pfpDraft,
+        pfpDataDraft: state.pfpDataDraft,
+        pfpFileName: state.pfpFileName,
+      });
+    }
+
+    function restorePfpDraft(snapshot) {
+      const next = pfpDraftAfterRejectedFile(snapshot);
+      state.pfpDraft = next.pfpDraft;
+      state.pfpDataDraft = next.pfpDataDraft;
+      state.pfpFileName = next.pfpFileName;
+      paintProfileDraft();
+    }
+
+    function armPfpGhostGuard() {
+      // The file dialog's closing click lands on whatever sits under the cursor
+      // (often the Star preset). Swallow that one click so a rejected file cannot
+      // flip the draft off the avatar that was current when the picker opened.
+      state.pfpGhostUntil = Date.now() + 400;
+      const swallow = (ev) => {
+        if (!pfpGhostBlocksPreset(Date.now(), state.pfpGhostUntil || 0)) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        state.pfpGhostUntil = 0;
+        document.removeEventListener("click", swallow, true);
+      };
+      document.addEventListener("click", swallow, true);
+      clearTimeout(armPfpGhostGuard._t);
+      armPfpGhostGuard._t = setTimeout(() => {
+        document.removeEventListener("click", swallow, true);
+        state.pfpGhostUntil = 0;
+      }, 400);
+    }
+
+    function rejectProfileFile(msg) {
+      setPfpError(msg);
+      if (state.pfpPickerSnap) restorePfpDraft(state.pfpPickerSnap);
+    }
+
+    async function holdProfileFile(raw) {
+      if (!raw) return null;
+      try {
+        const buf = await raw.arrayBuffer();
+        return new File([buf], raw.name || "photo", { type: raw.type || "", lastModified: raw.lastModified || Date.now() });
+      } catch (e) {
+        return raw;
+      }
+    }
+
     async function onProfileFile(file) {
       const seq = ++state.pfpPickSeq;
+      armPfpGhostGuard();
       if (!file) return;
       const kind = profileFileKind(file);
       if (kind === "motion") {
-        setPfpError("GIF and video are not used. Pick a PNG, JPEG, or WebP. The current avatar is unchanged.");
+        rejectProfileFile("GIF and video are not used. Pick a PNG, JPEG, or WebP. The current avatar is unchanged.");
         return;
       }
       if (kind === "bad") {
-        setPfpError("That file is not an image. Pick a PNG, JPEG, or WebP. The current avatar is unchanged.");
+        rejectProfileFile("That file is not an image. Pick a PNG, JPEG, or WebP. The current avatar is unchanged.");
         return;
       }
       if (!file.size) {
-        setPfpError("That file is empty. The current avatar is unchanged.");
+        rejectProfileFile("That file is empty. The current avatar is unchanged.");
         return;
       }
       if (file.size > PFP_MAX_FILE_BYTES) {
         const mb = (file.size / (1024 * 1024)).toFixed(1);
-        setPfpError("That picture is " + mb + " MB. The limit is 8 MB. The current avatar is unchanged.");
+        rejectProfileFile("That picture is " + mb + " MB. The limit is 8 MB. The current avatar is unchanged.");
         return;
       }
       state.pfpReading = true;
@@ -6618,7 +6745,7 @@
       } catch (err) {
         if (seq !== state.pfpPickSeq) return;
         const large = err && err.message === "large";
-        setPfpError(large
+        rejectProfileFile(large
           ? "That picture is still too large after cropping. Pick a smaller PNG, JPEG, or WebP. The current avatar is unchanged."
           : "This browser could not read that picture. Pick a PNG, JPEG, or WebP. The current avatar is unchanged.");
       } finally {
@@ -6937,6 +7064,7 @@
         if (sheet) { sheet.hidden = true; sheet.innerHTML = ""; }
         if (scrim) scrim.hidden = true;
         if (chip) chip.setAttribute("aria-expanded", "false");
+        syncToastOffset();
         return;
       }
       root.hidden = false;
@@ -6950,7 +7078,10 @@
         p.id, p.symbol, p.pnl_usd, p.pnl_pct, p.mark_usd, p.stake_usd,
         p.entry_price_usd, p.live_price_usd, p.quote_live, p.quoted_at, p.pair_url
       ].join("~")).join("|");
-      if (state.followSig === sig) return;
+      if (state.followSig === sig) {
+        syncToastOffset();
+        return;
+      }
       state.followSig = sig;
       if (chip) {
         const sym = (positions[0] && positions[0].symbol) || "coin";
@@ -6967,6 +7098,7 @@
       if (state.gameBusy) {
         root.querySelectorAll("[data-follow-sell]").forEach((el) => { el.disabled = true; });
       }
+      syncToastOffset();
     }
 
     function wireFollowTab() {
@@ -8282,6 +8414,7 @@
       const tradersTab = document.getElementById("sideTabTraders");
       if (socialTab) socialTab.setAttribute("aria-selected", (!tradersOpen && !collapsed) ? "true" : "false");
       if (tradersTab) tradersTab.setAttribute("aria-selected", tradersOpen ? "true" : "false");
+      if (typeof syncToastOffset === "function") syncToastOffset();
       if (reason) {
         if (!tradersOpen && collapsed && empty) {
           reason.hidden = false;
@@ -8617,6 +8750,7 @@
     }
     document.querySelectorAll("#pfPicks button").forEach((btn) => {
       btn.addEventListener("click", () => {
+        if (pfpGhostBlocksPreset(Date.now(), state.pfpGhostUntil || 0)) return;
         state.pfpPickSeq = (state.pfpPickSeq || 0) + 1;
         releasePfpRead();
         state.pfpDraft = btn.getAttribute("data-pfp") || "rocket";
@@ -8627,18 +8761,41 @@
       });
     });
     const pfFile = document.getElementById("pfFile");
-    const openPfFile = () => { if (pfFile) pfFile.click(); };
+    const openPfFile = (ev) => {
+      if (ev) ev.preventDefault();
+      if (!pfFile) return;
+      state.pfpPickerSnap = rememberPfpDraft();
+      state.pfpPickerArmed = true;
+      state.pfpPickerBlurred = false;
+      state.pfpPickerGotFile = false;
+      pfFile.click();
+    };
     const pfPhoto = document.getElementById("pfPhoto");
     const pfFileBtn = document.getElementById("pfFileBtn");
     if (pfPhoto) pfPhoto.addEventListener("click", openPfFile);
     if (pfFileBtn) pfFileBtn.addEventListener("click", openPfFile);
+    window.addEventListener("blur", () => {
+      if (state.pfpPickerArmed) state.pfpPickerBlurred = true;
+    });
+    window.addEventListener("focus", () => {
+      if (!state.pfpPickerArmed || !state.pfpPickerBlurred) return;
+      state.pfpPickerArmed = false;
+      state.pfpPickerBlurred = false;
+      armPfpGhostGuard();
+      if (!state.pfpPickerGotFile && state.pfpPickerSnap) restorePfpDraft(state.pfpPickerSnap);
+    });
     if (pfFile) {
-      pfFile.addEventListener("change", () => {
-        const file = pfFile.files && pfFile.files[0];
+      pfFile.addEventListener("change", async () => {
+        state.pfpPickerGotFile = true;
+        state.pfpPickerArmed = false;
+        armPfpGhostGuard();
+        const raw = pfFile.files && pfFile.files[0];
+        const file = await holdProfileFile(raw);
         pfFile.value = "";
         if (file) onProfileFile(file);
       });
     }
+    window.addEventListener("resize", () => { syncToastOffset(); });
     const gShop = document.getElementById("gShop");
     if (gShop) {
       gShop.addEventListener("click", (ev) => {
