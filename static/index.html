@@ -1112,6 +1112,47 @@
       font-size: 1rem; font-weight: 800; padding: 14px 22px; border-radius: 10px;
     }
     body.mode-game .game-wrap { grid-template-columns: minmax(0, 1.55fr) minmax(260px, 0.9fr); gap: 12px; }
+    .game-side-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+    .game-chart { min-height: 480px; border-color: #2a5a40; }
+    .game-chart > .pane-head h2 { color: #3ecf8e; letter-spacing: 0.08em; }
+    .game-chart .pane-head .sub { font-family: var(--mono); font-size: 0.66rem; word-break: break-all; }
+    .game-chart .pane-body {
+      position: relative; display: flex; flex-direction: column;
+      padding: 0; min-height: 400px; overflow: hidden; background: #161616;
+    }
+    .game-chart .chart-msg {
+      margin: auto; padding: 28px 18px; text-align: center;
+      color: #e7e9ea; font-size: 0.95rem; line-height: 1.45; max-width: 36ch;
+    }
+    .game-chart[data-state="fail"] .chart-msg { color: #ffc9ce; }
+    .game-chart iframe.dex-chart {
+      flex: 1 1 auto; width: 100%; min-height: 400px; border: 0; background: #0e0e0e;
+    }
+    .game-chart[data-state="loading"] iframe.dex-chart {
+      position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none;
+    }
+    .game-chart .foot-pane { color: #8b98a5; }
+    .unit-legend {
+      margin: 4px 2px 12px; padding: 8px 10px; border-radius: 8px;
+      background: #12151c; border: 1px solid #2a2a2a;
+      color: #c0c8d0; font-size: 0.75rem; line-height: 1.4;
+    }
+    .pos-card { cursor: pointer; }
+    .pos-card.chart-on { outline: 2px solid #3ecf8e; outline-offset: 2px; }
+    .pos-card .stat-cell .unit, .quote-card .stat-cell .unit, .live-px .unit {
+      display: block; font-size: 0.58rem; font-weight: 750; letter-spacing: 0.04em;
+      text-transform: uppercase; color: #8b98a5; margin: 0 0 2px;
+    }
+    .pos-card .stat-cell[data-family="paper"] .k,
+    .pos-card .pnl-k { color: #f0a33a; }
+    .pos-card .stat-cell[data-family="price"] .k,
+    .quote-card .stat-cell[data-family="price"] .k,
+    .live-px .unit { color: #8ab4ff; }
+    .pos-card .pnl-k {
+      display: block; font-family: var(--sans); font-size: 0.62rem; font-weight: 800;
+      letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 2px;
+    }
+    .mcap-hero .cell[data-family="mcap"] .lab { color: #3ecf8e; }
     body.mode-game .game-side { opacity: 1; }
     body.mode-game #modeGame .pane {
       background: #121212; border-color: #2a2a2a; border-radius: 14px;
@@ -2225,7 +2266,7 @@
         <div class="logo">N</div>
         <div>
           <h1>Nunu Filter</h1>
-          <p class="sub">Solana Research Panel · paper only · v72</p>
+          <p class="sub">Solana Research Panel · paper only · v73</p>
         </div>
       </div>
       <div class="mode-tabs" role="tablist">
@@ -2533,13 +2574,25 @@
           <div class="pane-body" id="gTradeBody" data-state="loading">
             <div id="gPickBox"></div>
             <div id="gQuoteBox" class="empty">Type CA / ticker / name → Quote (or Enter). <b>Play</b> on Filter jumps here with the exact mint.</div>
+            <p class="unit-legend">MCAP is market cap. Stake, mark, and P&amp;L are paper position dollars. Entry, last, and live USD are the token price.</p>
             <div class="sec-label">Open positions</div>
             <div id="gPositions"><div class="empty">Loading game…</div></div>
-            <div class="sec-label">Closed this run</div>
+            <div class="sec-label">Closed this run · paper $</div>
             <div id="gClosed"><div class="empty">Loading closed trades…</div></div>
           </div>
         </section>
-        <section class="pane game-side score-hero">
+        <div class="game-side-col">
+          <section class="pane game-chart" id="gChartPane" data-state="empty" data-feature="trade_chart">
+            <div class="pane-head">
+              <h2>Chart</h2>
+              <span class="sub" id="gChartSub">No coin selected</span>
+            </div>
+            <div class="pane-body" id="gChartBody">
+              <p class="chart-msg" data-chart-state="empty">No coin selected. Quote a CA or open a paper trade to see the Dex chart.</p>
+            </div>
+            <div class="foot-pane"><span id="gChartNote">Dex chart is live on DexScreener. MCAP on the card can lag this chart — not synced.</span></div>
+          </section>
+          <section class="pane game-side score-hero">
           <div class="pane-head">
             <h2>★ High score</h2>
             <span class="sub">24h cash left · board</span>
@@ -2552,6 +2605,7 @@
           </div>
           <div class="foot-pane"><span>Paper only · force-sell at 24h</span></div>
         </section>
+        </div>
       </div>
 
       <div class="finish-row">
@@ -2585,7 +2639,7 @@
     </div>
 
     <footer class="app-foot">
-      <div class="foot-live">Paper only · no wallets. <code>?v=72</code></div>
+      <div class="foot-live">Paper only · no wallets. <code>?v=73</code></div>
       <details class="qa-foot">
         <summary>QA fixtures</summary>
         <div>APIs: <code>/api/flagged</code> · <code>/api/update-now</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>. Social Tap is coin, meme, and crypto viral from public sources — nothing invented. Checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: <code>&amp;mode=game</code>. Equity tick proof: <code>?qa_tick=both</code>, <code>?qa_tick=up</code>, <code>?qa_tick=down</code>. Display offset only. Do not combine with <code>?fixture=</code>. 24h end proof: <code>?qa_end=1</code> (one-shot, then Start 24h). Does not auto-start.</div>
@@ -2627,7 +2681,7 @@
 
   <script>
 
-    const PANEL_V = 72;
+    const PANEL_V = 73;
     const SITTING_DROP_MIN = 5;
     const SITTING_AGED_MIN = 180;
     const SITTING_NEAR_LEAD_MIN = 1;
@@ -2773,6 +2827,11 @@
       coinMint: "",
       coinSeq: 0,
       coinPreview: {},
+      chartPick: null,
+      chartShown: "",
+      chartFailedKey: "",
+      chartGen: 0,
+      chartTimer: 0,
     };
 
     function trenchHoursNow() {
@@ -4062,11 +4121,12 @@
       return Math.max(0, Math.min(100, raw));
     }
 
-    function mcapBarLeft(st) {
+    function mcapBarLeft(st, trade) {
       const nowTxt = st && st.now_available ? fmtUsd(st.market_cap_usd) : null;
       const ceilTxt = st && st.ceiling_available ? fmtUsd(st.ceiling_usd) : null;
-      if (nowTxt && ceilTxt) return "Now " + nowTxt + " → ceiling " + ceilTxt;
-      if (nowTxt) return "Now " + nowTxt;
+      const nowName = trade ? "MCAP" : "Now";
+      if (nowTxt && ceilTxt) return nowName + " " + nowTxt + " → ceiling " + ceilTxt;
+      if (nowTxt) return nowName + " " + nowTxt;
       if (ceilTxt) return "Ceiling " + ceilTxt;
       return "Market cap unavailable";
     }
@@ -4090,6 +4150,12 @@
       if (!st || !st.now_available) return "Unknown";
       if (st.now_source === "dex") return "Where it’s at · DEX Screener";
       return "Where it’s at · filter snapshot";
+    }
+
+    function mcapTradeSub(st) {
+      if (!st || !st.now_available) return "Market cap unknown";
+      if (st.now_source === "dex") return "Market cap · where it’s at · DEX Screener";
+      return "Market cap · where it’s at · filter snapshot";
     }
 
     function mcapDataAttrs(st, source) {
@@ -4127,10 +4193,14 @@
         '<div class="thin-bar' + barCls + '" aria-hidden="true"><i style="width:' + width + '%"></i></div></div></div>';
     }
 
-    function mcapHeroHtml(source) {
+    function mcapHeroHtml(source, opts) {
+      const trade = !!(opts && opts.trade);
       const st = mcapState(source);
-      const nowCell = '<div class="cell"><div class="lab">Now</div><div class="val ' + (st.now_available ? "good" : "muted") + '">' +
-        fmtUsd(st.now_available ? st.market_cap_usd : null) + '</div><div class="sub">' + esc(mcapNowSub(st)) + "</div></div>";
+      const nowLab = trade ? "MCAP" : "Now";
+      const nowSub = trade ? mcapTradeSub(st) : mcapNowSub(st);
+      const family = trade ? ' data-family="mcap"' : "";
+      const nowCell = '<div class="cell"' + family + '><div class="lab">' + nowLab + '</div><div class="val ' + (st.now_available ? "good" : "muted") + '">' +
+        fmtUsd(st.now_available ? st.market_cap_usd : null) + '</div><div class="sub">' + esc(nowSub) + "</div></div>";
       if (!st.ceiling_available) {
         return '<section class="mcap-hero unk-hero now-only" data-section="mcap"' + mcapDataAttrs(st, source) + '>' +
           '<div class="tri now-only">' + nowCell + "</div>" +
@@ -4149,7 +4219,7 @@
         '<div class="cell"><div class="lab">% gone</div><div class="val ' + pctCls + '">' +
         fmtGonePct(st.pct_gone) + '</div><div class="sub">' + esc(mcapPctSub(st)) + "</div></div>" +
         "</div>" +
-        '<div class="big-bar-wrap"><div class="big-bar-meta"><span class="left">' + esc(mcapBarLeft(st)) +
+        '<div class="big-bar-wrap"><div class="big-bar-meta"><span class="left">' + esc(mcapBarLeft(st, trade)) +
         '</span><span class="right ' + rightCls + '">' + esc(fmtGoneLabel(st.pct_gone)) +
         '</span></div><div class="big-bar' + barCls + '" aria-hidden="true"><i style="width:' + width + '%"></i></div></div>' +
         '<div class="formula"><b>Ceiling math:</b> ' + esc(st.formula || "") + "</div></section>";
@@ -5711,9 +5781,245 @@
       }
     }
 
+    function tradeStat(family, k, unit, valueHtml) {
+      return '<div class="stat-cell" data-family="' + family + '"><span class="k">' + k +
+        '</span><span class="unit">' + unit + '</span><span class="v">' + valueHtml + "</span></div>";
+    }
+
+    const CHART_EMPTY = "No coin selected. Quote a CA or open a paper trade to see the Dex chart.";
+    const CHART_PICK = "Select an open position to see its Dex chart.";
+    const CHART_FAIL = "Chart did not load. No Dex pair for this coin, or the Dex embed was blocked.";
+    const CHART_LOADING = "Loading Dex chart…";
+
+    function dexEmbedUrl(pairUrl, mint) {
+      let base = "";
+      const raw = String(pairUrl || "").trim().split("?")[0].replace(/\/$/, "");
+      if (/^https:\/\/(www\.)?dexscreener\.com\/solana\/[A-Za-z0-9]+$/i.test(raw)) base = raw;
+      else if (looksLikeMint(mint)) base = "https://dexscreener.com/solana/" + String(mint).trim();
+      if (!base) return "";
+      return base + "?embed=1&theme=dark&trades=0&info=0&chartLeftToolbar=0&chartTheme=dark&chartStyle=1&loadChartSettings=0";
+    }
+
+    function openPositions() {
+      const g = state.game || {};
+      let ended = false;
+      try { ended = !!sessionEndView(g).ended; } catch (e) { ended = g.status === "ended"; }
+      if (ended) return [];
+      return (g.positions || []).filter((p) => p && p.mint);
+    }
+
+    function resolveChartTarget() {
+      if (typeof gameFixtureOn === "function" && gameFixtureOn()) return null;
+      const positions = openPositions();
+      const pick = state.chartPick;
+      if (pick && (pick.mint || pick.failed || pick.pending || pick.symbol)) {
+        if (pick.source === "position") {
+          const still = positions.find((p) => p && p.id === pick.id);
+          if (still) {
+            return {
+              source: "position",
+              id: still.id,
+              mint: still.mint || "",
+              pairUrl: still.pair_url || pick.pairUrl || "",
+              symbol: still.symbol || pick.symbol || "",
+              failed: false,
+              pending: false,
+            };
+          }
+          state.chartPick = null;
+        } else if (pick.source === "quote") {
+          if (pick.pending || pick.failed || pick.hold) return pick;
+          const card = document.querySelector("#gQuoteBox .quote-card");
+          const shown = card && card.getAttribute("data-mint");
+          if (shown && shown === pick.mint) {
+            return {
+              source: "quote",
+              mint: pick.mint,
+              pairUrl: card.getAttribute("data-pair-url") || pick.pairUrl || "",
+              symbol: card.getAttribute("data-symbol") || pick.symbol || "",
+              failed: false,
+              pending: false,
+            };
+          }
+          state.chartPick = null;
+        }
+      }
+      if (positions.length === 1) {
+        const p = positions[0];
+        return {
+          source: "position",
+          id: p.id,
+          mint: p.mint,
+          pairUrl: p.pair_url || "",
+          symbol: p.symbol || "",
+          failed: false,
+          pending: false,
+          auto: true,
+        };
+      }
+      return null;
+    }
+
+    function chartHead(target, kind) {
+      const sub = document.getElementById("gChartSub");
+      const pane = document.getElementById("gChartPane");
+      if (pane) {
+        if (target && target.mint) pane.setAttribute("data-mint", target.mint);
+        else pane.removeAttribute("data-mint");
+        if (target && target.symbol) pane.setAttribute("data-symbol", target.symbol);
+        else pane.removeAttribute("data-symbol");
+      }
+      if (!sub) return;
+      if (!target || !target.mint) {
+        if (kind === "fail") sub.textContent = "Chart unavailable";
+        else if (kind === "loading") sub.textContent = target && target.symbol ? ("Quoting " + target.symbol) : "Loading chart";
+        else sub.textContent = openPositions().length > 1 ? "Select a position" : "No coin selected";
+        sub.removeAttribute("title");
+        return;
+      }
+      sub.textContent = (target.symbol ? (target.symbol + " · ") : "") + target.mint;
+      sub.title = target.mint;
+    }
+
+    function markChartedCards(target) {
+      document.querySelectorAll("#gPositions .pos-card").forEach((card) => {
+        const on = !!(target && target.mint && (
+          (target.id && card.getAttribute("data-id") === target.id) ||
+          (!target.id && card.getAttribute("data-mint") === target.mint)
+        ));
+        card.classList.toggle("chart-on", on);
+      });
+    }
+
+    function paintChartMessage(kind, text, target) {
+      const pane = document.getElementById("gChartPane");
+      const body = document.getElementById("gChartBody");
+      if (state.chartTimer) { clearTimeout(state.chartTimer); state.chartTimer = 0; }
+      if (pane) pane.setAttribute("data-state", kind);
+      if (body) body.innerHTML = '<p class="chart-msg" data-chart-state="' + kind + '">' + esc(text) + "</p>";
+      chartHead(target, kind);
+      markChartedCards(kind === "empty" ? null : target);
+    }
+
+    function mountDexChart(target, src, key) {
+      const pane = document.getElementById("gChartPane");
+      const body = document.getElementById("gChartBody");
+      if (!pane || !body) return;
+      if (state.chartTimer) { clearTimeout(state.chartTimer); state.chartTimer = 0; }
+      state.chartShown = key;
+      state.chartFailedKey = "";
+      const gen = (state.chartGen = (state.chartGen || 0) + 1);
+      let settled = false;
+      const finish = (ok) => {
+        if (settled || gen !== state.chartGen) return;
+        settled = true;
+        if (state.chartTimer) { clearTimeout(state.chartTimer); state.chartTimer = 0; }
+        if (!ok) {
+          state.chartFailedKey = key;
+          state.chartShown = "";
+          paintChartMessage("fail", CHART_FAIL, target);
+          return;
+        }
+        const livePane = document.getElementById("gChartPane");
+        const liveBody = document.getElementById("gChartBody");
+        if (livePane) livePane.setAttribute("data-state", "ready");
+        const msg = liveBody && liveBody.querySelector(".chart-msg");
+        if (msg) msg.remove();
+      };
+      pane.setAttribute("data-state", "loading");
+      pane.setAttribute("data-mint", target.mint || "");
+      body.innerHTML = '<p class="chart-msg" data-chart-state="loading">' + esc(CHART_LOADING) + "</p>";
+      chartHead(target, "loading");
+      markChartedCards(target);
+      state.chartTimer = setTimeout(() => finish(false), 12000);
+      // A blocked embed domain fails this fetch. A live Dex host resolves
+      // (opaque) and only then do we mount the iframe.
+      fetch(src, { mode: "no-cors", cache: "no-store" }).then(() => {
+        if (settled || gen !== state.chartGen) return;
+        const frame = document.createElement("iframe");
+        frame.className = "dex-chart";
+        frame.title = "DexScreener chart for " + (target.symbol || "coin") + " " + (target.mint || "");
+        frame.setAttribute("data-mint", target.mint || "");
+        frame.setAttribute("data-src-kind", "dex-embed");
+        frame.addEventListener("load", () => {
+          if (!(frame.src || "").includes("dexscreener.com")) return;
+          try {
+            const href = frame.contentWindow && frame.contentWindow.location ? frame.contentWindow.location.href : "";
+            if (href.indexOf("chrome-error") === 0) finish(false);
+          } catch (e) {
+            finish(true);
+          }
+        });
+        frame.addEventListener("error", () => finish(false));
+        body.appendChild(frame);
+        frame.src = src;
+      }).catch(() => finish(false));
+    }
+
+    function paintTradeChart() {
+      const pane = document.getElementById("gChartPane");
+      const body = document.getElementById("gChartBody");
+      if (!pane || !body) return;
+      const target = resolveChartTarget();
+      if (!target || (!target.mint && !target.pending && !target.failed)) {
+        state.chartShown = "";
+        paintChartMessage("empty", openPositions().length > 1 ? CHART_PICK : CHART_EMPTY, null);
+        return;
+      }
+      if (target.failed || (target.pending && !target.mint && !target.pairUrl)) {
+        state.chartShown = "";
+        if (target.failed) paintChartMessage(target.tone || "fail", target.failText || CHART_FAIL, target.mint ? target : null);
+        else paintChartMessage("loading", CHART_LOADING, target);
+        return;
+      }
+      const src = dexEmbedUrl(target.pairUrl, target.mint);
+      if (!src) {
+        state.chartShown = "";
+        state.chartFailedKey = "nosrc:" + (target.mint || "");
+        paintChartMessage("fail", target.failText || CHART_FAIL, target);
+        return;
+      }
+      const key = (target.mint || "") + "|" + src;
+      if (state.chartFailedKey === key && pane.getAttribute("data-state") === "fail") {
+        chartHead(target, "fail");
+        markChartedCards(target);
+        return;
+      }
+      const frame = body.querySelector("iframe.dex-chart");
+      if (state.chartShown === key && frame && frame.getAttribute("data-mint") === target.mint && frame.src.indexOf(src) !== -1) {
+        chartHead(target, pane.getAttribute("data-state") || "ready");
+        markChartedCards(target);
+        return;
+      }
+      mountDexChart(target, src, key);
+    }
+
+    function focusTradeChart(pick) {
+      state.chartToken = (state.chartToken || 0) + 1;
+      if (pick) pick.token = state.chartToken;
+      state.chartPick = pick;
+      state.chartFailedKey = "";
+      paintTradeChart();
+    }
+
+    function selectPositionChart(id) {
+      const p = openPositions().find((row) => row && row.id === id);
+      if (!p) return;
+      focusTradeChart({
+        source: "position",
+        id: p.id,
+        mint: p.mint,
+        pairUrl: p.pair_url || "",
+        symbol: p.symbol || "",
+        failed: false,
+        pending: false,
+      });
+    }
+
     function renderGame() {
       if (gameFixtureOn()) {
         applyGameFixture();
+        paintTradeChart();
         return;
       }
       const g = state.game || {};
@@ -5843,17 +6149,17 @@
             const row = state.flagged.find((r) => r && r.mint === p.mint);
             if (row && row.image_url) imgUrl = row.image_url;
           }
-          return '<div class="pos-card' + heat + '" data-id="' + esc(p.id) + '" data-mint="' + esc(p.mint || "") + '">' +
+          return '<div class="pos-card' + heat + '" data-id="' + esc(p.id) + '" data-mint="' + esc(p.mint || "") + '" title="Show this coin on the chart">' +
             coinHeadHtml(p.symbol, p.name, p.mint, imgUrl, flags) +
             (p.mint ? ('<div class="ca-line"><code class="ca-full">' + esc(p.mint) + "</code></div>") : "") +
-            '<div class="live-px' + flash + (liveOn ? "" : " is-unknown") + '" data-role="live-px" data-quote-live="' + (liveOn ? "1" : "0") + '"><span class="live-lab">' + (liveOn ? "Live USD" : "Unknown") + "</span>" + (liveOn ? fmtPx(last) : "—") + "</div>" +
-            '<div class="pnl-big ' + pnlCls + '">' + (pnlUsdP >= 0 ? "+" : "-") + "$" + Math.abs(pnlUsdP).toFixed(2) + " · " + fmtPct(pnlPctP) + "</div>" +
-            (p.mcap_progress ? mcapHeroHtml(p) : "") +
+            '<div class="live-px' + flash + (liveOn ? "" : " is-unknown") + '" data-role="live-px" data-family="price" data-quote-live="' + (liveOn ? "1" : "0") + '"><span class="live-lab">' + (liveOn ? "Live USD" : "Unknown") + '</span><span class="unit">token price</span>' + (liveOn ? fmtPx(last) : "—") + "</div>" +
+            '<div class="pnl-big ' + pnlCls + '" data-family="paper"><span class="pnl-k">P&L · paper $</span>' + (pnlUsdP >= 0 ? "+" : "-") + "$" + Math.abs(pnlUsdP).toFixed(2) + " · " + fmtPct(pnlPctP) + "</div>" +
+            mcapHeroHtml(p, { trade: true }) +
             '<div class="stats">' +
-            '<div class="stat-cell"><span class="k">Stake</span><span class="v">' + fmtGameUsd(p.stake_usd) + "</span></div>" +
-            '<div class="stat-cell"><span class="k">Mark</span><span class="v">' + fmtUsd(mark) + "</span></div>" +
-            '<div class="stat-cell"><span class="k">Entry</span><span class="v">' + fmtPx(p.entry_price_usd) + "</span></div>" +
-            '<div class="stat-cell"><span class="k">Last</span><span class="v" data-role="last-px">' + (liveOn ? fmtPx(last) : "—") + "</span></div>" +
+            tradeStat("paper", "Stake", "paper $", fmtGameUsd(p.stake_usd)) +
+            tradeStat("paper", "Mark", "position $", fmtGameUsd(mark)) +
+            tradeStat("price", "Entry", "token price", fmtPx(p.entry_price_usd)) +
+            '<div class="stat-cell" data-family="price"><span class="k">Last</span><span class="unit">token price</span><span class="v" data-role="last-px">' + (liveOn ? fmtPx(last) : "—") + "</span></div>" +
             (p.sl_pct != null ? '<div class="stat-cell"><span class="k">SL</span><span class="v">' + p.sl_pct + "%</span></div>" : "") +
             (p.tp_pct != null ? '<div class="stat-cell"><span class="k">TP</span><span class="v">' + p.tp_pct + "%</span></div>" : "") +
             "</div>" +
@@ -5917,6 +6223,7 @@
       noteEquityTick(g, eq, status);
       paintFinish(g);
       applySessionChrome(g);
+      paintTradeChart();
 
       // Keep quote-card live price ticking when a quote is on screen
       if (state.lastQuoteMint && status === "active") {
@@ -5930,9 +6237,14 @@
       const lab = document.createElement("span");
       lab.className = "live-lab";
       lab.textContent = live ? "Live USD" : "Unknown";
+      const unit = document.createElement("span");
+      unit.className = "unit";
+      unit.textContent = "token price";
       el.textContent = "";
       el.appendChild(lab);
+      el.appendChild(unit);
       el.appendChild(document.createTextNode(live ? fmtPx(px) : "—"));
+      el.setAttribute("data-family", "price");
       el.setAttribute("data-quote-live", live ? "1" : "0");
       if (!live) el.classList.add("is-unknown");
     }
@@ -5956,7 +6268,7 @@
           formula: "Unknown — no fresh DEX Screener quote within the refresh window. Nothing invented.",
         },
       };
-      if (hero) hero.outerHTML = mcapHeroHtml(unknown);
+      if (hero) hero.outerHTML = mcapHeroHtml(unknown, { trade: true });
       state.lastQuotePrice = null;
     }
 
@@ -5988,7 +6300,7 @@
       const pxEl = card.querySelector("[data-role=quote-px]");
       if (pxEl) pxEl.textContent = fmtPx(px);
       const hero = card.querySelector(".mcap-hero");
-      if (hero) hero.outerHTML = mcapHeroHtml(q);
+      if (hero) hero.outerHTML = mcapHeroHtml(q, { trade: true });
       state.lastQuotePrice = px;
     }
 
@@ -6192,7 +6504,10 @@
         box.innerHTML = GAME_QUOTE_IDLE;
       }
       if (mintEl) mintEl.value = "";
+      if (!state.chartPick || state.chartPick.source === "quote") state.chartPick = null;
+      state.chartFailedKey = "";
       markTradeFocus(false);
+      paintTradeChart();
       const g = state.game || {};
       if (g.status === "active") setGameLine(liveRunLine(g), "ok");
       else if (g.status === "ended") {
@@ -6265,6 +6580,15 @@
         return;
       }
       mint = decision.mint;
+      focusTradeChart({
+        source: "quote",
+        mint: looksLikeMint(mint) ? mint : "",
+        pairUrl: "",
+        symbol: looksLikeMint(mint) ? "" : mint,
+        pending: true,
+        failed: false,
+      });
+      const chartToken = state.chartToken;
       const seq = (state.quoteSeq = (state.quoteSeq || 0) + 1);
       const requestedMint = mint;
       document.getElementById("gMint").value = requestedMint;
@@ -6282,6 +6606,18 @@
         const data = await res.json();
         if (seq !== state.quoteSeq) return;
         if (data.need_pick && data.candidates && data.candidates.length) {
+          if (state.chartToken === chartToken) {
+            focusTradeChart({
+              source: "quote",
+              mint: "",
+              pairUrl: "",
+              symbol: "",
+              pending: false,
+              failed: true,
+              tone: "empty",
+              failText: "Pick a coin below to see its chart.",
+            });
+          }
           box.innerHTML = '<div class="empty">Pick a match below</div>';
           renderPickList("gPickBox", data.candidates, (c) => {
             document.getElementById("gMint").value = c.mint;
@@ -6292,6 +6628,17 @@
           return;
         }
         if (!data.ok) {
+          if (state.chartToken === chartToken) {
+            focusTradeChart({
+              source: "quote",
+              mint: looksLikeMint(requestedMint) ? requestedMint : "",
+              pairUrl: "",
+              symbol: "",
+              pending: false,
+              failed: true,
+              failText: CHART_FAIL,
+            });
+          }
           playResponseSound(data);
           if (!data.sound) beep("fail");
           box.innerHTML = '<div class="err">' + esc(data.error || "No quote") + "</div>";
@@ -6303,6 +6650,17 @@
         let quotedMint = requestedMint;
         const resolved = (data.resolved_mint || (q && q.mint) || "").trim();
         if (looksLikeMint(requestedMint) && resolved && resolved !== requestedMint) {
+          if (state.chartToken === chartToken) {
+            focusTradeChart({
+              source: "quote",
+              mint: requestedMint,
+              pairUrl: "",
+              symbol: "",
+              pending: false,
+              failed: false,
+              hold: true,
+            });
+          }
           playResponseSound({ sound: "fail" });
           box.innerHTML = '<div class="err">Quote resolved a different mint. Kept ' + esc(requestedMint) + ".</div>";
           setGameLine("Refused ticker swap — kept " + requestedMint, "bad");
@@ -6316,6 +6674,18 @@
         mint = quotedMint;
         state.lastQuoteMint = mint;
         state.lastQuotePrice = q.price_usd != null ? Number(q.price_usd) : null;
+        if (state.chartToken === chartToken) {
+          state.chartPick = {
+            source: "quote",
+            mint: mint,
+            pairUrl: q.pair_url || "",
+            symbol: q.symbol || "",
+            pending: false,
+            failed: false,
+            token: chartToken,
+          };
+          state.chartFailedKey = "";
+        }
         const flags = (data.red_flags || []).map((f) => {
           const cls = String(f).toLowerCase().includes("copy") ? "copy" : "lp";
           return '<span class="wb ' + cls + '" title="From your filter flags">' + esc(f) + "</span>";
@@ -6333,14 +6703,14 @@
           const row = state.flagged.find((r) => r && r.mint === mint);
           if (row && row.image_url) imgUrl = row.image_url;
         }
-        box.innerHTML = '<div class="quote-card" data-mint="' + esc(mint) + '">' +
+        box.innerHTML = '<div class="quote-card" data-mint="' + esc(mint) + '" data-pair-url="' + esc(q.pair_url || "") + '" data-symbol="' + esc(q.symbol || "") + '">' +
           coinHeadHtml(q.symbol, q.name, mint, imgUrl, flags) +
           '<div class="ca-line"><code class="ca-full">' + esc(mint) + "</code></div>" +
           warn +
-          '<div class="live-px" data-role="live-px" data-quote-live="1"><span class="live-lab">Live USD</span>' + fmtPx(q.price_usd) + "</div>" +
-          mcapHeroHtml(q) +
+          '<div class="live-px" data-role="live-px" data-family="price" data-quote-live="1"><span class="live-lab">Live USD</span><span class="unit">token price</span>' + fmtPx(q.price_usd) + "</div>" +
+          mcapHeroHtml(q, { trade: true }) +
           '<div class="stats">' +
-          '<div class="stat-cell"><span class="k">Price</span><span class="v" data-role="quote-px">' + fmtPx(q.price_usd) + "</span></div>" +
+          '<div class="stat-cell" data-family="price"><span class="k">Price</span><span class="unit">token price</span><span class="v" data-role="quote-px">' + fmtPx(q.price_usd) + "</span></div>" +
           '<div class="stat-cell"><span class="k">Liq</span><span class="v">' + fmtUsd(q.liquidity_usd) + "</span></div>" +
           '<div class="stat-cell"><span class="k">1h</span><span class="v ' + chgCls + '">' + fmtPct(q.price_change_h1) + "</span></div>" +
           '<div class="stat-cell"><span class="k">Vol 1h</span><span class="v">' + fmtUsd(q.volume_h1_usd) + "</span></div>" +
@@ -6351,9 +6721,21 @@
           '<button type="button" class="dismiss-back" data-dismiss="trade">← Back / clear selection</button>' +
           "</div>";
         document.getElementById("gBuyQuoted").onclick = () => gameBuy(mint);
+        if (state.chartToken === chartToken) paintTradeChart();
         setGameLine("Quoted " + (q.symbol || "?") + " @ " + fmtPx(q.price_usd) + " — live ticks every 2s", "ok");
       } catch (e) {
         if (seq !== state.quoteSeq) return;
+        if (state.chartToken === chartToken) {
+          focusTradeChart({
+            source: "quote",
+            mint: looksLikeMint(requestedMint) ? requestedMint : "",
+            pairUrl: "",
+            symbol: "",
+            pending: false,
+            failed: true,
+            failText: CHART_FAIL,
+          });
+        }
         beep("fail");
         box.innerHTML = '<div class="err">Quote failed — is the server up?</div>';
         setGameLine("Quote failed: " + (e.message || e), "bad");
@@ -7059,8 +7441,14 @@
     });
     document.getElementById("gPositions").addEventListener("click", (ev) => {
       const btn = ev.target.closest(".g-sell");
-      if (!btn) return;
-      gameSell(btn.getAttribute("data-id"));
+      if (btn) {
+        gameSell(btn.getAttribute("data-id"));
+        return;
+      }
+      if (ev.target.closest("a, button, input, textarea")) return;
+      const card = ev.target.closest(".pos-card");
+      if (!card) return;
+      selectPositionChart(card.getAttribute("data-id"));
     });
 
     function candidateRow(c) {
