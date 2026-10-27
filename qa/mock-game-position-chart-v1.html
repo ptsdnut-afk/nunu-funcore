@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Game · open position chart + plain $ labels mock v1 · eyes only</title>
+  <style>
+    :root {
+      --bg: #050505;
+      --panel: #121212;
+      --panel2: #161616;
+      --border: #2a2a2a;
+      --text: #e7e9ea;
+      --muted: #8b98a5;
+      --good: #3ecf8e;
+      --amber: #f0a33a;
+      --warn: #e6b84d;
+      --bad: #f07178;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: var(--sans); background: var(--bg); color: var(--text);
+      min-height: 100vh; line-height: 1.35; font-size: 15px;
+    }
+    .banner {
+      background: linear-gradient(90deg, #101810, #0a0a0a);
+      border-bottom: 1px solid #2a5a40;
+      padding: 9px 16px; font-size: 0.78rem; color: #9ed4b0; font-weight: 700;
+      display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    }
+    .banner code { font-family: var(--mono); color: var(--amber); }
+    .banner .tag {
+      display: inline-block; padding: 2px 8px; border-radius: 999px;
+      background: #102018; border: 1px solid #2a5a40; color: var(--good);
+      font-size: 0.65rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+    }
+    .banner .tag.warn {
+      background: #241e10; border-color: #6a5320; color: var(--amber);
+    }
+    .app { max-width: 1580px; margin: 0 auto; padding: 14px 16px 28px; }
+    .claim {
+      margin: 0 0 6px; font-size: 1.32rem; font-weight: 900; letter-spacing: -0.03em;
+      background: linear-gradient(90deg, #fff, var(--good) 45%, var(--amber));
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .claim span {
+      display: block; font-size: 0.7rem; font-weight: 650; color: var(--muted);
+      letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 4px;
+      background: none; -webkit-background-clip: unset; color: var(--muted);
+    }
+    .lede {
+      margin: 0 0 12px; color: var(--muted); font-size: 0.82rem; max-width: 1280px;
+    }
+    .lede b { color: var(--text); }
+
+    .proof {
+      display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px;
+      margin-bottom: 14px; padding: 12px 14px;
+      background: #101410; border: 1px solid #2a5a40; border-radius: 12px;
+    }
+    .proof h3 {
+      margin: 0 0 6px; font-size: 0.7rem; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--good);
+    }
+    .proof p { margin: 0; font-size: 0.72rem; color: var(--muted); line-height: 1.4; }
+    .proof b { color: var(--text); }
+    .proof .id {
+      font-family: var(--mono); font-size: 0.66rem; font-weight: 800;
+      color: var(--amber); margin-bottom: 4px;
+    }
+    @media (max-width: 1100px) {
+      .proof { grid-template-columns: 1fr 1fr; }
+    }
+
+    .story-label {
+      display: flex; align-items: baseline; gap: 10px; margin: 6px 0 10px; flex-wrap: wrap;
+    }
+    .story-label h2 {
+      margin: 0; font-size: 0.78rem; text-transform: uppercase; letter-spacing: .08em; color: var(--good);
+    }
+    .story-label .sub { color: var(--muted); font-size: 0.72rem; font-family: var(--mono); }
+
+    .story {
+      display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 14px;
+    }
+    @media (max-width: 1200px) {
+      .story { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+      overflow: hidden; display: flex; flex-direction: column;
+    }
+    .panel.before { border-color: #5a3030; }
+    .panel.after-live { border-color: #2a5a40; box-shadow: 0 0 18px rgba(62,207,142,.18); }
+    .panel.after-behind { border-color: #6a5320; box-shadow: 0 0 18px rgba(240,163,58,.16); }
+
+    .panel-head {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 10px 12px; border-bottom: 1px solid var(--border); background: #0e0e0e;
+    }
+    .panel-head .state {
+      font-size: 0.74rem; font-weight: 900; letter-spacing: .04em; text-transform: uppercase;
+    }
+    .panel.before .panel-head .state { color: var(--bad); }
+    .panel.after-live .panel-head .state { color: var(--good); }
+    .panel.after-behind .panel-head .state { color: var(--amber); }
+    .badge {
+      font-size: 0.58rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+      padding: 2px 7px; border-radius: 999px; border: 1px solid var(--border);
+      color: var(--muted); background: #1a1a1a;
+    }
+    .badge.ex { border-color: #5a4a20; color: var(--amber); background: #241e10; }
+    .badge.stuck { border-color: #5a3030; color: var(--bad); background: #241010; }
+    .badge.fix { border-color: #2a5a40; color: var(--good); background: #102018; }
+    .badge.behind { border-color: #6a5320; color: var(--amber); background: #241e10; }
+    .panel-head .rule {
+      margin-left: auto; font-size: 0.6rem; color: var(--muted); font-family: var(--mono);
+    }
+
+    .stage { padding: 10px; flex: 1; display: flex; flex-direction: column; gap: 8px; background: #0a0a0a; }
+
+    /* Trade / open-position sheet */
+    .trade-sheet {
+      background: #0c0c0c; border: 1px solid #222; border-radius: 12px;
+      display: grid; grid-template-columns: 1.05fr 1.15fr; min-height: 420px;
+      overflow: hidden; position: relative;
+    }
+    .trade-left {
+      padding: 12px 12px 10px; border-right: 1px solid #1e1e1e;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .trade-right {
+      position: relative; background: #050505; min-height: 420px;
+      display: flex; flex-direction: column;
+    }
+    .mint {
+      font-family: var(--mono); font-size: 0.58rem; color: var(--muted);
+      word-break: break-all; line-height: 1.3;
+    }
+    .dismiss-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    }
+    .coin-tag {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 0.72rem; font-weight: 800;
+    }
+    .coin-tag .sym {
+      padding: 2px 7px; border-radius: 6px; background: #1a1a1a; border: 1px solid #333;
+      font-family: var(--mono); font-size: 0.68rem; color: var(--amber);
+    }
+    .dismiss-x {
+      width: 26px; height: 26px; border-radius: 8px; border: 1px solid #2a5a40;
+      background: #102018; color: var(--good); font-size: 0.95rem; font-weight: 900;
+      display: grid; place-items: center; flex-shrink: 0;
+      box-shadow: 0 0 8px rgba(62,207,142,.2);
+    }
+    .dismiss-x.ghost {
+      border-color: #2a2a2a; background: transparent; color: transparent;
+      box-shadow: none; outline: 1px dashed #333;
+    }
+    .live-block { margin-top: 2px; }
+    .live-label {
+      font-size: 0.58rem; font-weight: 800; letter-spacing: .06em;
+      text-transform: uppercase; color: var(--muted);
+    }
+    .live-label.clear { color: var(--good); }
+    .live-price {
+      font-family: var(--mono); font-size: 1.55rem; font-weight: 800; letter-spacing: -0.02em;
+      line-height: 1.1; margin-top: 2px;
+    }
+    .live-pnl {
+      margin-top: 3px; font-size: 0.78rem; font-weight: 700; color: var(--good);
+    }
+    .now-box {
+      margin-top: 4px; padding: 10px 12px; border-radius: 10px;
+      background: #101410; border: 1px solid #2a5a40; text-align: center;
+    }
+    .now-box .lab {
+      font-size: 0.58rem; font-weight: 800; letter-spacing: .08em;
+      text-transform: uppercase; color: var(--muted);
+    }
+    .now-box .lab.clear { color: var(--good); }
+    .now-box .val {
+      font-family: var(--mono); font-size: 1.35rem; font-weight: 900; color: var(--text);
+      margin-top: 2px;
+    }
+    .dex-link {
+      margin-top: 5px; font-size: 0.62rem; color: var(--muted); text-align: center;
+    }
+    .dex-link u { color: #8ab0ff; text-decoration: underline; text-underline-offset: 2px; }
+    .max-line {
+      font-size: 0.62rem; color: var(--muted); text-align: center; margin-top: 2px;
+    }
+
+    .stats {
+      display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; margin-top: 4px;
+    }
+    .stat {
+      background: #141414; border: 1px solid #2a2a2a; border-radius: 8px;
+      padding: 6px 4px; text-align: center; min-width: 0;
+    }
+    .stat.confuse { border-color: #5a3030; background: #181010; }
+    .stat.clear { border-color: #2a5a40; background: #0e1812; }
+    .stat .k {
+      font-size: 0.5rem; font-weight: 800; letter-spacing: .04em;
+      text-transform: uppercase; color: var(--muted); line-height: 1.2;
+      min-height: 1.7em;
+    }
+    .stat.confuse .k { color: var(--bad); }
+    .stat.clear .k { color: var(--good); }
+    .stat .v {
+      font-family: var(--mono); font-size: 0.68rem; font-weight: 800;
+      margin-top: 3px; color: var(--text); word-break: break-all;
+    }
+    .stat .unit {
+      display: block; font-size: 0.48rem; color: var(--muted); font-weight: 600;
+      margin-top: 1px; text-transform: none; letter-spacing: 0; font-family: var(--sans);
+    }
+
+    .actions {
+      display: flex; align-items: center; gap: 10px; margin-top: 6px;
+    }
+    .sell {
+      flex: 1; padding: 9px 12px; border-radius: 10px;
+      background: #1a0c0c; border: 1px solid #8a3038; color: #ff8a90;
+      font-weight: 800; font-size: 0.85rem; text-align: center;
+      box-shadow: 0 0 14px rgba(240,113,120,.25);
+    }
+    .dex-btn {
+      font-size: 0.72rem; font-weight: 700; color: var(--muted);
+      padding: 6px 8px;
+    }
+
+    .closed {
+      margin-top: 6px; border-top: 1px solid #1e1e1e; padding-top: 8px;
+    }
+    .closed h4 {
+      margin: 0 0 6px; font-size: 0.58rem; letter-spacing: .08em;
+      text-transform: uppercase; color: var(--muted);
+    }
+    .closed-row {
+      display: flex; justify-content: space-between; gap: 6px;
+      font-size: 0.58rem; padding: 3px 0; color: var(--muted);
+      font-family: var(--mono);
+    }
+    .closed-row .pnl.g { color: var(--good); font-weight: 700; }
+    .closed-row .pnl.b { color: var(--bad); font-weight: 700; }
+    .closed-row .name { color: var(--text); font-family: var(--sans); font-weight: 700; }
+
+    /* Right pane states */
+    .empty-pane {
+      flex: 1; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 8px; color: #333;
+      border: 1px dashed #222; margin: 10px; border-radius: 10px;
+    }
+    .empty-pane .void {
+      font-size: 0.7rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+      color: #4a3030;
+    }
+    .empty-pane .hint { font-size: 0.62rem; color: #444; text-align: center; max-width: 180px; }
+
+    .chart-pane {
+      flex: 1; display: flex; flex-direction: column; padding: 10px 10px 8px; gap: 6px;
+    }
+    .chart-top {
+      display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap;
+    }
+    .chart-title {
+      font-size: 0.62rem; font-weight: 800; letter-spacing: .06em;
+      text-transform: uppercase; color: var(--muted);
+    }
+    .chip {
+      font-size: 0.56rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+      padding: 3px 8px; border-radius: 999px; border: 1px solid;
+    }
+    .chip.near {
+      color: var(--good); border-color: #2a5a40; background: #102018;
+    }
+    .chip.behind {
+      color: var(--amber); border-color: #6a5320; background: #241e10;
+    }
+    .chart-canvas {
+      flex: 1; min-height: 220px; border-radius: 10px;
+      background: radial-gradient(ellipse at 30% 20%, #0e1812 0%, #080808 55%, #050505 100%);
+      border: 1px solid #1e2a22; position: relative; overflow: hidden;
+    }
+    .chart-canvas.behind-bg {
+      background: radial-gradient(ellipse at 30% 20%, #181410 0%, #080808 55%, #050505 100%);
+      border-color: #3a3020;
+    }
+    .chart-canvas svg { width: 100%; height: 100%; display: block; }
+    .chart-legend {
+      display: flex; gap: 10px; flex-wrap: wrap; font-size: 0.58rem; color: var(--muted);
+    }
+    .chart-legend span { display: inline-flex; align-items: center; gap: 4px; }
+    .swatch {
+      width: 10px; height: 3px; border-radius: 2px; display: inline-block;
+    }
+    .swatch.entry { background: var(--amber); }
+    .swatch.last { background: var(--good); }
+    .swatch.line { background: #3ecf8e; opacity: .7; }
+    .paper-foot {
+      position: absolute; right: 10px; bottom: 8px;
+      font-size: 0.55rem; color: #555; font-family: var(--mono);
+    }
+    .behind-note {
+      margin-top: 2px; padding: 6px 8px; border-radius: 8px;
+      background: #241e10; border: 1px solid #6a5320;
+      font-size: 0.6rem; color: var(--amber); font-weight: 700; line-height: 1.35;
+    }
+    .callout {
+      margin-top: 6px; padding: 7px 9px; border-radius: 8px;
+      font-size: 0.62rem; line-height: 1.4; font-weight: 600;
+    }
+    .callout.bad { background: #241010; border: 1px solid #5a3030; color: #f0a0a6; }
+    .callout.good { background: #102018; border: 1px solid #2a5a40; color: #9ed4b0; }
+    .callout.amber { background: #241e10; border: 1px solid #6a5320; color: #f0d9a0; }
+
+    .foot {
+      margin-top: 8px; padding: 10px 12px; border-radius: 10px;
+      background: #0e0e0e; border: 1px solid var(--border);
+      font-size: 0.72rem; color: var(--muted);
+    }
+    .foot b { color: var(--text); }
+    .foot code { font-family: var(--mono); color: var(--amber); font-size: 0.68rem; }
+  </style>
+</head>
+<body>
+  <div class="banner">
+    <span class="tag warn">Eyes only · not a PR</span>
+    <span class="tag">EXAMPLE $ · PEBBLE</span>
+    <span>Game open position · chart + plain $ labels · <code>mock-game-position-chart-v1</code></span>
+    <span class="tag">ties SHIP M draft · not J/K/L</span>
+  </div>
+
+  <div class="app">
+    <h1 class="claim">
+      <span>Proto eyes · Game Trade / open position</span>
+      See where it’s at — and stop the $ row from lying
+    </h1>
+    <p class="lede">
+      Owner: want a <b>chart</b> on the open position (right pane is a black hole today) so they can tell where price/mcap is —
+      and whether the mark is <b>behind</b> Dex. Follow-up: <b>“$ makes no sense”</b> — LIVE / ENTRY / LAST are coin price,
+      MARK is position $, NOW is mcap, all jammed as bare labels. EXAMPLE <b>PEBBLE</b> only. Does not block J/K/L.
+    </p>
+
+    <div class="proof">
+      <div>
+        <div class="id">AC-C01</div>
+        <h3>Chart not empty</h3>
+        <p>Open Game position / Trade select shows a <b>chart</b> in the right pane — not a black void.</p>
+      </div>
+      <div>
+        <div class="id">AC-C02</div>
+        <h3>Entry vs last</h3>
+        <p>Chart marks <b>entry</b> vs <b>last</b> (where it’s at) so up/down vs entry is obvious.</p>
+      </div>
+      <div>
+        <div class="id">AC-C03</div>
+        <h3>Behind / near-live</h3>
+        <p>If quote may lag Dex, short <b>behind / near-live</b> note — no fake 1s live claim.</p>
+      </div>
+      <div>
+        <div class="id">AC-C04</div>
+        <h3>DEX + Sell intact</h3>
+        <p><b>DEX Screener</b> link still works; Sell / Buy chrome not broken.</p>
+      </div>
+      <div>
+        <div class="id">AC-C05</div>
+        <h3>Readable $ labels</h3>
+        <p>Plain labels: <b>Entry price · Last price · Position value · Mcap NOW</b> — no bare MARK next to prices.</p>
+      </div>
+    </div>
+
+    <div class="story-label">
+      <h2>Storyboard</h2>
+      <span class="sub">1 BEFORE empty+confusing $ · 2 AFTER LIVE chart+plain labels · 3 AFTER BEHIND honesty</span>
+    </div>
+
+    <div class="story">
+      <!-- ========== BEFORE ========== -->
+      <section class="panel before">
+        <div class="panel-head">
+          <span class="state">1 · Before</span>
+          <span class="badge stuck">Empty pane</span>
+          <span class="badge stuck">$ confusing</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">owner pain</span>
+        </div>
+        <div class="stage">
+          <div class="trade-sheet">
+            <div class="trade-left">
+              <div class="dismiss-row">
+                <div class="coin-tag"><span class="sym">PEBBLE</span> open · paper</div>
+                <div class="dismiss-x ghost" title="no X yet (SHIP J)"></div>
+              </div>
+              <div class="mint">ExAmPlE111PebbleMintDoNotTrade222pump</div>
+              <div class="live-block">
+                <div class="live-label">Live USD</div>
+                <div class="live-price">0.000386</div>
+                <div class="live-pnl">+$0.19 · +18.8%</div>
+              </div>
+              <div class="now-box">
+                <div class="lab">Now</div>
+                <div class="val">$314.6k</div>
+              </div>
+              <div class="dex-link">Where it's at · <u>DEX Screener</u></div>
+              <div class="max-line">Max unknown.</div>
+              <div class="stats">
+                <div class="stat confuse">
+                  <div class="k">Stake</div>
+                  <div class="v">$1.00</div>
+                </div>
+                <div class="stat confuse">
+                  <div class="k">Mark</div>
+                  <div class="v">$1.19</div>
+                </div>
+                <div class="stat confuse">
+                  <div class="k">Entry</div>
+                  <div class="v">0.000325</div>
+                </div>
+                <div class="stat confuse">
+                  <div class="k">Last</div>
+                  <div class="v">0.000386</div>
+                </div>
+                <div class="stat confuse">
+                  <div class="k">TP</div>
+                  <div class="v">100%</div>
+                </div>
+              </div>
+              <div class="actions">
+                <div class="sell">Sell this</div>
+                <div class="dex-btn">DEX</div>
+              </div>
+              <div class="closed">
+                <h4>Closed this run</h4>
+                <div class="closed-row"><span><span class="name">PEBBLE</span> · manual</span><span class="pnl g">+$0.31 (+30.6%)</span></div>
+                <div class="closed-row"><span><span class="name">PEBBLE</span> · manual</span><span class="pnl b">−$0.19 (−18.9%)</span></div>
+                <div class="closed-row"><span><span class="name">PEBBLE</span> · manual</span><span class="pnl g">+$0.09 (+8.8%)</span></div>
+              </div>
+              <div class="callout bad">
+                Right pane = black hole · MARK sits next to ENTRY/LAST so $1.19 looks like a coin price · NOW unlabeled as mcap
+              </div>
+            </div>
+            <div class="trade-right">
+              <div class="empty-pane">
+                <div class="void">No chart</div>
+                <div class="hint">Owner only gets a DEX Screener text link — can’t see where it’s at or if mark lags</div>
+              </div>
+              <div class="paper-foot">Paper only · force-sell at 24h</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========== AFTER LIVE ========== -->
+      <section class="panel after-live">
+        <div class="panel-head">
+          <span class="state">2 · After · Live</span>
+          <span class="badge fix">Chart</span>
+          <span class="badge fix">Plain $</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">AC-C01 C02 C04 C05</span>
+        </div>
+        <div class="stage">
+          <div class="trade-sheet">
+            <div class="trade-left">
+              <div class="dismiss-row">
+                <div class="coin-tag"><span class="sym">PEBBLE</span> open · paper</div>
+                <div class="dismiss-x" title="X / Back (SHIP J — keep if fits)">×</div>
+              </div>
+              <div class="mint">ExAmPlE111PebbleMintDoNotTrade222pump</div>
+              <div class="live-block">
+                <div class="live-label clear">Last price · coin</div>
+                <div class="live-price">0.000386</div>
+                <div class="live-pnl">+$0.19 · +18.8% on stake</div>
+              </div>
+              <div class="now-box">
+                <div class="lab clear">Mcap now</div>
+                <div class="val">$314.6k</div>
+              </div>
+              <div class="dex-link">Where it's at · <u>DEX Screener</u></div>
+              <div class="max-line">Max unknown.</div>
+              <div class="stats">
+                <div class="stat clear">
+                  <div class="k">Stake<span class="unit">paper $ in</span></div>
+                  <div class="v">$1.00</div>
+                </div>
+                <div class="stat clear">
+                  <div class="k">Position value<span class="unit">$ mark</span></div>
+                  <div class="v">$1.19</div>
+                </div>
+                <div class="stat clear">
+                  <div class="k">Entry price<span class="unit">coin</span></div>
+                  <div class="v">0.000325</div>
+                </div>
+                <div class="stat clear">
+                  <div class="k">Last price<span class="unit">coin</span></div>
+                  <div class="v">0.000386</div>
+                </div>
+                <div class="stat clear">
+                  <div class="k">TP<span class="unit">target</span></div>
+                  <div class="v">100%</div>
+                </div>
+              </div>
+              <div class="actions">
+                <div class="sell">Sell this</div>
+                <div class="dex-btn">DEX</div>
+              </div>
+              <div class="closed">
+                <h4>Closed this run</h4>
+                <div class="closed-row"><span><span class="name">PEBBLE</span> · manual</span><span class="pnl g">+$0.31 (+30.6%)</span></div>
+                <div class="closed-row"><span><span class="name">PEBBLE</span> · manual</span><span class="pnl b">−$0.19 (−18.9%)</span></div>
+                <div class="closed-row"><span><span class="name">PEBBLE</span> · manual</span><span class="pnl g">+$0.09 (+8.8%)</span></div>
+              </div>
+              <div class="callout good">
+                Chart fills the right pane · Entry vs Last marked · no bare “MARK” next to coin prices · Sell + DEX still there
+              </div>
+            </div>
+            <div class="trade-right">
+              <div class="chart-pane">
+                <div class="chart-top">
+                  <div class="chart-title">Price · EXAMPLE PEBBLE</div>
+                  <span class="chip near">Near live · ~12s</span>
+                </div>
+                <div class="chart-canvas" aria-label="EXAMPLE sparkline">
+                  <svg viewBox="0 0 360 220" preserveAspectRatio="none">
+                    <!-- grid -->
+                    <line x1="40" y1="30" x2="40" y2="190" stroke="#1e2a22" stroke-width="1"/>
+                    <line x1="40" y1="190" x2="340" y2="190" stroke="#1e2a22" stroke-width="1"/>
+                    <line x1="40" y1="110" x2="340" y2="110" stroke="#1a2420" stroke-width="1" stroke-dasharray="3 4"/>
+                    <!-- entry level -->
+                    <line x1="40" y1="140" x2="340" y2="140" stroke="#f0a33a" stroke-width="1.5" stroke-dasharray="5 4" opacity="0.9"/>
+                    <text x="44" y="134" fill="#f0a33a" font-size="9" font-family="ui-monospace,monospace" font-weight="700">ENTRY 0.000325</text>
+                    <!-- price path -->
+                    <polyline fill="none" stroke="#3ecf8e" stroke-width="2.2"
+                      points="40,155 70,148 100,160 130,145 160,150 190,128 220,118 250,105 280,95 310,78 340,62"/>
+                    <polygon fill="url(#gfill)" opacity="0.25"
+                      points="40,155 70,148 100,160 130,145 160,150 190,128 220,118 250,105 280,95 310,78 340,62 340,190 40,190"/>
+                    <defs>
+                      <linearGradient id="gfill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#3ecf8e"/>
+                        <stop offset="100%" stop-color="#3ecf8e" stop-opacity="0"/>
+                      </linearGradient>
+                    </defs>
+                    <!-- last mark -->
+                    <circle cx="340" cy="62" r="4.5" fill="#3ecf8e" stroke="#0a0a0a" stroke-width="1.5"/>
+                    <text x="250" y="52" fill="#3ecf8e" font-size="9" font-family="ui-monospace,monospace" font-weight="700">LAST 0.000386</text>
+                    <!-- NOW mcap tag -->
+                    <rect x="248" y="168" width="88" height="18" rx="4" fill="#102018" stroke="#2a5a40"/>
+                    <text x="256" y="180" fill="#9ed4b0" font-size="9" font-family="ui-monospace,monospace" font-weight="700">NOW $314.6k</text>
+                  </svg>
+                </div>
+                <div class="chart-legend">
+                  <span><i class="swatch entry"></i> Entry</span>
+                  <span><i class="swatch last"></i> Last</span>
+                  <span><i class="swatch line"></i> Path</span>
+                  <span>Mcap NOW aligned</span>
+                </div>
+              </div>
+              <div class="paper-foot">Paper only · force-sell at 24h</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========== AFTER BEHIND ========== -->
+      <section class="panel after-behind">
+        <div class="panel-head">
+          <span class="state">3 · After · Behind</span>
+          <span class="badge behind">Lag honesty</span>
+          <span class="badge fix">Plain $</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">AC-C03 + C05</span>
+        </div>
+        <div class="stage">
+          <div class="trade-sheet">
+            <div class="trade-left">
+              <div class="dismiss-row">
+                <div class="coin-tag"><span class="sym">PEBBLE</span> open · paper</div>
+                <div class="dismiss-x" title="X / Back (SHIP J)">×</div>
+              </div>
+              <div class="mint">ExAmPlE111PebbleMintDoNotTrade222pump</div>
+              <div class="live-block">
+                <div class="live-label clear">Last price · coin</div>
+                <div class="live-price" style="opacity:.85">0.000386</div>
+                <div class="live-pnl">+$0.19 · +18.8% on stake</div>
+              </div>
+              <div class="now-box" style="border-color:#6a5320;background:#181410">
+                <div class="lab" style="color:var(--amber)">Mcap now · may lag</div>
+                <div class="val">$314.6k</div>
+              </div>
+              <div class="dex-link">Where it's at · <u>DEX Screener</u></div>
+              <div class="max-line">Max unknown.</div>
+              <div class="stats">
+                <div class="stat clear">
+                  <div class="k">Stake<span class="unit">paper $ in</span></div>
+                  <div class="v">$1.00</div>
+                </div>
+                <div class="stat clear" style="border-color:#6a5320;background:#181410">
+                  <div class="k" style="color:var(--amber)">Position value<span class="unit">$ mark · stale?</span></div>
+                  <div class="v">$1.19</div>
+                </div>
+                <div class="stat clear">
+                  <div class="k">Entry price<span class="unit">coin</span></div>
+                  <div class="v">0.000325</div>
+                </div>
+                <div class="stat clear">
+                  <div class="k">Last price<span class="unit">coin</span></div>
+                  <div class="v">0.000386</div>
+                </div>
+                <div class="stat clear">
+                  <div class="k">TP<span class="unit">target</span></div>
+                  <div class="v">100%</div>
+                </div>
+              </div>
+              <div class="actions">
+                <div class="sell">Sell this</div>
+                <div class="dex-btn">DEX</div>
+              </div>
+              <div class="closed">
+                <h4>Closed this run</h4>
+                <div class="closed-row"><span><span class="name">PEBBLE</span> · manual</span><span class="pnl g">+$0.31 (+30.6%)</span></div>
+                <div class="closed-row"><span><span class="name">PEBBLE</span> · manual</span><span class="pnl b">−$0.19 (−18.9%)</span></div>
+                <div class="closed-row"><span><span class="name">PEBBLE</span> · manual</span><span class="pnl g">+$0.09 (+8.8%)</span></div>
+              </div>
+              <div class="callout amber">
+                Same chart · amber “mark may be behind Dex” when quote age known — honesty, not fake 1s live
+              </div>
+            </div>
+            <div class="trade-right">
+              <div class="chart-pane">
+                <div class="chart-top">
+                  <div class="chart-title">Price · EXAMPLE PEBBLE</div>
+                  <span class="chip behind">Behind live · ~3.4m</span>
+                </div>
+                <div class="chart-canvas behind-bg" aria-label="EXAMPLE sparkline lagging">
+                  <svg viewBox="0 0 360 220" preserveAspectRatio="none">
+                    <line x1="40" y1="30" x2="40" y2="190" stroke="#2a2418" stroke-width="1"/>
+                    <line x1="40" y1="190" x2="340" y2="190" stroke="#2a2418" stroke-width="1"/>
+                    <line x1="40" y1="110" x2="340" y2="110" stroke="#241e14" stroke-width="1" stroke-dasharray="3 4"/>
+                    <line x1="40" y1="140" x2="340" y2="140" stroke="#f0a33a" stroke-width="1.5" stroke-dasharray="5 4" opacity="0.9"/>
+                    <text x="44" y="134" fill="#f0a33a" font-size="9" font-family="ui-monospace,monospace" font-weight="700">ENTRY 0.000325</text>
+                    <!-- path stops earlier / ghost dashed ahead = Dex ahead of mark -->
+                    <polyline fill="none" stroke="#3ecf8e" stroke-width="2.2" opacity="0.75"
+                      points="40,155 70,148 100,160 130,145 160,150 190,128 220,118 250,105 280,95"/>
+                    <polyline fill="none" stroke="#f0a33a" stroke-width="1.8" stroke-dasharray="4 3" opacity="0.85"
+                      points="280,95 310,72 340,48"/>
+                    <circle cx="280" cy="95" r="4.5" fill="#f0a33a" stroke="#0a0a0a" stroke-width="1.5"/>
+                    <text x="168" y="88" fill="#f0a33a" font-size="9" font-family="ui-monospace,monospace" font-weight="700">MARK @ ~3.4m ago</text>
+                    <text x="248" y="42" fill="#8b98a5" font-size="8" font-family="ui-monospace,monospace">Dex tip (ahead)</text>
+                    <rect x="230" y="168" width="106" height="18" rx="4" fill="#241e10" stroke="#6a5320"/>
+                    <text x="238" y="180" fill="#f0d9a0" font-size="9" font-family="ui-monospace,monospace" font-weight="700">NOW $314.6k · lag</text>
+                  </svg>
+                </div>
+                <div class="behind-note">Mark may be behind Dex · quote age ~3.4m · check DEX for tip of book</div>
+                <div class="chart-legend">
+                  <span><i class="swatch entry"></i> Entry</span>
+                  <span><i class="swatch" style="background:#f0a33a"></i> Mark (stale)</span>
+                  <span><i class="swatch" style="background:#f0a33a;opacity:.5"></i> Dex tip</span>
+                </div>
+              </div>
+              <div class="paper-foot">Paper only · force-sell at 24h</div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="foot">
+      <b>Eng / PM pointer:</b> optional SoT for SHIP M draft <code>qa/cut-2026-10-27-ship-m-trade-chart.md</code> —
+      fill Trade right pane with chart; keep DEX link + Sell; plain $ labels (AC-C05).
+      X/Back chrome from SHIP J if already landing — don’t redesign dismiss.
+      EXAMPLE $ only · eyes only · do not merge · do not claim PASS.
+      Files: <code>qa/mock-game-position-chart-v1.{html,png,md}</code>
+    </div>
+  </div>
+</body>
+</html>
