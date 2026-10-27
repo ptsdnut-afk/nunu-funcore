@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Filter · Manual Update now mock v1 · eyes only</title>
+  <style>
+    :root {
+      --bg: #050505;
+      --panel: #121212;
+      --panel2: #161616;
+      --border: #2a2a2a;
+      --text: #e7e9ea;
+      --muted: #8b98a5;
+      --good: #3ecf8e;
+      --amber: #f0a33a;
+      --warn: #e6b84d;
+      --bad: #f07178;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: var(--sans); background: var(--bg); color: var(--text);
+      min-height: 100vh; line-height: 1.35; font-size: 15px;
+    }
+    .banner {
+      background: linear-gradient(90deg, #1a1810, #0a0a0a);
+      border-bottom: 1px solid #6a5320;
+      padding: 9px 16px; font-size: 0.78rem; color: #f0d9a0; font-weight: 700;
+      display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    }
+    .banner code { font-family: var(--mono); color: var(--amber); }
+    .banner .tag {
+      display: inline-block; padding: 2px 8px; border-radius: 999px;
+      background: #241e10; border: 1px solid #6a5320; color: var(--amber);
+      font-size: 0.65rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+    }
+    .app { max-width: 1680px; margin: 0 auto; padding: 14px 16px 32px; }
+    .claim {
+      margin: 0 0 6px; font-size: 1.35rem; font-weight: 900; letter-spacing: -0.03em;
+      background: linear-gradient(90deg, #fff, var(--amber) 50%, var(--good));
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .claim span {
+      display: block; font-size: 0.7rem; font-weight: 650; color: var(--muted);
+      letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 4px;
+      background: none; -webkit-background-clip: unset; color: var(--muted);
+    }
+    .lede {
+      margin: 0 0 12px; color: var(--muted); font-size: 0.82rem; max-width: 1100px;
+    }
+    .lede b { color: var(--text); }
+
+    .proof {
+      display: grid; grid-template-columns: 1.35fr 1fr; gap: 10px;
+      margin-bottom: 14px; padding: 12px 14px;
+      background: #141210; border: 1px solid #5a4a20; border-radius: 12px;
+    }
+    .proof h3 {
+      margin: 0 0 6px; font-size: 0.72rem; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--amber);
+    }
+    .proof p { margin: 0; font-size: 0.78rem; color: var(--muted); line-height: 1.45; }
+    .proof b { color: var(--text); }
+    .proof .ex {
+      display: inline-block; margin-left: 4px;
+      font-size: 0.58rem; font-weight: 800; letter-spacing: .04em;
+      padding: 1px 6px; border-radius: 999px; vertical-align: middle;
+      background: #241e10; border: 1px solid #6a5320; color: var(--amber);
+    }
+    .proof .gap { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    .proof .chip {
+      font-family: var(--mono); font-size: 0.7rem; font-weight: 800;
+      padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border);
+      background: #0e0e0e;
+    }
+    .proof .chip.refresh { border-color: #2a4a6a; color: #8ab4ff; }
+    .proof .chip.bot { border-color: #6a5320; color: var(--amber); }
+    .proof .chip.scan { border-color: #555; color: #bbb; }
+    .proof .chip.want { border-color: #2a5a40; color: var(--good); }
+    .proof .note { margin-top: 8px; font-size: 0.7rem; color: #c0a870; }
+
+    .story-label {
+      display: flex; align-items: baseline; gap: 10px; margin: 4px 0 10px; flex-wrap: wrap;
+    }
+    .story-label h2 {
+      margin: 0; font-size: 0.78rem; text-transform: uppercase; letter-spacing: .08em; color: var(--amber);
+    }
+    .story-label .sub { color: var(--muted); font-size: 0.72rem; font-family: var(--mono); }
+
+    .story {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 14px;
+    }
+    @media (max-width: 1400px) { .story { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 800px) { .story { grid-template-columns: 1fr; } .proof { grid-template-columns: 1fr; } }
+
+    .panel {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+      overflow: hidden; display: flex; flex-direction: column;
+    }
+    .panel.before { border-color: #5a3030; }
+    .panel.idle { border-color: #6a5320; box-shadow: 0 0 18px rgba(240,163,58,.16); }
+    .panel.running { border-color: #3a5a80; box-shadow: 0 0 16px rgba(138,180,255,.18); }
+    .panel.done { border-color: #2a5a40; box-shadow: 0 0 16px rgba(62,207,142,.18); }
+
+    .panel-head {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 10px 12px; border-bottom: 1px solid var(--border); background: #0e0e0e;
+    }
+    .panel-head .state {
+      font-size: 0.74rem; font-weight: 900; letter-spacing: .04em; text-transform: uppercase;
+    }
+    .panel.before .panel-head .state { color: var(--bad); }
+    .panel.idle .panel-head .state { color: var(--amber); }
+    .panel.running .panel-head .state { color: #8ab4ff; }
+    .panel.done .panel-head .state { color: var(--good); }
+    .badge {
+      font-size: 0.6rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+      padding: 2px 7px; border-radius: 999px; border: 1px solid var(--border);
+      color: var(--muted); background: #1a1a1a;
+    }
+    .badge.ex { border-color: #5a4a20; color: var(--amber); background: #241e10; }
+    .badge.miss { border-color: #6a2a32; color: var(--bad); background: #241018; }
+    .badge.loud { border-color: #6a5320; color: var(--amber); background: #241e10; }
+    .badge.busy { border-color: #2a4a6a; color: #8ab4ff; background: #102030; }
+    .badge.calm { border-color: #2a5a40; color: var(--good); background: #102018; }
+    .panel-head .rule {
+      margin-left: auto; font-size: 0.62rem; color: var(--muted); font-family: var(--mono);
+    }
+
+    .stage { padding: 12px; flex: 1; display: flex; flex-direction: column; gap: 8px; background: #0a0a0a; }
+    .topbar {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+      padding-bottom: 8px; border-bottom: 1px solid #222;
+    }
+    .logo {
+      width: 26px; height: 26px; border-radius: 7px;
+      background: linear-gradient(135deg, #2a2a2a, #111);
+      display: grid; place-items: center; font-weight: 800; font-size: 0.8rem;
+    }
+    .brand { line-height: 1.1; }
+    .brand h1 { margin: 0; font-size: 0.85rem; }
+    .brand .sub { margin: 0; color: var(--muted); font-size: 0.58rem; }
+    .tabs {
+      display: inline-flex; gap: 3px; padding: 2px;
+      background: #0e0e0e; border: 1px solid var(--border); border-radius: 999px;
+    }
+    .tabs span {
+      padding: 3px 10px; border-radius: 999px;
+      font-size: 0.68rem; font-weight: 700; color: var(--muted);
+    }
+    .tabs span.on { background: #e7e9ea; color: #0a0a0a; }
+    .net {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 0.65rem; color: var(--good); font-weight: 600;
+      padding: 3px 8px; border-radius: 999px; background: #102018; border: 1px solid #2a5a40;
+    }
+    .net .dot {
+      width: 6px; height: 6px; border-radius: 50%; background: var(--good);
+      box-shadow: 0 0 0 3px rgba(62,207,142,.25);
+    }
+    .spacer { flex: 1; }
+    .refresh {
+      font-size: 0.65rem; font-weight: 700; padding: 4px 10px; border-radius: 8px;
+      border: 1px solid #2a4a6a; background: #102030; color: #8ab4ff;
+    }
+    .refresh.quiet { opacity: 0.85; }
+
+    .btn-update {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 0.7rem; font-weight: 900; padding: 5px 12px; border-radius: 8px;
+      border: 1px solid #3ecf8e; background: linear-gradient(180deg, #1a3a28, #102018);
+      color: var(--good); box-shadow: 0 0 14px rgba(62,207,142,.35);
+      letter-spacing: -0.01em;
+    }
+    .btn-update .ico { font-size: 0.85rem; }
+    .btn-update.busy {
+      border-color: #3a5a80; background: linear-gradient(180deg, #1a2838, #102030);
+      color: #8ab4ff; box-shadow: 0 0 12px rgba(138,180,255,.28);
+      opacity: 0.95; cursor: not-allowed;
+    }
+    .btn-update.cooldown {
+      border-color: #3a5a40; background: #102018; color: #7ab89a;
+      box-shadow: none; opacity: 0.9;
+    }
+    .spin {
+      width: 12px; height: 12px; border-radius: 50%;
+      border: 2px solid rgba(138,180,255,.25); border-top-color: #8ab4ff;
+      animation: none;
+    }
+
+    .helper {
+      font-size: 0.6rem; color: #9ed4b0; font-family: var(--mono);
+      padding: 2px 0 0;
+    }
+    .helper.amber { color: #c0a870; }
+    .helper.blue { color: #8ab4ff; }
+
+    .lag-banner {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+      padding: 10px 12px; border-radius: 10px;
+      border: 1px solid #8a6520;
+      background: linear-gradient(90deg, #2a1e08 0%, #1a1408 60%, #12100a 100%);
+      box-shadow: 0 0 14px rgba(240,163,58,.18);
+    }
+    .lag-banner.fresh-state {
+      border-color: #2a5a40;
+      background: linear-gradient(90deg, #102018 0%, #0e1410 60%, #0a100c 100%);
+      box-shadow: 0 0 12px rgba(62,207,142,.16);
+    }
+    .lag-banner.busy-state {
+      border-color: #3a5a80;
+      background: linear-gradient(90deg, #102030 0%, #0e1418 60%, #0a1014 100%);
+      box-shadow: 0 0 12px rgba(138,180,255,.16);
+    }
+    .lag-icon {
+      width: 28px; height: 28px; border-radius: 8px;
+      display: grid; place-items: center; font-size: 0.95rem;
+      background: #3a2810; border: 1px solid #8a6520; flex-shrink: 0;
+    }
+    .lag-banner.fresh-state .lag-icon {
+      background: #102018; border-color: #2a5a40;
+    }
+    .lag-banner.busy-state .lag-icon {
+      background: #102030; border-color: #3a5a80;
+    }
+    .lag-copy { flex: 1; min-width: 140px; }
+    .lag-copy .title {
+      font-size: 0.8rem; font-weight: 900; letter-spacing: -0.01em;
+      color: var(--amber);
+    }
+    .lag-banner.fresh-state .lag-copy .title { color: var(--good); }
+    .lag-banner.busy-state .lag-copy .title { color: #8ab4ff; }
+    .lag-copy .detail {
+      margin-top: 2px; font-size: 0.68rem; color: #d0b888; font-family: var(--mono);
+      line-height: 1.35;
+    }
+    .lag-banner.fresh-state .lag-copy .detail { color: #9ed4b0; }
+    .lag-banner.busy-state .lag-copy .detail { color: #9ab8d8; }
+    .lag-meta {
+      display: flex; flex-direction: column; gap: 3px; align-items: flex-end;
+      font-family: var(--mono); font-size: 0.65rem;
+    }
+    .lag-meta .age {
+      font-weight: 900; font-size: 0.95rem; color: var(--amber);
+    }
+    .lag-banner.fresh-state .lag-meta .age { color: var(--good); }
+    .lag-banner.busy-state .lag-meta .age { color: #8ab4ff; }
+    .lag-meta .bound { color: var(--muted); }
+    .lag-meta .bound b { color: #e8c070; }
+    .lag-banner.fresh-state .lag-meta .bound b { color: var(--good); }
+
+    .paper {
+      font-size: 0.65rem; color: #9ed4b0; padding: 5px 8px; border-radius: 6px;
+      background: #102018; border: 1px solid #2a5a40;
+    }
+
+    .flow-head {
+      display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+      margin-top: 2px;
+    }
+    .flow-head h3 {
+      margin: 0; font-size: 0.68rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+    }
+    .flow-head .meta { font-size: 0.62rem; color: var(--muted); font-family: var(--mono); }
+
+    .row {
+      display: grid; grid-template-columns: 1.15fr 0.55fr 0.7fr 0.55fr;
+      gap: 6px; align-items: center;
+      padding: 9px 10px; border-radius: 10px;
+      background: var(--panel2); border: 1px solid #2a5a40;
+    }
+    .row.stale-row { border-color: #5a4a20; }
+    .coin { display: flex; align-items: center; gap: 8px; }
+    .coin .av {
+      width: 28px; height: 28px; border-radius: 7px;
+      background: #1a2030; border: 1px solid #333;
+      display: grid; place-items: center; font-weight: 900; font-size: 0.65rem; color: #8ab4ff;
+    }
+    .coin .av.g { color: var(--good); border-color: #2a5a40; background: #102018; }
+    .coin .name { font-weight: 800; font-size: 0.82rem; }
+    .coin .tag {
+      font-size: 0.55rem; font-weight: 800; letter-spacing: .04em;
+      padding: 1px 5px; border-radius: 999px; background: #102018; border: 1px solid #2a5a40; color: var(--good);
+    }
+    .cell .lab { font-size: 0.55rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 700; }
+    .cell .val { font-family: var(--mono); font-size: 0.78rem; font-weight: 800; margin-top: 1px; }
+    .cell .val.amber { color: var(--amber); }
+    .cell .val.good { color: var(--good); }
+    .cell .hint { font-size: 0.55rem; color: var(--muted); font-family: var(--mono); }
+
+    .toast {
+      align-self: flex-start;
+      font-size: 0.68rem; font-weight: 800;
+      padding: 5px 10px; border-radius: 8px;
+      background: #102018; border: 1px solid #3ecf8e; color: var(--good);
+      box-shadow: 0 0 12px rgba(62,207,142,.25);
+    }
+
+    .note-box {
+      font-size: 0.65rem; color: #9ed4b0; padding: 6px 8px; border-radius: 8px;
+      background: #102018; border: 1px dashed #2a5a40; line-height: 1.35;
+    }
+    .note-box b { color: var(--good); }
+    .note-box.warn {
+      color: #c0a870; background: #1a1510; border-color: #5a4a20;
+    }
+    .note-box.warn b { color: var(--amber); }
+    .note-box.miss {
+      color: #e0a0a8; background: #241018; border-color: #6a2a32;
+    }
+    .note-box.miss b { color: var(--bad); }
+    .note-box.blue {
+      color: #9ab8d8; background: #102030; border-color: #2a4a6a;
+    }
+    .note-box.blue b { color: #8ab4ff; }
+
+    .ac-note {
+      padding: 8px 12px 12px; font-size: 0.68rem; color: var(--muted); line-height: 1.4;
+      border-top: 1px dashed #2a2a2a; background: #0e0e0e;
+    }
+    .ac-note b { color: var(--text); }
+    .ac-note .ok { color: var(--good); font-weight: 800; }
+    .ac-note .no { color: var(--bad); font-weight: 800; }
+
+    .acs {
+      margin-top: 4px; padding: 14px 16px;
+      background: #0e0e0e; border: 1px dashed #333; border-radius: 12px;
+    }
+    .acs h3 {
+      margin: 0 0 8px; font-size: 0.75rem; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--amber);
+    }
+    .acs ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 0.78rem; }
+    .acs li { margin-bottom: 3px; }
+    .acs b { color: var(--text); }
+    .acs .id { color: var(--good); font-weight: 800; font-family: var(--mono); font-size: 0.72rem; }
+    .foot { margin-top: 10px; font-size: 0.68rem; color: var(--muted); text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="banner">
+    <span class="tag">Eyes only</span>
+    <span class="tag">Manual update</span>
+    <span class="tag">Not a PR</span>
+    MOCK · Filter Token Flow · Update now (kick fresh bot pass)
+    <code>qa/mock-filter-manual-update-v1</code>
+  </div>
+  <div class="app">
+    <p class="claim"><span>Proto Bot · eyes-only · proposed cut (not J/K)</span>Update now — pull a fresh Token Flow pass so you’re not stuck 2–3m behind.</p>
+    <p class="lede">
+      Owner: “manual update button so it don’t get like 2 3 m behind.”
+      Live <b>panel_v 68</b> already has header <b>Refresh</b> (<code>#btnRefresh</code>) → only <b>loadData(true)</b> (reload last <code>/api/flagged</code> JSON).
+      It does <b>not</b> re-run <code>bot.py</code>. Feature <b>on_demand_scan</b> / <code>/api/scan</code> scores one mint — not a full Token Flow bot pass.
+      Bot loop ~<b>5m</b>. SHIP H already ships the delay warning; this cut is the <b>control</b> to pull fresh. Numbers below are <b>EXAMPLE</b>.
+    </p>
+
+    <div class="proof">
+      <div>
+        <h3>Product truth · what exists today <span class="ex">v68</span></h3>
+        <p>
+          Quiet <b>Refresh</b> reloads stale flagged JSON. Owner still waits for the next bot loop
+          (~5m / <code>sitting_drop_min</code>). Lag banner (SHIP H) warns — it does not unstick.
+        </p>
+        <div class="gap">
+          <span class="chip refresh">Refresh → loadData only</span>
+          <span class="chip scan">/api/scan → one mint</span>
+          <span class="chip bot">bot loop ~5m</span>
+          <span class="chip want">WANT · Update now = kick pass</span>
+        </div>
+        <p class="note">Separate from SHIP J (dismiss) and SHIP K (24h restart). Do not reopen those cuts.</p>
+      </div>
+      <div>
+        <h3>Proposed control</h3>
+        <p>
+          Loud <b>Update now</b> (or Scan now) next to Refresh kicks a fresh bot/filter pass
+          that refreshes flagged Token Flow. Busy + cooldown so we don’t melt Render.
+          Refresh can stay for light client reload.
+        </p>
+      </div>
+    </div>
+
+    <div class="story-label">
+      <h2>Storyboard · Filter chrome</h2>
+      <span class="sub">BEFORE · AFTER idle · AFTER running · AFTER done</span>
+    </div>
+
+    <div class="story">
+      <!-- 1 BEFORE -->
+      <section class="panel before">
+        <div class="panel-head">
+          <span class="state">1 · Before</span>
+          <span class="badge miss">Refresh ≠ bot kick</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">live v68</span>
+        </div>
+        <div class="stage">
+          <div class="topbar">
+            <div class="logo">N</div>
+            <div class="brand">
+              <h1>Nunu Filter</h1>
+              <p class="sub">paper only · v68</p>
+            </div>
+            <div class="tabs">
+              <span class="on">Filter</span>
+              <span>Game $5</span>
+            </div>
+            <span class="net"><span class="dot"></span> Solana Mainnet</span>
+            <span class="spacer"></span>
+            <span class="refresh quiet">Refresh</span>
+          </div>
+          <div class="lag-banner">
+            <div class="lag-icon">⏱</div>
+            <div class="lag-copy">
+              <div class="title">Behind live · not Dex 1s</div>
+              <div class="detail">SHIP H warn · data age ~2m 40s · loop ≤ ~5m</div>
+            </div>
+            <div class="lag-meta">
+              <span class="age">2m 40s</span>
+              <span class="bound">worst ≤ <b>~5m</b></span>
+            </div>
+          </div>
+          <div class="paper">Paper research only. No wallets, keys, or orders.</div>
+          <div class="flow-head">
+            <h3>Token Flow · Live · sitting drop 5m</h3>
+            <span class="meta">bot on · next pass ~2m</span>
+          </div>
+          <div class="row stale-row">
+            <div class="coin">
+              <div class="av">DU</div>
+              <div>
+                <div class="name">DUPE <span class="tag">NEW</span></div>
+              </div>
+            </div>
+            <div class="cell">
+              <div class="lab">Score</div>
+              <div class="val amber">8.1/12</div>
+            </div>
+            <div class="cell">
+              <div class="lab">MCAP NOW</div>
+              <div class="val">$41.2k</div>
+              <div class="hint">EXAMPLE</div>
+            </div>
+            <div class="cell">
+              <div class="lab">Sitting</div>
+              <div class="val good">0.4m</div>
+            </div>
+          </div>
+          <div class="note-box miss">
+            <b>Refresh</b> only reloads last <code>/api/flagged</code> JSON — does <b>not</b> re-run bot.py.
+            Owner stays ~2–3m behind until the next loop.
+          </div>
+        </div>
+        <div class="ac-note">
+          <b>BEFORE:</b> lag warn (H) + quiet Refresh. No kick control. <span class="no">Fails</span> “unstick me” ask.
+        </div>
+      </section>
+
+      <!-- 2 AFTER IDLE -->
+      <section class="panel idle">
+        <div class="panel-head">
+          <span class="state">2 · After · Idle</span>
+          <span class="badge loud">Update now</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">AC-U01</span>
+        </div>
+        <div class="stage">
+          <div class="topbar">
+            <div class="logo">N</div>
+            <div class="brand">
+              <h1>Nunu Filter</h1>
+              <p class="sub">paper only · v??</p>
+            </div>
+            <div class="tabs">
+              <span class="on">Filter</span>
+              <span>Game $5</span>
+            </div>
+            <span class="net"><span class="dot"></span> Solana Mainnet</span>
+            <span class="spacer"></span>
+            <span class="refresh">Refresh</span>
+            <span class="btn-update"><span class="ico">↻</span> Update now</span>
+          </div>
+          <div class="helper amber">Pull fresh · may take ~30s · not a client-only reload</div>
+          <div class="lag-banner">
+            <div class="lag-icon">⏱</div>
+            <div class="lag-copy">
+              <div class="title">Behind live · not Dex 1s</div>
+              <div class="detail">age ~2m 40s · tap Update now to kick a pass</div>
+            </div>
+            <div class="lag-meta">
+              <span class="age">2m 40s</span>
+              <span class="bound">worst ≤ <b>~5m</b></span>
+            </div>
+          </div>
+          <div class="paper">Paper research only. No wallets, keys, or orders.</div>
+          <div class="flow-head">
+            <h3>Token Flow · Live · sitting drop 5m</h3>
+            <span class="meta">bot on · idle</span>
+          </div>
+          <div class="row stale-row">
+            <div class="coin">
+              <div class="av">DU</div>
+              <div>
+                <div class="name">DUPE <span class="tag">NEW</span></div>
+              </div>
+            </div>
+            <div class="cell">
+              <div class="lab">Score</div>
+              <div class="val amber">8.1/12</div>
+            </div>
+            <div class="cell">
+              <div class="lab">MCAP NOW</div>
+              <div class="val">$41.2k</div>
+              <div class="hint">EXAMPLE</div>
+            </div>
+            <div class="cell">
+              <div class="lab">Sitting</div>
+              <div class="val good">0.4m</div>
+            </div>
+          </div>
+          <div class="note-box warn">
+            Loud <b>Update now</b> sits next to Refresh (not buried). Helper says pull fresh.
+            Refresh stays for light reload of last JSON.
+          </div>
+        </div>
+        <div class="ac-note">
+          <b>AFTER IDLE:</b> obvious kick control. <span class="ok">AC-U01</span> · Refresh kept for light reload.
+        </div>
+      </section>
+
+      <!-- 3 AFTER RUNNING -->
+      <section class="panel running">
+        <div class="panel-head">
+          <span class="state">3 · After · Running</span>
+          <span class="badge busy">Updating…</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">AC-U03</span>
+        </div>
+        <div class="stage">
+          <div class="topbar">
+            <div class="logo">N</div>
+            <div class="brand">
+              <h1>Nunu Filter</h1>
+              <p class="sub">paper only · v??</p>
+            </div>
+            <div class="tabs">
+              <span class="on">Filter</span>
+              <span>Game $5</span>
+            </div>
+            <span class="net"><span class="dot"></span> Solana Mainnet</span>
+            <span class="spacer"></span>
+            <span class="refresh">Refresh</span>
+            <span class="btn-update busy"><span class="spin"></span> Updating…</span>
+          </div>
+          <div class="helper blue">Bot pass in flight · no double-fire · cooldown until done</div>
+          <div class="lag-banner busy-state">
+            <div class="lag-icon">⟳</div>
+            <div class="lag-copy">
+              <div class="title">Updating Token Flow…</div>
+              <div class="detail">lag chip holds until new pass lands · ~30s EXAMPLE</div>
+            </div>
+            <div class="lag-meta">
+              <span class="age">2m 40s</span>
+              <span class="bound">still stale</span>
+            </div>
+          </div>
+          <div class="paper">Paper research only. No wallets, keys, or orders.</div>
+          <div class="flow-head">
+            <h3>Token Flow · Live · sitting drop 5m</h3>
+            <span class="meta">bot · scanning</span>
+          </div>
+          <div class="row stale-row">
+            <div class="coin">
+              <div class="av">DU</div>
+              <div>
+                <div class="name">DUPE <span class="tag">NEW</span></div>
+              </div>
+            </div>
+            <div class="cell">
+              <div class="lab">Score</div>
+              <div class="val amber">8.1/12</div>
+            </div>
+            <div class="cell">
+              <div class="lab">MCAP NOW</div>
+              <div class="val">$41.2k</div>
+              <div class="hint">EXAMPLE</div>
+            </div>
+            <div class="cell">
+              <div class="lab">Sitting</div>
+              <div class="val good">0.4m</div>
+            </div>
+          </div>
+          <div class="note-box blue">
+            Button <b>disabled / spinner</b> while running. No spam clicks. Rate-limit / cooldown OK (AC-U05 WARN).
+          </div>
+        </div>
+        <div class="ac-note">
+          <b>AFTER RUNNING:</b> busy state · no double-fire. <span class="ok">AC-U03</span> · <span class="ok">AC-U05</span> WARN.
+        </div>
+      </section>
+
+      <!-- 4 AFTER DONE -->
+      <section class="panel done">
+        <div class="panel-head">
+          <span class="state">4 · After · Done</span>
+          <span class="badge calm">Near live</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">AC-U02 · U04</span>
+        </div>
+        <div class="stage">
+          <div class="topbar">
+            <div class="logo">N</div>
+            <div class="brand">
+              <h1>Nunu Filter</h1>
+              <p class="sub">paper only · v??</p>
+            </div>
+            <div class="tabs">
+              <span class="on">Filter</span>
+              <span>Game $5</span>
+            </div>
+            <span class="net"><span class="dot"></span> Solana Mainnet</span>
+            <span class="spacer"></span>
+            <span class="refresh">Refresh</span>
+            <span class="btn-update cooldown"><span class="ico">↻</span> Update now</span>
+          </div>
+          <div class="helper">Ready · cooldown OK · next manual kick when you need it</div>
+          <div class="lag-banner fresh-state">
+            <div class="lag-icon">✓</div>
+            <div class="lag-copy">
+              <div class="title">Near live · just scanned</div>
+              <div class="detail">fresh bot pass landed · age ~12s · next loop ≤ ~5m</div>
+            </div>
+            <div class="lag-meta">
+              <span class="age">0m 12s</span>
+              <span class="bound">next ≤ <b>~5m</b></span>
+            </div>
+          </div>
+          <div class="toast">Token Flow updated</div>
+          <div class="paper">Paper research only. No wallets, keys, or orders.</div>
+          <div class="flow-head">
+            <h3>Token Flow · Live · sitting drop 5m</h3>
+            <span class="meta">bot on · fresh</span>
+          </div>
+          <div class="row">
+            <div class="coin">
+              <div class="av g">CO</div>
+              <div>
+                <div class="name">Conway-Sol <span class="tag">NEW</span></div>
+              </div>
+            </div>
+            <div class="cell">
+              <div class="lab">Score</div>
+              <div class="val amber">7.4/12</div>
+            </div>
+            <div class="cell">
+              <div class="lab">MCAP NOW</div>
+              <div class="val">$28.6k</div>
+              <div class="hint">EXAMPLE</div>
+            </div>
+            <div class="cell">
+              <div class="lab">Sitting</div>
+              <div class="val good">0.0m</div>
+            </div>
+          </div>
+          <div class="note-box">
+            Toast <b>Token Flow updated</b>. Age / lag banner flips Near live. Update now re-enabled (cooldown OK).
+            Flow usable — not only a client JSON reload.
+          </div>
+        </div>
+        <div class="ac-note">
+          <b>AFTER DONE:</b> real pass refreshed flagged flow. <span class="ok">AC-U02</span> · <span class="ok">AC-U04</span>.
+        </div>
+      </section>
+    </div>
+
+    <div class="acs">
+      <h3>Proposed ACs for PM cut (AC-U01…U05)</h3>
+      <ul>
+        <li><span class="id">AC-U01</span> — Obvious <b>Update now / Scan now</b> on Filter Token Flow (not buried)</li>
+        <li><span class="id">AC-U02</span> — Click kicks a fresh bot/filter pass (or equivalent) that refreshes flagged Token Flow — <b>not</b> only client reload of stale JSON</li>
+        <li><span class="id">AC-U03</span> — Busy state while running; no double-fire spam; cooldown or disable until done</li>
+        <li><span class="id">AC-U04</span> — After success, data age / lag banner updates; Token Flow usable; Refresh can stay for light reload</li>
+        <li><span class="id">AC-U05 WARN</span> — Rate-limit / don’t melt Render (cooldown OK)</li>
+      </ul>
+    </div>
+    <p class="foot">EYES ONLY · NOT A PR · EXAMPLE $ · Game near-black + green/amber · separate from SHIP J / K</p>
+  </div>
+</body>
+</html>

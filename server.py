@@ -19,6 +19,7 @@ from flask import Flask, Response, jsonify, make_response, request, send_from_di
 from flask_cors import CORS
 
 import game as game_mod
+import manual_update
 import viral as viral_mod
 from mcap_progress import apply_mcap
 
@@ -126,11 +127,11 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 70,
+            "panel_v": 71,
             "time": _utc(),
             "qa_tick": "page ?qa_tick=both|up|down",
             "qa_end": "page ?qa_end=1 (one-shot) or POST /api/game/end",
-            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart"],
+            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update"],
             "sitting_drop_min": 5.0,
             "sitting_near_lead_min": 1.0,
             "sitting_fresh_min": 2.0,
@@ -213,6 +214,42 @@ def api_status():
         }
     )
 
+
+def _bot_and_latest() -> tuple[dict, dict]:
+    bot = _read_json(STATUS_PATH, {})
+    latest = _read_json(LATEST_PATH, {})
+    if not isinstance(bot, dict):
+        bot = {}
+    if not isinstance(latest, dict):
+        latest = {}
+    return bot, latest
+
+
+@app.get("/api/update-now")
+def api_update_now_status():
+    """Kick status. Does not start a pass and does not score a single mint."""
+    bot, latest = _bot_and_latest()
+    return jsonify(manual_update.public_status(bot, latest))
+
+
+@app.post("/api/update-now")
+def api_update_now():
+    """Queue one filter.main() pass on the existing bot loop.
+
+    Not a reload of /api/flagged and not /api/scan. Busy and cooldown reject
+    extra taps so passes do not stack.
+    """
+    bot, latest = _bot_and_latest()
+    code, body = manual_update.request_update(bot, latest)
+    resp = make_response(jsonify(body), code)
+    if code == 429:
+        resp.headers["Retry-After"] = str(int(body.get("retry_after_s") or 1))
+    print(
+        f"[update-now] {code} state={body.get('state')} id={body.get('id')} "
+        f"error={body.get('error')}",
+        flush=True,
+    )
+    return resp
 
 
 # —— Name / ticker search (Game + Filter) ——

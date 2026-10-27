@@ -160,6 +160,42 @@
     .lag-meta .bound b { color: #e8c070; }
     .lag-banner.fresh-state .lag-meta .bound b { color: var(--good); }
     body.mode-game #lagBanner { display: none; }
+    body.mode-game .update-cluster { display: none !important; }
+    .update-cluster { display: inline-flex; align-items: center; gap: 6px; }
+    .update-hint {
+      font-family: var(--mono); font-size: 0.62rem; color: #9ed4b0;
+      max-width: 9.2rem; line-height: 1.15;
+    }
+    #btnUpdateNow {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-weight: 900; font-size: 0.78rem; letter-spacing: -0.01em;
+      padding: 6px 12px; border-radius: 8px; cursor: pointer;
+      border: 1px solid #3ecf8e;
+      background: linear-gradient(180deg, #1a3a28, #102018);
+      color: #3ecf8e;
+      box-shadow: 0 0 14px rgba(62,207,142,.35);
+    }
+    #btnUpdateNow:hover:not(:disabled) { background: #184830; color: #d8ffe8; }
+    #btnUpdateNow:disabled,
+    #btnUpdateNow.busy {
+      border-color: #3a5a80;
+      background: linear-gradient(180deg, #1a2838, #102030);
+      color: #8ab4ff;
+      box-shadow: 0 0 12px rgba(138,180,255,.28);
+      cursor: not-allowed;
+    }
+    #btnUpdateNow.cooldown:disabled {
+      border-color: #3a5a40; background: #102018; color: #7ab89a; box-shadow: none;
+    }
+    #btnUpdateNow.busy::before {
+      content: ""; width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto;
+      border: 2px solid rgba(138,180,255,.3); border-top-color: #8ab4ff;
+      animation: update-spin 0.7s linear infinite;
+    }
+    @keyframes update-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) {
+      #btnUpdateNow.busy::before { animation: none; }
+    }
     .banner {
       background: #142018; border: 1px solid #2f5a32; color: #b8e6c0;
       padding: 7px 12px; border-radius: 8px; margin: 0 0 10px; font-size: 0.78rem;
@@ -2170,7 +2206,7 @@
         <div class="logo">N</div>
         <div>
           <h1>Nunu Filter</h1>
-          <p class="sub">Solana Research Panel · paper only · v70</p>
+          <p class="sub">Solana Research Panel · paper only · v71</p>
         </div>
       </div>
       <div class="mode-tabs" role="tablist">
@@ -2192,7 +2228,11 @@
           </span>
           <span class="pf-edit">Edit</span>
         </button>
-        <button class="refresh" type="button" id="btnRefresh" title="Force refresh">Refresh</button>
+        <span class="update-cluster">
+          <button class="update-now" type="button" id="btnUpdateNow" data-state="idle" title="Kick a fresh bot/filter pass. This does not reload stale JSON.">Update now</button>
+          <span class="update-hint" id="updateNowHint">Pull fresh · may take ~30s</span>
+        </span>
+        <button class="refresh" type="button" id="btnRefresh" title="Reload the panel. Does not re-run the bot.">Refresh</button>
       </div>
     </header>
 
@@ -2526,10 +2566,10 @@
     </div>
 
     <footer class="app-foot">
-      <div class="foot-live">Paper only · no wallets. <code>?v=70</code></div>
+      <div class="foot-live">Paper only · no wallets. <code>?v=71</code></div>
       <details class="qa-foot">
         <summary>QA fixtures</summary>
-        <div>APIs: <code>/api/flagged</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>. Social Tap is coin, meme, and crypto viral from public sources — nothing invented. Checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: <code>&amp;mode=game</code>. Equity tick proof: <code>?qa_tick=both</code>, <code>?qa_tick=up</code>, <code>?qa_tick=down</code>. Display offset only. Do not combine with <code>?fixture=</code>. 24h end proof: <code>?qa_end=1</code> (one-shot, then Start 24h). Does not auto-start.</div>
+        <div>APIs: <code>/api/flagged</code> · <code>/api/update-now</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>. Social Tap is coin, meme, and crypto viral from public sources — nothing invented. Checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: <code>&amp;mode=game</code>. Equity tick proof: <code>?qa_tick=both</code>, <code>?qa_tick=up</code>, <code>?qa_tick=down</code>. Display offset only. Do not combine with <code>?fixture=</code>. 24h end proof: <code>?qa_end=1</code> (one-shot, then Start 24h). Does not auto-start.</div>
       </details>
     </footer>
   </div>
@@ -2568,7 +2608,7 @@
 
   <script>
 
-    const PANEL_V = 70;
+    const PANEL_V = 71;
     const SITTING_DROP_MIN = 5;
     const SITTING_NEAR_LEAD_MIN = 1;
     const SITTING_FRESH_MIN = 2;
@@ -2674,6 +2714,8 @@
       flowOutcome: "idle",
       flowFlashTimer: 0,
       gameBusy: false,
+      updateInFlight: false,
+      updateCooldownTimer: 0,
       lastGameErr: null,
       gameFailCount: 0,
       lastQuoteMint: null,
@@ -6669,6 +6711,168 @@
         setMode("game");
       }
     } catch (e) {}
+    /* ship-l-update-start */
+    function setUpdateButton(mode, label) {
+      const btn = document.getElementById("btnUpdateNow");
+      const hint = document.getElementById("updateNowHint");
+      if (!btn) return;
+      btn.classList.remove("busy", "cooldown");
+      btn.setAttribute("data-state", mode);
+      if (mode === "busy") {
+        btn.disabled = true;
+        btn.classList.add("busy");
+        btn.setAttribute("aria-busy", "true");
+        btn.textContent = "Updating…";
+        if (hint) hint.textContent = "Kicking a bot pass · holds until it lands";
+        return;
+      }
+      if (mode === "cooldown") {
+        btn.disabled = true;
+        btn.classList.add("cooldown");
+        btn.setAttribute("aria-busy", "false");
+        btn.textContent = label || "Update now";
+        if (hint) hint.textContent = "Cooldown · mash will not stack another pass";
+        return;
+      }
+      btn.disabled = false;
+      btn.removeAttribute("aria-busy");
+      btn.textContent = "Update now";
+      if (hint) hint.textContent = mode === "error" ? (label || "Update failed") : "Pull fresh · may take ~30s";
+    }
+
+    function sleepMs(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    async function readUpdateStatus() {
+      const res = await fetch("/api/update-now", { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      return { res, data };
+    }
+
+    function showCooldown(seconds) {
+      const left = Math.max(0, Math.ceil(Number(seconds) || 0));
+      if (state.updateCooldownTimer) {
+        clearInterval(state.updateCooldownTimer);
+        state.updateCooldownTimer = 0;
+      }
+      if (left <= 0) {
+        if (!state.updateInFlight) setUpdateButton("idle");
+        return;
+      }
+      let remain = left;
+      const paint = () => setUpdateButton("cooldown", "Wait " + remain + "s");
+      paint();
+      state.updateCooldownTimer = setInterval(() => {
+        remain -= 1;
+        if (remain <= 0) {
+          clearInterval(state.updateCooldownTimer);
+          state.updateCooldownTimer = 0;
+          if (!state.updateInFlight) setUpdateButton("idle");
+          return;
+        }
+        if (!state.updateInFlight) paint();
+      }, 1000);
+    }
+
+    async function waitForUpdate(data) {
+      const t0 = Date.now();
+      let last = data || {};
+      while (Date.now() - t0 < 240000) {
+        if (last.state === "done") return last;
+        if (last.state === "error") {
+          const err = new Error(last.error || "Filter pass failed");
+          err.update = last;
+          throw err;
+        }
+        await sleepMs(1000);
+        const next = await readUpdateStatus();
+        last = next.data || {};
+      }
+      throw new Error("Update timed out");
+    }
+
+    function releaseUpdateFlight() {
+      state.updateInFlight = false;
+      const btn = document.getElementById("btnUpdateNow");
+      if (btn && btn.getAttribute("data-state") === "busy") setUpdateButton("idle");
+    }
+
+    async function finishUpdate(done) {
+      await loadData(true);
+      toast("Token Flow updated");
+      showCooldown(done && done.retry_after_s);
+    }
+
+    async function updateNow() {
+      if (state.updateInFlight) return;
+      const btn = document.getElementById("btnUpdateNow");
+      if (btn && btn.disabled) return;
+      state.updateInFlight = true;
+      if (state.updateCooldownTimer) {
+        clearInterval(state.updateCooldownTimer);
+        state.updateCooldownTimer = 0;
+      }
+      setUpdateButton("busy");
+      try {
+        const res = await fetch("/api/update-now", { method: "POST", cache: "no-store" });
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 429) {
+          showCooldown(data.retry_after_s || 60);
+          toast(data.error || "Wait before another update", true);
+          return;
+        }
+        if (res.status === 503) {
+          toast(data.error || "Bot loop is not running", true);
+          setUpdateButton("error", data.error || "Bot loop is not running");
+          return;
+        }
+        if (res.status === 409 || (res.ok && (data.state === "queued" || data.state === "running"))) {
+          const done = await waitForUpdate(data);
+          await finishUpdate(done);
+          return;
+        }
+        toast((data && data.error) || "Update failed", true);
+        setUpdateButton("error", (data && data.error) || "Update failed");
+      } catch (e) {
+        toast((e && e.message) || "Update failed", true);
+        const retry = e && e.update && e.update.retry_after_s;
+        if (retry) showCooldown(retry);
+        else setUpdateButton("error", (e && e.message) || "Update failed");
+      } finally {
+        releaseUpdateFlight();
+      }
+    }
+
+    async function resumeUpdateNow() {
+      if (state.updateInFlight) return;
+      try {
+        const { data } = await readUpdateStatus();
+        if (state.updateInFlight || !data) return;
+        if (data.state === "queued" || data.state === "running") {
+          state.updateInFlight = true;
+          setUpdateButton("busy");
+          try {
+            const done = await waitForUpdate(data);
+            await finishUpdate(done);
+          } catch (e) {
+            toast((e && e.message) || "Update failed", true);
+            const retry = e && e.update && e.update.retry_after_s;
+            if (retry) showCooldown(retry);
+            else setUpdateButton("error", (e && e.message) || "Update failed");
+          } finally {
+            releaseUpdateFlight();
+          }
+          return;
+        }
+        if (data.retry_after_s > 0) showCooldown(data.retry_after_s);
+      } catch (e) {}
+    }
+    /* ship-l-update-end */
+
+    document.getElementById("btnUpdateNow").addEventListener("click", () => {
+      updateNow();
+    });
     document.getElementById("btnRefresh").addEventListener("click", () => {
       loadData(true);
       if (state.mode === "game") loadGame(true);
@@ -7509,6 +7713,7 @@
     }
 
     loadData(true);
+    resumeUpdateNow();
     schedulePoll();
     if (state.tickTimer) clearInterval(state.tickTimer);
     state.tickTimer = setInterval(tickAge, 1000);

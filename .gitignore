@@ -6,6 +6,8 @@ __pycache__/
 *.pid
 .DS_Store
 bot_status.json
+manual_update.json
+manual_update.lock
 *.zip
 .cache/
 flag_history.json
