@@ -19,7 +19,9 @@ from flask import Flask, Response, jsonify, make_response, request, send_from_di
 from flask_cors import CORS
 
 import game as game_mod
+import gold_scar
 import manual_update
+import qa_gold
 import qa_max
 import viral as viral_mod
 from mcap_progress import apply_mcap
@@ -113,6 +115,38 @@ def _wants_qa_max() -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+def _wants_qa_gold() -> bool:
+    """Opt-in Gold card. ``arrive`` is the same row; the panel plays the cue once."""
+    raw = (request.args.get("qa_gold") or "").strip().lower()
+    return raw in {"1", "true", "yes", "on", "arrive"}
+
+
+def _prepare_flagged(data):
+    """Research card, optional QA rows, then a fresh Gold Scar verdict on every row.
+
+    Gold is recomputed here. A ``gold`` stamp inside flagged.json does not promote.
+    """
+    rows = _with_research_rows(data)
+    if not isinstance(rows, list):
+        rows = []
+    if _wants_qa_max():
+        kept = [row for row in rows if not (isinstance(row, dict) and row.get("qa_max_fixture"))]
+        rows = [qa_max.prepared_row()] + kept
+    rows = gold_scar.annotate(rows)
+    if _wants_qa_gold():
+        rows = qa_gold.prepend(rows)
+    return rows
+
+
+def _flagged_etag_suffix() -> str:
+    parts = ["gold_scar"]
+    if _wants_qa_max():
+        parts.append("qa_max")
+    if _wants_qa_gold():
+        parts.append("qa_gold")
+    return ":" + "+".join(parts)
+
+
 def _json_with_validators(path: Path, default, transform=None, etag_suffix: str = "") -> Response:
     etag = _file_etag(path)
     if etag and etag_suffix:
@@ -145,12 +179,28 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 76,
+            "panel_v": 77,
             "time": _utc(),
             "qa_tick": "page ?qa_tick=both|up|down",
             "qa_end": "page ?qa_end=1 (one-shot) or POST /api/game/end",
             "qa_max": "page ?qa_max=1 or GET /api/flagged?qa_max=1 (also GET /api/qa/max-fixture?qa_max=1)",
-            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture", "game_ai_review"],
+            "qa_gold": (
+                "page ?qa_gold=1 shows one synthetic rare card in the Gold section "
+                "(first load seeds, so no chime). ?qa_gold=arrive plays ♪ GOLD once for that card. "
+                "Mute silences it. The cue is not the Token Flow new-token chime and not Game win/loss. "
+                "GET /api/flagged?qa_gold=1 and GET /api/gold?qa_gold=1. "
+                "Absent query leaves live rows only. Live gold stays empty unless the stricter 7-gate stack clears. "
+                "Do not combine with ?fixture=."
+            ),
+            "gold_scar": (
+                "Separate Gold picks section. Promotion recomputed on each flagged read from the "
+                "owner 7-gate stack, stricter: score/12 >= 11, copy pack at 3, crowded politics out, "
+                "1h under +180 with a required 5m print, clean on-chain dig including top holders, "
+                "overheard posts only (a profile URL is not enough; live context passes none), "
+                "macro veto unless gold_macro.json explicitly says Fed-quiet and Solana-ok. "
+                "Gate evidence is on each row as gold_scar and on GET /api/gold. Empty is expected."
+            ),
+            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture", "game_ai_review", "gold_scar"],
             "sitting_drop_min": 5.0,
             "sitting_aged_min": 180.0,
             "sitting_keep": True,
@@ -166,14 +216,72 @@ def api_health():
 
 @app.get("/api/flagged")
 def api_flagged():
-    if _wants_qa_max():
-        return _json_with_validators(
-            FLAGGED_PATH,
-            [],
-            transform=_with_qa_max_rows,
-            etag_suffix=":qa_max",
+    return _json_with_validators(
+        FLAGGED_PATH,
+        [],
+        transform=_prepare_flagged,
+        etag_suffix=_flagged_etag_suffix(),
+    )
+
+
+@app.get("/api/gold")
+def api_gold():
+    """Gold lane only. Empty most of the time is the expected result."""
+    rows = _prepare_flagged(_read_json(FLAGGED_PATH, []))
+    picks = [
+        row
+        for row in rows
+        if isinstance(row, dict)
+        and isinstance(row.get("gold_scar"), dict)
+        and row["gold_scar"].get("gold") is True
+    ]
+    return jsonify(
+        {
+            "ok": True,
+            "panel_v": 77,
+            "feature": "gold_scar",
+            "count": len(picks),
+            "empty_ok": True,
+            "fixture": _wants_qa_gold(),
+            "paper": gold_scar.PAPER,
+            "strictness": gold_scar.STRICTNESS,
+            "gates": [gate_id for gate_id, _title in gold_scar.GATE_ORDER],
+            "note": (
+                "Empty most of the time is expected. A high Token Flow score is not gold. "
+                "False gold is worse than an empty lane."
+            ),
+            "picks": picks,
+        }
+    )
+
+
+@app.get("/api/qa/gold-fixture")
+def api_qa_gold_fixture():
+    """QA hook for the synthetic rare card. Does nothing to the live feed by itself."""
+    if not _wants_qa_gold():
+        return jsonify(
+            {
+                "ok": True,
+                "enabled": False,
+                "qa_gold_fixture": False,
+                "note": "Opt-in only. Add ?qa_gold=1 or ?qa_gold=arrive. Default Gold section stays empty unless a live row clears the stack.",
+            }
         )
-    return _json_with_validators(FLAGGED_PATH, [], transform=_with_research_rows)
+    row = qa_gold.prepared_row()
+    return jsonify(
+        {
+            "ok": True,
+            "enabled": True,
+            "qa_gold_fixture": True,
+            "label": row.get("qa_label"),
+            "ticker": row.get("ticker"),
+            "mint": row.get("mint"),
+            "why": (row.get("gold_scar") or {}).get("why"),
+            "paper": gold_scar.PAPER,
+            "note": "Synthetic rare card for AC-G02/G03/G06. Not a live mint. Other rows are not promoted.",
+            "row": row,
+        }
+    )
 
 
 @app.get("/api/qa/max-fixture")
@@ -385,6 +493,28 @@ def api_coin():
     mint = (request.args.get("mint") or request.args.get("ca") or request.args.get("q") or "").strip()
     if not mint:
         return jsonify({"ok": False, "error": "mint required"}), 400
+    if qa_gold.is_fixture_mint(mint):
+        # Never scan this synthetic mint. The card exists only while qa_gold is on.
+        if not _wants_qa_gold():
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": "QA Gold fixture is opt-in. Open the panel with ?qa_gold=1.",
+                    "mint": mint,
+                    "qa_gold_fixture": False,
+                }
+            ), 400
+        row = qa_gold.prepared_row()
+        return jsonify(
+            {
+                "ok": True,
+                "mint": mint,
+                "source": "qa_gold_fixture",
+                "qa_gold_fixture": True,
+                "row": row,
+                "research": row.get("research"),
+            }
+        )
     if qa_max.is_fixture_mint(mint):
         # Never scan this synthetic mint. The row exists only while qa_max is on.
         if not _wants_qa_max():

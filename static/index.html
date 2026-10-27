@@ -240,6 +240,84 @@
       min-height: 0;
       align-items: stretch;
     }
+    .gold-scar {
+      margin: 0 0 10px;
+      padding: 10px 12px 8px;
+      border-radius: 12px;
+      background:
+        linear-gradient(180deg, rgba(48, 36, 14, 0.96) 0%, rgba(10, 9, 8, 0.98) 58%);
+      border: 1px solid #a6843c;
+      box-shadow: inset 0 1px 0 rgba(255, 226, 170, 0.35), 0 0 0 1px rgba(0, 0, 0, 0.45);
+    }
+    .gold-head {
+      display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px;
+      margin-bottom: 8px;
+    }
+    .gold-head h2 {
+      margin: 0;
+      font-size: 0.92rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #f3d48a;
+    }
+    .gold-kicker {
+      font-size: 0.62rem; font-weight: 800; letter-spacing: 0.14em;
+      text-transform: uppercase; color: #1a1206;
+      background: linear-gradient(90deg, #8d6428, #f6e0a6 45%, #c6a15a);
+      border-radius: 999px; padding: 2px 8px;
+    }
+    .gold-head .sub { color: #cbb98a; font-size: 0.72rem; }
+    .gold-chime, .gold-mute {
+      display: flex; gap: 8px; align-items: center;
+      margin: 0 0 8px; padding: 7px 10px; border-radius: 8px;
+    }
+    .gold-chime[hidden], .gold-mute[hidden] { display: none !important; }
+    .gold-chime {
+      background: #2a210f; border: 1px solid #e6c36a; color: #f6e7c1;
+    }
+    .gold-chime .icon { color: #f6e0a6; font-weight: 800; }
+    .gold-mute {
+      background: #241418; border: 1px solid #6a2a32; color: #ffc9ce;
+    }
+    .gold-body { display: flex; flex-direction: column; gap: 8px; }
+    .gold-empty { color: #f0e2c0; font-size: 0.92rem; font-weight: 700; }
+    .gold-empty-sub { margin: 2px 0 0; color: #cbb98a; font-size: 0.72rem; }
+    .gold-card {
+      border: 1px solid #e6c36a;
+      border-radius: 10px;
+      padding: 10px 12px;
+      background:
+        linear-gradient(165deg, rgba(92, 68, 24, 0.55), rgba(14, 12, 9, 0.94) 46%);
+      box-shadow: inset 0 0 0 1px rgba(255, 236, 190, 0.2), 0 0 16px rgba(214, 168, 72, 0.16);
+    }
+    .gold-card.arrive { animation: goldPulse 1.15s ease-out 2; }
+    @keyframes goldPulse {
+      0% { box-shadow: 0 0 0 0 rgba(240, 212, 138, 0.55); }
+      100% { box-shadow: 0 0 0 12px rgba(240, 212, 138, 0); }
+    }
+    .gold-card-top { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+    .gold-card .ticker { font-weight: 800; color: #f8e7be; letter-spacing: 0.04em; }
+    .gold-card .name { color: #e7d7b0; font-size: 0.78rem; }
+    .gold-rare {
+      font-size: 0.6rem; font-weight: 800; letter-spacing: 0.14em;
+      text-transform: uppercase; color: #1a1206;
+      background: linear-gradient(90deg, #a67c38, #ffe7ad, #a67c38);
+      border-radius: 999px; padding: 2px 7px;
+    }
+    .gold-qa {
+      font-size: 0.6rem; font-weight: 800; letter-spacing: 0.08em;
+      color: #1a1206; background: #f0d48a; border-radius: 999px; padding: 2px 7px;
+    }
+    .gold-score { margin-left: auto; font-family: var(--mono); color: #f3d48a; font-size: 0.75rem; }
+    .gold-why { margin: 6px 0 0; color: #f6edd8; font-size: 0.8rem; line-height: 1.35; }
+    .gold-links { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .gold-links a, .gold-links .copy-ca {
+      border: 1px solid #a6843c; color: #f6e7c1; background: #1a150c;
+      border-radius: 999px; padding: 3px 8px; font-size: 0.68rem; font-weight: 700;
+      text-decoration: none;
+    }
+    .gold-links a:hover, .gold-links .copy-ca:hover { border-color: #f0d48a; color: #fff6dd; }
+    .gold-paper { margin: 8px 0 0; color: #cbb98a; font-size: 0.68rem; }
     .viral-pane {
       max-width: 340px;
     }
@@ -2317,7 +2395,7 @@
         <div class="logo">N</div>
         <div>
           <h1>Nunu Filter</h1>
-          <p class="sub">Solana Research Panel · paper only · v76</p>
+          <p class="sub">Solana Research Panel · paper only · v77</p>
         </div>
       </div>
       <div class="mode-tabs" role="tablist">
@@ -2326,7 +2404,7 @@
       </div>
       <span class="net-pill"><span class="live-dot" id="liveDot"></span>Solana Mainnet</span>
       <div class="top-actions">
-        <div class="sound-toggle" id="gSoundToggle" role="group" aria-label="Sound" title="Sound on plays the Token Flow new-coin chime, Game win/loss hits, and the soft post-game review cue. Mute silences them.">
+        <div class="sound-toggle" id="gSoundToggle" role="group" aria-label="Sound" title="Sound on plays the Token Flow new-coin chime, the Gold pick cue, Game win/loss hits, and the soft post-game review cue. Mute silences them.">
           <button type="button" class="seg on" id="gSoundOnBtn" aria-pressed="true">Sound on</button>
           <button type="button" class="seg mute" id="gSoundMuteBtn" aria-pressed="false">Mute</button>
           <input type="checkbox" id="gMute" hidden />
@@ -2387,6 +2465,33 @@
       <div id="fPickBox"></div>
 
       <div id="error"></div>
+
+      <section class="gold-scar" id="goldScar" data-feature="gold_scar" data-state="empty" aria-label="Gold picks">
+        <div class="gold-head">
+          <h2>Gold picks</h2>
+          <span class="gold-kicker">AI high conviction</span>
+          <span class="sub">Rare · 7 gates · separate from Token Flow</span>
+        </div>
+        <div class="gold-chime" id="goldChime" hidden role="status" data-audio="idle">
+          <div class="icon" aria-hidden="true">♪</div>
+          <div>
+            <div class="title" id="goldChimeTitle">♪ GOLD</div>
+            <div class="detail" id="goldChimeDetail">gold cue · not the new-token chime · not Game win/loss</div>
+          </div>
+        </div>
+        <div class="gold-mute" id="goldMuteNote" hidden role="status">
+          <div class="icon" aria-hidden="true">🔇</div>
+          <div>
+            <div class="title">muted · no gold cue</div>
+            <div class="detail">same rare card · gold cue suppressed · unmute restores the next new gold</div>
+          </div>
+        </div>
+        <div class="gold-body" id="goldBody" data-count="0">
+          <div class="gold-empty">No gold picks yet — rare on purpose</div>
+          <p class="gold-empty-sub">High Token Flow scores stay in Token Flow until the 7-gate stack clears. Empty is the normal state.</p>
+        </div>
+        <p class="gold-paper">Paper research only. Not a buy. Not financial advice.</p>
+      </section>
 
       <div class="panes">
         <section class="pane token-pane" data-flow-hook="new-token" data-feature="hide_max_unknown" data-qa-max-fixture="opt-in">
@@ -2699,10 +2804,10 @@
     </div>
 
     <footer class="app-foot">
-      <div class="foot-live">Paper only · no wallets. <code>?v=76</code></div>
+      <div class="foot-live">Paper only · no wallets. <code>?v=77</code></div>
       <details class="qa-foot">
         <summary>QA fixtures</summary>
-        <div>APIs: <code>/api/flagged</code> · <code>/api/update-now</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>. Social Tap is coin, meme, and crypto viral from public sources — nothing invented. Checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: <code>&amp;mode=game</code>. Equity tick proof: <code>?qa_tick=both</code>, <code>?qa_tick=up</code>, <code>?qa_tick=down</code>. Display offset only. Do not combine with <code>?fixture=</code>. 24h end proof: <code>?qa_end=1</code> (one-shot, then Start 24h). Does not auto-start. An ended run opens a paper Review (dismiss, or Start next 24h — same restart as the main button). Mute silences the soft review cue. Max fixture proof: <code>?qa_max=1</code> (one synthetic bonding row, badge QA MAX). Absent query leaves the live feed unchanged. Do not combine with <code>?fixture=</code>.</div>
+        <div>APIs: <code>/api/flagged</code> · <code>/api/update-now</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>. Social Tap is coin, meme, and crypto viral from public sources — nothing invented. Checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: <code>&amp;mode=game</code>. Equity tick proof: <code>?qa_tick=both</code>, <code>?qa_tick=up</code>, <code>?qa_tick=down</code>. Display offset only. Do not combine with <code>?fixture=</code>. 24h end proof: <code>?qa_end=1</code> (one-shot, then Start 24h). Does not auto-start. An ended run opens a paper Review (dismiss, or Start next 24h — same restart as the main button). Mute silences the soft review cue. Max fixture proof: <code>?qa_max=1</code> (one synthetic bonding row, badge QA MAX). Absent query leaves the live feed unchanged. Do not combine with <code>?fixture=</code>. Gold fixture proof: <code>?qa_gold=1</code> (one synthetic rare card in Gold picks, no chime on the seeded load) or <code>?qa_gold=arrive</code> (same card, one ♪ GOLD). Mute silences the gold cue. It is not the Token Flow new-token chime. Absent query leaves Gold empty unless a live row clears the stricter 7-gate stack. Do not combine with <code>?fixture=</code>.</div>
       </details>
     </footer>
   </div>
@@ -2741,8 +2846,10 @@
 
   <script>
 
-    const PANEL_V = 76;
+    const PANEL_V = 77;
     const QA_MAX_NOTE = "QA Max fixture — synthetic bonding row QAMAX. Live unknown rows stay Max-empty. Not a real mint.";
+    const QA_GOLD_NOTE = "QA Gold fixture — synthetic rare card QAGOLD in Gold picks. Not a live mint. The normal page stays empty unless the 7-gate stack clears.";
+    const QA_GOLD_ARRIVE_NOTE = "QA Gold arrive — one ♪ GOLD for the synthetic card. Mute silences it. This cue is not the Token Flow new-token chime. ?qa_gold=1 seeds quietly.";
     const SITTING_DROP_MIN = 5;
     const SITTING_AGED_MIN = 180;
     const SITTING_NEAR_LEAD_MIN = 1;
@@ -2847,6 +2954,10 @@
       flowMints: null,
       flowFresh: [],
       flowOutcome: "idle",
+      goldMints: null,
+      goldFresh: [],
+      goldOutcome: "idle",
+      goldFlashTimer: null,
       flowFlashTimer: 0,
       gameBusy: false,
       updateInFlight: false,
@@ -3140,6 +3251,7 @@
       tick: [[880, 0.035], [1174, 0.03], [1568, 0.04], [1976, 0.05]],
       down: [[146, 0.06], [92, 0.07], [55, 0.05]],
       newtoken: [[349.23, 0.06], [523.25, 0.09], [659.25, 0.18]],
+      gold: [[247.0, 0.05], [494.0, 0.07], [740.0, 0.1], [988.0, 0.18]],
       points: [[988, 0.04], [1318, 0.07]],
       tax: [[196, 0.05], [98, 0.09]],
       unlock: [[740, 0.04], [988, 0.045], [1568, 0.08]],
@@ -3148,12 +3260,12 @@
     const SOUND_WAVE = {
       buy: "square", sell: "sine", fail: "sawtooth", stop: "triangle",
       tp: "square", high: "triangle", start: "triangle", ready: "sine",
-      tick: "square", down: "sawtooth", newtoken: "sine", points: "triangle", tax: "square", unlock: "triangle",
+      tick: "square", down: "sawtooth", newtoken: "sine", gold: "triangle", points: "triangle", tax: "square", unlock: "triangle",
       review: "sine",
     };
     const SOUND_GAIN = {
       buy: 0.07, sell: 0.11, fail: 0.045, high: 0.06, ready: 0.05,
-      tick: 0.08, down: 0.09, newtoken: 0.07, points: 0.045, tax: 0.04, unlock: 0.05,
+      tick: 0.08, down: 0.09, newtoken: 0.07, gold: 0.055, points: 0.045, tax: 0.04, unlock: 0.05,
       review: 0.03,
     };
 
@@ -3175,6 +3287,7 @@
         tax: "points tax",
         unlock: "shop unlock",
         review: "review ready",
+        gold: "♪ GOLD",
       }[kind] || (kind ? ("sound: " + kind) : "Sound on");
       if (outcome === "silent") return base + " · muted";
       if (outcome === "blocked") return base + " · audio blocked";
@@ -3236,7 +3349,7 @@
 
     function beep(kind) {
       try {
-        if (kind === "newtoken") return;
+        if (kind === "newtoken" || kind === "gold") return;
         if (!SOUND_SEQ[kind]) return;
         const muted = !!(state.mute || (document.getElementById("gMute") && document.getElementById("gMute").checked));
         if (muted) {
@@ -3382,6 +3495,82 @@
     }
     /* ship-i-pure-end */
 
+    /* ship-n-pure-start */
+    function goldRowsOf(rows) {
+      const list = Array.isArray(rows) ? rows : [];
+      const out = [];
+      for (let i = 0; i < list.length; i++) {
+        const row = list[i];
+        if (!row || typeof row !== "object") continue;
+        const scar = row.gold_scar;
+        if (!scar || scar.gold !== true) continue;
+        out.push(row);
+      }
+      return out;
+    }
+
+    function goldFixtureMint(rows, mint) {
+      const list = Array.isArray(rows) ? rows : [];
+      for (let i = 0; i < list.length; i++) {
+        const row = list[i];
+        if (!row || String(row.mint == null ? "" : row.mint).trim() !== mint) continue;
+        return !!row.qa_gold_fixture;
+      }
+      return false;
+    }
+
+    function goldAlertPlan(prev, rows, opts) {
+      const decision = tokenFlowAlertDecision(prev, goldRowsOf(rows));
+      const muted = !!(opts && opts.muted);
+      const unlocked = !!(opts && opts.unlocked);
+      const arrive = !!(opts && opts.arrive);
+      let fresh = decision.fresh.slice();
+      let seeded = decision.seeded;
+      if (seeded && arrive) {
+        fresh = decision.next.filter((mint) => goldFixtureMint(rows, mint));
+        seeded = false;
+      }
+      let outcome = "same";
+      if (seeded) outcome = "seed";
+      else if (!fresh.length) outcome = "same";
+      else if (muted) outcome = "muted";
+      else if (!unlocked) outcome = "blocked";
+      else outcome = "play";
+      return {
+        outcome: outcome,
+        next: decision.next,
+        fresh: fresh,
+        play: outcome === "play" ? fresh.slice() : [],
+      };
+    }
+
+    function goldArrivalCopy(outcome) {
+      if (outcome === "play" || outcome === "blocked") {
+        return {
+          flash: true,
+          muteNote: false,
+          title: "♪ GOLD",
+          detail: outcome === "blocked"
+            ? "tap Sound on — browser blocked the gold cue"
+            : "gold cue · not the new-token chime · not Game win/loss",
+          toast: "Rare gold pick · paper research",
+          toastKind: "",
+        };
+      }
+      if (outcome === "muted") {
+        return {
+          flash: false,
+          muteNote: true,
+          title: "muted · no gold cue",
+          detail: "same rare card · gold cue suppressed · unmute restores the next new gold",
+          toast: "Rare gold pick · silent",
+          toastKind: "silent",
+        };
+      }
+      return { flash: false, muteNote: false, title: "", detail: "", toast: "", toastKind: "" };
+    }
+    /* ship-n-pure-end */
+
     function flowAudioUnlocked() {
       try {
         return !!(state.audioCtx && state.audioCtx.state === "running");
@@ -3431,7 +3620,7 @@
         toggle.setAttribute("data-flow-audio", plan.outcome || "idle");
         toggle.title = plan.outcome === "blocked"
           ? "Browser blocked the Token Flow chime. Tap Sound on to allow the next new coin."
-          : "Sound on plays the Token Flow new-coin chime, Game win/loss hits, and the soft post-game review cue. Mute silences them.";
+          : "Sound on plays the Token Flow new-coin chime, the Gold pick cue, Game win/loss hits, and the soft post-game review cue. Mute silences them.";
       }
       if (flash) {
         flash.hidden = !copy.flash;
@@ -3448,7 +3637,7 @@
     }
 
     function noteTokenFlowFlags(rows) {
-      rows = (Array.isArray(rows) ? rows : []).filter((row) => !(row && row.qa_max_fixture));
+      rows = (Array.isArray(rows) ? rows : []).filter((row) => !(row && (row.qa_max_fixture || row.qa_gold_fixture)));
       const plan = flowAlertPlan(state.flowMints, rows, {
         muted: !!state.mute,
         unlocked: flowAudioUnlocked(),
@@ -3458,6 +3647,88 @@
       if (plan.outcome === "play" && !playNewTokenChime(plan.play.length)) plan.outcome = "blocked";
       state.flowOutcome = plan.outcome;
       paintFlowArrival(plan, rows);
+    }
+
+    function scheduleGoldChromeHide() {
+      clearTimeout(state.goldFlashTimer);
+      state.goldFlashTimer = setTimeout(() => {
+        const flash = document.getElementById("goldChime");
+        const muteNote = document.getElementById("goldMuteNote");
+        if (flash) flash.hidden = true;
+        if (muteNote) muteNote.hidden = true;
+      }, 7000);
+    }
+
+    function playGoldChime(count) {
+      const n = Number(count) || 0;
+      if (n < 1 || state.mute) return false;
+      try {
+        const ctx = ensureAudio();
+        if (!ctx || ctx.state !== "running") return false;
+        const gap = 0.55;
+        for (let i = 0; i < n; i++) {
+          if (!startTone(ctx, "gold", i * gap)) return false;
+        }
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function paintGoldArrival(plan, rows) {
+      const flash = document.getElementById("goldChime");
+      const muteNote = document.getElementById("goldMuteNote");
+      const section = document.getElementById("goldScar");
+      const names = flowArrivalNames(goldRowsOf(rows), plan.fresh);
+      const copy = goldArrivalCopy(plan.outcome);
+      if (section) {
+        section.setAttribute("data-gold-audio", plan.outcome || "idle");
+        section.setAttribute("data-gold-fresh", String((plan.fresh || []).length));
+      }
+      if (flash) {
+        flash.hidden = !copy.flash;
+        flash.setAttribute("data-audio", plan.outcome === "blocked" ? "blocked" : (copy.flash ? "played" : "idle"));
+        const title = document.getElementById("goldChimeTitle");
+        const detail = document.getElementById("goldChimeDetail");
+        if (title && copy.title) title.textContent = copy.title;
+        if (detail) detail.textContent = copy.detail || "";
+      }
+      if (muteNote) muteNote.hidden = !copy.muteNote;
+      if (copy.toast) {
+        const label = flowArrivalLabel(names);
+        const toastText = copy.toastKind === "silent"
+          ? copy.toast
+          : (copy.toast + (label && label !== "coin" ? " · " + label : ""));
+        toast(toastText, copy.toastKind === "silent" ? "silent" : false);
+      }
+      if (copy.flash || copy.muteNote) scheduleGoldChromeHide();
+      else clearTimeout(state.goldFlashTimer);
+    }
+
+    function noteGoldScar(rows) {
+      const plan = goldAlertPlan(state.goldMints, rows, {
+        muted: !!state.mute,
+        unlocked: flowAudioUnlocked(),
+        arrive: qaGoldMode() === "arrive",
+      });
+      state.goldMints = plan.next.slice();
+      state.goldFresh = plan.fresh.slice();
+      if (plan.outcome === "play" && !playGoldChime(plan.play.length)) plan.outcome = "blocked";
+      state.goldOutcome = plan.outcome;
+      paintGoldArrival(plan, rows);
+    }
+
+    function retryBlockedGold() {
+      if (state.mute || state.goldOutcome !== "blocked") return;
+      if (!state.goldFresh || !state.goldFresh.length) return;
+      if (!flowAudioUnlocked()) return;
+      if (!playGoldChime(state.goldFresh.length)) return;
+      state.goldOutcome = "play";
+      paintGoldArrival({
+        outcome: "play",
+        fresh: state.goldFresh.slice(),
+        play: state.goldFresh.slice(),
+      }, state.flagged);
     }
 
     function looksLikeMint(s) {
@@ -3505,6 +3776,18 @@
           muteNote.hidden = true;
         }
         render();
+      }
+      if (state.goldFresh && state.goldFresh.length) {
+        const flash = document.getElementById("goldChime");
+        const muteNote = document.getElementById("goldMuteNote");
+        if (state.mute) {
+          if (flash) flash.hidden = true;
+          if (muteNote) muteNote.hidden = false;
+          scheduleGoldChromeHide();
+        } else if (muteNote) {
+          muteNote.hidden = true;
+        }
+        if (!(state.flowFresh && state.flowFresh.length)) render();
       }
     }
 
@@ -4442,7 +4725,55 @@
       return out;
     }
 
+    function renderGold(rows) {
+      const body = document.getElementById("goldBody");
+      const section = document.getElementById("goldScar");
+      const list = goldRowsOf(rows);
+      if (section) section.setAttribute("data-count", String(list.length));
+      if (!body) return;
+      body.setAttribute("data-count", String(list.length));
+      if (!list.length) {
+        if (section) section.setAttribute("data-state", "empty");
+        body.innerHTML = '<div class="gold-empty">No gold picks yet — rare on purpose</div>' +
+          '<p class="gold-empty-sub">High Token Flow scores stay in Token Flow until the 7-gate stack clears. Empty is the normal state.</p>';
+        return;
+      }
+      if (section) section.setAttribute("data-state", "gold");
+      body.innerHTML = list.map((r) => {
+        const mint = r.mint || "";
+        const scar = r.gold_scar || {};
+        const L = r.links || {};
+        const links = linksOf(r);
+        const xUrl = L.x || (r.socials && r.socials.twitter_url) || "";
+        const s12 = score12Of(r);
+        const scoreTxt = (s12 == null || Number.isNaN(Number(s12))) ? "—" : String(s12);
+        const arrived = !!(mint && (state.goldFresh || []).indexOf(mint) >= 0);
+        const why = scar.why || r.qa_label || "";
+        const qa = r.qa_gold_fixture
+          ? '<span class="gold-qa" title="' + esc(r.qa_label || "QA gold fixture") + '">QA GOLD</span>'
+          : "";
+        return '<article class="gold-card' + (arrived ? " arrive" : "") + '" data-mint="' + esc(mint) + '"' +
+          (r.qa_gold_fixture ? ' data-qa-gold="1"' : ' data-gold="1"') + '>' +
+          '<div class="gold-card-top">' +
+            '<span class="ticker">' + esc(r.ticker || "?") + "</span>" +
+            '<span class="gold-rare">Rare</span>' + qa +
+            '<span class="name">' + esc(r.name || "") + "</span>" +
+            '<span class="gold-score">' + esc(scoreTxt) + "/12</span>" +
+          "</div>" +
+          '<p class="gold-why">' + esc(why) + "</p>" +
+          '<div class="gold-links">' +
+            '<button type="button" class="copy-ca" data-ca="' + esc(mint) + '" title="' + esc(mint || "Contract") + '">Copy CA</button>' +
+            '<a href="' + esc(links.dex) + '" target="_blank" rel="noopener">Chart</a>' +
+            '<a href="' + esc(links.pump) + '" target="_blank" rel="noopener">Pump</a>' +
+            (xUrl ? ('<a href="' + esc(xUrl) + '" target="_blank" rel="noopener">X</a>') : "") +
+          "</div>" +
+          '<p class="gold-paper">' + esc(scar.paper || "Paper research only. Not a buy and not a promise.") + "</p>" +
+        "</article>";
+      }).join("");
+    }
+
     function render() {
+      renderGold(state.flagged);
       const wrap = document.getElementById("table-wrap");
       if (wrap) {
         wrap.setAttribute("data-sitting-drop-min", String(SITTING_DROP_MIN));
@@ -4450,7 +4781,7 @@
         wrap.setAttribute("data-sitting-keep", "1");
       }
       const latest = state.latest || {};
-      let flagged = Array.isArray(state.flagged) ? state.flagged : [];
+      let flagged = (Array.isArray(state.flagged) ? state.flagged : []).filter((row) => !(row && row.qa_gold_fixture));
       let rescued = false;
       if (!flagged.length && state.fixture !== "flagged-empty") {
         const rescue = sittingRescueRows(latest);
@@ -4576,8 +4907,28 @@
       return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
     }
 
+    function qaGoldMode() {
+      let raw = "";
+      try { raw = new URLSearchParams(location.search).get("qa_gold") || ""; }
+      catch (e) { raw = ""; }
+      raw = String(raw).trim().toLowerCase();
+      if (raw === "arrive") return "arrive";
+      if (raw === "1" || raw === "true" || raw === "yes" || raw === "on") return "on";
+      return "";
+    }
+
+    function wantsQaGold() {
+      return !!qaGoldMode();
+    }
+
     function flaggedFeedUrl() {
-      return wantsQaMax() ? "/api/flagged?qa_max=1" : "/api/flagged";
+      const gold = qaGoldMode();
+      if (wantsQaMax() && !gold) return "/api/flagged?qa_max=1";
+      if (!wantsQaMax() && gold === "on") return "/api/flagged?qa_gold=1";
+      if (!wantsQaMax() && gold === "arrive") return "/api/flagged?qa_gold=arrive";
+      if (wantsQaMax() && gold === "on") return "/api/flagged?qa_max=1&qa_gold=1";
+      if (wantsQaMax() && gold === "arrive") return "/api/flagged?qa_max=1&qa_gold=arrive";
+      return "/api/flagged";
     }
 
     function flaggedFixtureOn() {
@@ -4795,6 +5146,12 @@
           if (state.qaTickNote) {
             note.hidden = false;
             note.textContent = state.qaTickNote;
+          } else if (qaGoldMode() === "arrive") {
+            note.hidden = false;
+            note.textContent = QA_GOLD_ARRIVE_NOTE;
+          } else if (wantsQaGold()) {
+            note.hidden = false;
+            note.textContent = QA_GOLD_NOTE;
           } else if (wantsQaMax()) {
             note.hidden = false;
             note.textContent = QA_MAX_NOTE;
@@ -4809,6 +5166,7 @@
       }
       document.body.setAttribute("data-fixture", fx || "live");
       document.body.setAttribute("data-qa-max", wantsQaMax() ? "1" : "0");
+      document.body.setAttribute("data-qa-gold", qaGoldMode() || "0");
       const wrap = document.getElementById("table-wrap");
       if (fx === "flagged-loading") {
         if (wrap) {
@@ -4882,7 +5240,10 @@
         state.flaggedError = null;
         if (!fRes.unchanged && fRes.data != null) {
           const nextRows = Array.isArray(fRes.data) ? fRes.data : [];
-          if (!holdFlagged) noteTokenFlowFlags(nextRows);
+          if (!holdFlagged) {
+            noteTokenFlowFlags(nextRows);
+            noteGoldScar(nextRows);
+          }
           state.flagged = nextRows;
           changed = true;
         }
@@ -7707,7 +8068,12 @@
         beep("ready");
         return;
       }
-      ensureAudio();
+      const ctx = ensureAudio();
+      if (ctx && ctx.state !== "running" && ctx.resume) {
+        ctx.resume().then(() => { if (!state.mute) retryBlockedGold(); }).catch(() => {});
+        return;
+      }
+      retryBlockedGold();
     });
     document.addEventListener("pointerdown", () => {
       if (state.audioCtx && state.audioCtx.state === "running") return;

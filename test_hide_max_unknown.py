@@ -51,23 +51,23 @@ process.stdout.write(JSON.stringify(out));
 
 
 class HealthTests(unittest.TestCase):
-    def test_health_is_v76_with_hide_max_unknown(self):
+    def test_health_is_v77_with_hide_max_unknown(self):
         res = server.app.test_client().get("/api/health")
         self.assertEqual(res.status_code, 200)
         data = res.get_json()
         self.assertTrue(data["ok"])
-        self.assertEqual(data["panel_v"], 76)
+        self.assertEqual(data["panel_v"], 77)
         self.assertIn("hide_max_unknown", data["features"])
         self.assertIn("trade_chart", data["features"])
         self.assertIn("sitting_keep", data["features"])
         self.assertIn("manual_update", data["features"])
         self.assertTrue(data["sitting_keep"])
 
-    def test_panel_advertises_v76_and_drops_the_unknown_chip(self):
+    def test_panel_advertises_v77_and_drops_the_unknown_chip(self):
         html = _panel()
-        self.assertIn("const PANEL_V = 76", html)
-        self.assertIn("paper only · v76", html)
-        self.assertIn("?v=76", html)
+        self.assertIn("const PANEL_V = 77", html)
+        self.assertIn("paper only · v77", html)
+        self.assertIn("?v=77", html)
         self.assertIn('data-feature="hide_max_unknown"', html)
         self.assertNotIn("Max unknown", html)
         self.assertIn('const nowLab = trade ? "MCAP" : "Now"', html)
