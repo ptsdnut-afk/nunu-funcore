@@ -20,6 +20,7 @@ from flask_cors import CORS
 
 import game as game_mod
 import manual_update
+import qa_max
 import viral as viral_mod
 from mcap_progress import apply_mcap
 
@@ -97,8 +98,25 @@ def _with_research_rows(data):
     return out
 
 
-def _json_with_validators(path: Path, default, transform=None) -> Response:
+def _with_qa_max_rows(data):
+    """Prepend the synthetic bonding row. Other rows are not rewritten."""
+    rows = _with_research_rows(data)
+    if not isinstance(rows, list):
+        rows = []
+    kept = [row for row in rows if not (isinstance(row, dict) and row.get("qa_max_fixture"))]
+    return [qa_max.prepared_row()] + kept
+
+
+def _wants_qa_max() -> bool:
+    """Opt-in Max fixture. Absent or any other value leaves live rows alone."""
+    raw = (request.args.get("qa_max") or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _json_with_validators(path: Path, default, transform=None, etag_suffix: str = "") -> Response:
     etag = _file_etag(path)
+    if etag and etag_suffix:
+        etag = '"' + etag.strip('"') + etag_suffix + '"'
     last_mod = _http_date(path)
     inm = request.headers.get("If-None-Match")
     if etag and inm and inm.strip() == etag:
@@ -127,11 +145,12 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 74,
+            "panel_v": 75,
             "time": _utc(),
             "qa_tick": "page ?qa_tick=both|up|down",
             "qa_end": "page ?qa_end=1 (one-shot) or POST /api/game/end",
-            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown"],
+            "qa_max": "page ?qa_max=1 or GET /api/flagged?qa_max=1 (also GET /api/qa/max-fixture?qa_max=1)",
+            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture"],
             "sitting_drop_min": 5.0,
             "sitting_aged_min": 180.0,
             "sitting_keep": True,
@@ -147,7 +166,44 @@ def api_health():
 
 @app.get("/api/flagged")
 def api_flagged():
+    if _wants_qa_max():
+        return _json_with_validators(
+            FLAGGED_PATH,
+            [],
+            transform=_with_qa_max_rows,
+            etag_suffix=":qa_max",
+        )
     return _json_with_validators(FLAGGED_PATH, [], transform=_with_research_rows)
+
+
+@app.get("/api/qa/max-fixture")
+def api_qa_max_fixture():
+    """QA hook for the synthetic bonding Max. Does nothing to the live feed by itself."""
+    if not _wants_qa_max():
+        return jsonify(
+            {
+                "ok": True,
+                "enabled": False,
+                "qa_max_fixture": False,
+                "note": "Opt-in only. Add ?qa_max=1. Default Token Flow is unchanged.",
+            }
+        )
+    row = qa_max.prepared_row()
+    prog = row.get("mcap_progress") if isinstance(row.get("mcap_progress"), dict) else {}
+    return jsonify(
+        {
+            "ok": True,
+            "enabled": True,
+            "qa_max_fixture": True,
+            "label": row.get("qa_label"),
+            "ticker": row.get("ticker"),
+            "mint": row.get("mint"),
+            "ceiling_kind": prog.get("ceiling_kind"),
+            "ceiling_label": prog.get("ceiling_label"),
+            "note": "Synthetic bonding ceiling for AC-X01. Not a live mint. Other rows are not rewritten.",
+            "row": row,
+        }
+    )
 
 
 @app.get("/api/tweets")
@@ -329,6 +385,28 @@ def api_coin():
     mint = (request.args.get("mint") or request.args.get("ca") or request.args.get("q") or "").strip()
     if not mint:
         return jsonify({"ok": False, "error": "mint required"}), 400
+    if qa_max.is_fixture_mint(mint):
+        # Never scan this synthetic mint. The row exists only while qa_max is on.
+        if not _wants_qa_max():
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": "QA Max fixture is opt-in. Open the panel with ?qa_max=1.",
+                    "mint": mint,
+                    "qa_max_fixture": False,
+                }
+            ), 400
+        row = qa_max.prepared_row()
+        return jsonify(
+            {
+                "ok": True,
+                "mint": mint,
+                "source": "qa_max_fixture",
+                "qa_max_fixture": True,
+                "row": row,
+                "research": row.get("research"),
+            }
+        )
     fresh = (request.args.get("fresh") or "").lower() in ("1", "true", "yes")
     result = filter_mod.coin_payload(mint, bypass_cache=fresh)
     code = 200 if result.get("ok") else 400
