@@ -67,12 +67,12 @@ def _ceil_sig(row: dict) -> tuple:
 
 
 class HealthTests(unittest.TestCase):
-    def test_health_is_v76_with_qa_max_fixture(self):
+    def test_health_is_v77_with_qa_max_fixture(self):
         res = server.app.test_client().get("/api/health")
         self.assertEqual(res.status_code, 200)
         data = res.get_json()
         self.assertTrue(data["ok"])
-        self.assertEqual(data["panel_v"], 76)
+        self.assertEqual(data["panel_v"], 77)
         self.assertIn("qa_max_fixture", data["features"])
         self.assertIn("hide_max_unknown", data["features"])
         self.assertIn("trade_chart", data["features"])
@@ -85,9 +85,9 @@ class HealthTests(unittest.TestCase):
 
     def test_panel_wires_the_opt_in_query(self):
         html = _panel()
-        self.assertIn("const PANEL_V = 76", html)
-        self.assertIn("paper only · v76", html)
-        self.assertIn("?v=76", html)
+        self.assertIn("const PANEL_V = 77", html)
+        self.assertIn("paper only · v77", html)
+        self.assertIn("?v=77", html)
         self.assertIn('data-feature="hide_max_unknown"', html)
         self.assertIn('data-qa-max-fixture="opt-in"', html)
         self.assertIn("function wantsQaMax()", html)

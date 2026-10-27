@@ -18,7 +18,7 @@ class HealthTests(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         data = res.get_json()
         self.assertTrue(data["ok"])
-        self.assertEqual(data["panel_v"], 76)
+        self.assertEqual(data["panel_v"], 77)
         self.assertIn("token_flow_new_sound", data["features"])
         self.assertIn("game_polish", data["features"])
         self.assertIn("delay_warning", data["features"])
@@ -27,8 +27,8 @@ class HealthTests(unittest.TestCase):
 class PanelChromeTests(unittest.TestCase):
     def test_filter_shows_shared_mute_and_arrival_chrome(self):
         html = _panel()
-        self.assertIn("const PANEL_V = 76", html)
-        self.assertIn("paper only · v76", html)
+        self.assertIn("const PANEL_V = 77", html)
+        self.assertIn("paper only · v77", html)
         self.assertIn('data-flow-hook="new-token"', html)
         self.assertIn('id="flowChime"', html)
         self.assertIn("♪ NEW TOKEN", html)

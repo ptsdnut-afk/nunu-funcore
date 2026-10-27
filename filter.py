@@ -865,6 +865,10 @@ def evaluate(
     except (TypeError, ValueError):
         pch1 = None
     try:
+        pcm5 = float(price_change.get("m5")) if price_change.get("m5") is not None else None
+    except (TypeError, ValueError):
+        pcm5 = None
+    try:
         pch24 = float(price_change.get("h24")) if price_change.get("h24") is not None else None
     except (TypeError, ValueError):
         pch24 = None
@@ -920,6 +924,7 @@ def evaluate(
             "volume_h1_usd": round(vol_h1, 2),
             "volume_h24_usd": round(vol_h24, 2),
             "price_usd": pair.get("priceUsd"),
+            "price_change_m5": pcm5,
             "price_change_h1": pch1,
             "price_change_h24": pch24,
             "buys_h1": buys,
