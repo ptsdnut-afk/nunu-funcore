@@ -5909,14 +5909,6 @@
       state.chartShown = key;
       state.chartFailedKey = "";
       const gen = (state.chartGen = (state.chartGen || 0) + 1);
-      pane.setAttribute("data-state", "loading");
-      pane.setAttribute("data-mint", target.mint || "");
-      body.innerHTML = '<p class="chart-msg" data-chart-state="loading">' + esc(CHART_LOADING) + "</p>";
-      const frame = document.createElement("iframe");
-      frame.className = "dex-chart";
-      frame.title = "DexScreener chart for " + (target.symbol || "coin") + " " + (target.mint || "");
-      frame.setAttribute("data-mint", target.mint || "");
-      frame.setAttribute("data-src-kind", "dex-embed");
       let settled = false;
       const finish = (ok) => {
         if (settled || gen !== state.chartGen) return;
@@ -5934,13 +5926,34 @@
         const msg = liveBody && liveBody.querySelector(".chart-msg");
         if (msg) msg.remove();
       };
-      frame.addEventListener("load", () => finish(true));
-      frame.addEventListener("error", () => finish(false));
-      body.appendChild(frame);
+      pane.setAttribute("data-state", "loading");
+      pane.setAttribute("data-mint", target.mint || "");
+      body.innerHTML = '<p class="chart-msg" data-chart-state="loading">' + esc(CHART_LOADING) + "</p>";
       chartHead(target, "loading");
       markChartedCards(target);
       state.chartTimer = setTimeout(() => finish(false), 12000);
-      frame.src = src;
+      // A blocked embed domain fails this fetch. A live Dex host resolves
+      // (opaque) and only then do we mount the iframe.
+      fetch(src, { mode: "no-cors", cache: "no-store" }).then(() => {
+        if (settled || gen !== state.chartGen) return;
+        const frame = document.createElement("iframe");
+        frame.className = "dex-chart";
+        frame.title = "DexScreener chart for " + (target.symbol || "coin") + " " + (target.mint || "");
+        frame.setAttribute("data-mint", target.mint || "");
+        frame.setAttribute("data-src-kind", "dex-embed");
+        frame.addEventListener("load", () => {
+          if (!(frame.src || "").includes("dexscreener.com")) return;
+          try {
+            const href = frame.contentWindow && frame.contentWindow.location ? frame.contentWindow.location.href : "";
+            if (href.indexOf("chrome-error") === 0) finish(false);
+          } catch (e) {
+            finish(true);
+          }
+        });
+        frame.addEventListener("error", () => finish(false));
+        body.appendChild(frame);
+        frame.src = src;
+      }).catch(() => finish(false));
     }
 
     function paintTradeChart() {
