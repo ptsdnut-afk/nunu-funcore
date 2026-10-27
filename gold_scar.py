@@ -18,7 +18,9 @@ Stricter cuts this module applies on top of that stack:
      pressure, LP lock, a RugCheck so mint/freeze can be seen, and a
      top-holder percent so "not one wallet" is evidence rather than a hope.
   2. Three coins in one name family already kill the whole pack (owner ~5).
-  3. Crowded politics stems fail, including years glued on (TRUMP2028).
+  3. Crowded politics stems fail, including years glued on (TRUMP2028)
+     and a stem glued inside a compound ticker (elon inside GTAELON).
+     Short accidents (melon, advance) stay off the list.
   4. A 1h move of +180% fails (owner line is +300). A 24h move of +250%
      fails. Age must be under 2h. The 5m print is required.
   5. RugCheck score at most 8, zero listed risks, top holder at most 12%,
@@ -196,6 +198,26 @@ def family_key(row: dict[str, Any]) -> str:
     return raw
 
 
+def _stem_inside_compound(token: str, stem: str) -> bool:
+    """Stem glued inside a ticker, past a real prefix.
+
+    Prefix matches stay on the caller (`elon…`, `trump…`). An interior hit
+    needs at least three characters in front of a stem of length >= 4:
+    `gtaelon` matches `elon` (index 3). `melon` (index 1) and `advance`
+    containing `vance` (index 2) do not. This only adds hits.
+    """
+    if len(stem) < 4 or len(token) <= len(stem):
+        return False
+    start = 1
+    while True:
+        idx = token.find(stem, start)
+        if idx < 0:
+            return False
+        if idx >= 3:
+            return True
+        start = idx + 1
+
+
 def _crowded_hit(row: dict[str, Any]) -> str | None:
     folded = re.sub(r"[^a-z0-9]+", " ", _texts(row).lower())
     tokens = [tok for tok in folded.split() if tok]
@@ -203,7 +225,7 @@ def _crowded_hit(row: dict[str, Any]) -> str | None:
         if token in {"2024", "2028"}:
             return token
         for stem in _CROWDED:
-            if token == stem or token.startswith(stem):
+            if token == stem or token.startswith(stem) or _stem_inside_compound(token, stem):
                 return stem
     return None
 
