@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Game · AI post-game review mock v1 · eyes only</title>
+  <style>
+    :root {
+      --bg: #050505;
+      --panel: #121212;
+      --panel2: #161616;
+      --border: #2a2a2a;
+      --text: #e7e9ea;
+      --muted: #8b98a5;
+      --good: #3ecf8e;
+      --amber: #f0a33a;
+      --warn: #e6b84d;
+      --bad: #f07178;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: var(--sans); background: var(--bg); color: var(--text);
+      min-height: 100vh; line-height: 1.35; font-size: 15px;
+    }
+    .banner {
+      background: linear-gradient(90deg, #101810, #0a0a0a);
+      border-bottom: 1px solid #2a5a40;
+      padding: 9px 16px; font-size: 0.78rem; color: #9ed4b0; font-weight: 700;
+      display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    }
+    .banner code { font-family: var(--mono); color: var(--amber); }
+    .banner .tag {
+      display: inline-block; padding: 2px 8px; border-radius: 999px;
+      background: #102018; border: 1px solid #2a5a40; color: var(--good);
+      font-size: 0.65rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+    }
+    .banner .tag.warn {
+      background: #241e10; border-color: #6a5320; color: var(--amber);
+    }
+    .app { max-width: 1580px; margin: 0 auto; padding: 14px 16px 28px; }
+    .claim {
+      margin: 0 0 6px; font-size: 1.32rem; font-weight: 900; letter-spacing: -0.03em;
+      background: linear-gradient(90deg, #fff, var(--good) 45%, var(--amber));
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .claim span {
+      display: block; font-size: 0.7rem; font-weight: 650; color: var(--muted);
+      letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 4px;
+      background: none; -webkit-background-clip: unset; color: var(--muted);
+    }
+    .lede {
+      margin: 0 0 12px; color: var(--muted); font-size: 0.82rem; max-width: 1280px;
+    }
+    .lede b { color: var(--text); }
+
+    .proof {
+      display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px;
+      margin-bottom: 14px; padding: 12px 14px;
+      background: #101410; border: 1px solid #2a5a40; border-radius: 12px;
+    }
+    .proof h3 {
+      margin: 0 0 6px; font-size: 0.7rem; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--good);
+    }
+    .proof p { margin: 0; font-size: 0.72rem; color: var(--muted); line-height: 1.4; }
+    .proof b { color: var(--text); }
+    .proof .id {
+      font-family: var(--mono); font-size: 0.66rem; font-weight: 800;
+      color: var(--amber); margin-bottom: 4px;
+    }
+    @media (max-width: 1100px) {
+      .proof { grid-template-columns: 1fr 1fr; }
+    }
+
+    .story-label {
+      display: flex; align-items: baseline; gap: 10px; margin: 6px 0 10px; flex-wrap: wrap;
+    }
+    .story-label h2 {
+      margin: 0; font-size: 0.78rem; text-transform: uppercase; letter-spacing: .08em; color: var(--good);
+    }
+    .story-label .sub { color: var(--muted); font-size: 0.72rem; font-family: var(--mono); }
+
+    .story {
+      display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 14px;
+    }
+    @media (max-width: 1200px) {
+      .story { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+      overflow: hidden; display: flex; flex-direction: column;
+    }
+    .panel.before { border-color: #5a3030; }
+    .panel.loading { border-color: #3a4a6a; box-shadow: 0 0 18px rgba(120,160,220,.16); }
+    .panel.review { border-color: #2a5a40; box-shadow: 0 0 18px rgba(62,207,142,.18); }
+
+    .panel-head {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 10px 12px; border-bottom: 1px solid var(--border); background: #0e0e0e;
+    }
+    .panel-head .state {
+      font-size: 0.74rem; font-weight: 900; letter-spacing: .04em; text-transform: uppercase;
+    }
+    .panel.before .panel-head .state { color: var(--bad); }
+    .panel.loading .panel-head .state { color: #9bb8e8; }
+    .panel.review .panel-head .state { color: var(--good); }
+    .badge {
+      font-size: 0.58rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+      padding: 2px 7px; border-radius: 999px; border: 1px solid var(--border);
+      color: var(--muted); background: #1a1a1a;
+    }
+    .badge.ex { border-color: #5a4a20; color: var(--amber); background: #241e10; }
+    .badge.stuck { border-color: #5a3030; color: var(--bad); background: #241010; }
+    .badge.fix { border-color: #2a5a40; color: var(--good); background: #102018; }
+    .badge.cook { border-color: #3a4a6a; color: #9bb8e8; background: #121820; }
+    .panel-head .rule {
+      margin-left: auto; font-size: 0.6rem; color: var(--muted); font-family: var(--mono);
+    }
+
+    .stage { padding: 10px; flex: 1; display: flex; flex-direction: column; gap: 8px; background: #0a0a0a; position: relative; }
+
+    /* Mini Game shell */
+    .game-shell {
+      background: #0c0c0c; border: 1px solid #222; border-radius: 12px;
+      overflow: hidden; position: relative; min-height: 520px;
+      display: flex; flex-direction: column;
+    }
+    .topmini {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 8px 10px; border-bottom: 1px solid #1e1e1e; background: #101010;
+    }
+    .tabs {
+      display: inline-flex; gap: 3px; padding: 2px;
+      background: #0e0e0e; border: 1px solid var(--border); border-radius: 999px;
+    }
+    .tabs span {
+      padding: 3px 10px; border-radius: 999px; font-size: 0.68rem; font-weight: 700; color: var(--muted);
+    }
+    .tabs span.on { background: #e7e9ea; color: #0a0a0a; }
+    .live-chip {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 3px 8px; border-radius: 999px; background: #1a1a1a; border: 1px solid #333;
+      font-size: 0.64rem; color: var(--muted); font-weight: 700;
+    }
+    .live-chip.ended { color: var(--amber); border-color: #6a5320; background: #241e10; }
+    .sound-chip {
+      margin-left: auto;
+      padding: 3px 8px; border-radius: 999px; background: #102018; border: 1px solid #2a5a40;
+      font-size: 0.64rem; color: var(--good); font-weight: 700;
+    }
+    .pf {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 3px 8px 3px 3px; border-radius: 999px; background: #161616; border: 1px solid #2a2a2a;
+      font-size: 0.64rem; font-weight: 700;
+    }
+    .pf .av {
+      width: 20px; height: 20px; border-radius: 50%; background: #2a2a2a; border: 1px solid var(--amber);
+      display: grid; place-items: center; font-size: 0.55rem; font-weight: 900;
+    }
+    .pf .pts { color: var(--amber); font-family: var(--mono); font-size: 0.6rem; }
+
+    .rocket-strip {
+      position: relative; height: 88px; margin: 8px 10px 0;
+      border-radius: 10px; border: 1px solid #1e2a22; background:
+        radial-gradient(circle at 20% 30%, rgba(62,207,142,.08), transparent 40%),
+        linear-gradient(180deg, #0a120e, #070707);
+      overflow: hidden;
+    }
+    .rocket-strip .stars {
+      position: absolute; inset: 0;
+      background-image: radial-gradient(1px 1px at 12% 30%, #fff6, transparent),
+        radial-gradient(1px 1px at 40% 60%, #fff4, transparent),
+        radial-gradient(1px 1px at 70% 25%, #fff5, transparent),
+        radial-gradient(1px 1px at 85% 70%, #fff3, transparent);
+    }
+    .craft {
+      position: absolute; left: 18px; top: 18px; width: 120px; height: 52px;
+    }
+    .rocket-hud {
+      position: absolute; right: 10px; top: 10px; text-align: right;
+      font-size: 0.62rem; line-height: 1.25;
+    }
+    .rocket-hud .skin { color: #9b6dff; font-weight: 800; }
+    .rocket-hud .dir { color: var(--amber); font-weight: 900; letter-spacing: .04em; margin-top: 2px; }
+    .rocket-hud .sub { color: var(--muted); margin-top: 2px; }
+    .pos-chip {
+      position: absolute; left: 10px; bottom: 8px;
+      font-size: 0.58rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+      padding: 2px 7px; border-radius: 999px; border: 1px solid #333; color: var(--muted); background: #121212;
+    }
+
+    .bank {
+      display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;
+      padding: 8px 10px 0;
+    }
+    .stat {
+      background: #101010; border: 1px solid #222; border-radius: 8px; padding: 7px 8px;
+    }
+    .stat .lab {
+      font-size: 0.55rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+    }
+    .stat .val {
+      font-family: var(--mono); font-size: 0.95rem; font-weight: 900; margin-top: 2px;
+    }
+    .stat .val.good { color: var(--good); }
+    .stat .val.dead { color: var(--muted); }
+    .stat .hint { font-size: 0.58rem; color: var(--muted); margin-top: 1px; }
+
+    .chrome { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 6px; }
+    .session-row {
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    }
+    .sess {
+      font-size: 0.62rem; font-weight: 900; letter-spacing: .04em; text-transform: uppercase;
+      padding: 3px 8px; border-radius: 999px; border: 1px solid #6a5320;
+      color: var(--amber); background: #241e10;
+    }
+    .clock-chip {
+      font-family: var(--mono); font-size: 0.62rem; color: var(--muted);
+      padding: 3px 7px; border-radius: 6px; border: 1px solid #2a2a2a; background: #141414;
+    }
+    .cta {
+      margin-left: auto;
+      font-size: 0.68rem; font-weight: 900; padding: 5px 10px; border-radius: 8px;
+      background: linear-gradient(180deg, #3ecf8e, #2aa86e); color: #04140c;
+      border: 1px solid #5ee0a8; box-shadow: 0 0 12px rgba(62,207,142,.25);
+    }
+    .cta.ghost {
+      margin-left: 0; background: #141414; color: var(--muted); border: 1px solid #333; box-shadow: none;
+    }
+    .closed {
+      border: 1px solid #222; border-radius: 8px; background: #0e0e0e; padding: 7px 8px;
+    }
+    .closed h4 {
+      margin: 0 0 5px; font-size: 0.58rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+    }
+    .closed-row {
+      display: flex; justify-content: space-between; gap: 8px;
+      font-size: 0.66rem; padding: 3px 0; border-top: 1px solid #1a1a1a;
+    }
+    .closed-row:first-of-type { border-top: 0; }
+    .closed-row .name { font-weight: 800; color: var(--amber); font-family: var(--mono); font-size: 0.64rem; }
+    .closed-row .pnl.g { color: var(--good); font-weight: 700; font-family: var(--mono); }
+    .closed-row .pnl.b { color: var(--bad); font-weight: 700; font-family: var(--mono); }
+    .tape {
+      font-size: 0.62rem; color: var(--muted); padding: 5px 7px;
+      border-radius: 6px; background: #101010; border: 1px solid #1e1e1e;
+    }
+    .tape .hi { color: var(--amber); font-weight: 800; }
+    .callout {
+      font-size: 0.66rem; line-height: 1.35; padding: 7px 8px; border-radius: 8px;
+      border: 1px solid #333; background: #141414; color: var(--muted);
+    }
+    .callout.bad { border-color: #5a3030; background: #181010; color: #e0a0a0; }
+    .callout.good { border-color: #2a5a40; background: #101810; color: #9ed4b0; }
+    .callout.cook { border-color: #3a4a6a; background: #101418; color: #9bb8e8; }
+
+    /* Overlay / review sheet */
+    .dim {
+      position: absolute; inset: 0; background: rgba(0,0,0,.55);
+      display: flex; align-items: flex-end; justify-content: center;
+      padding: 12px; z-index: 3;
+    }
+    .dim.center { align-items: center; }
+    .sheet {
+      width: 100%; max-width: 360px;
+      background: #101410; border: 1px solid #2a5a40; border-radius: 14px;
+      box-shadow: 0 12px 40px rgba(0,0,0,.55), 0 0 24px rgba(62,207,142,.12);
+      padding: 12px 12px 10px; position: relative;
+    }
+    .sheet.cook {
+      border-color: #3a4a6a; background: #101418;
+      box-shadow: 0 12px 40px rgba(0,0,0,.55), 0 0 24px rgba(120,160,220,.14);
+    }
+    .sheet .x {
+      position: absolute; top: 8px; right: 8px;
+      width: 26px; height: 26px; border-radius: 8px; border: 1px solid #2a5a40;
+      background: #102018; color: var(--good); font-size: 0.95rem; font-weight: 900;
+      display: grid; place-items: center;
+    }
+    .sheet .kicker {
+      font-size: 0.58rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+      color: var(--good); margin-bottom: 4px;
+    }
+    .sheet.cook .kicker { color: #9bb8e8; }
+    .sheet h3 {
+      margin: 0 0 6px; font-size: 0.98rem; font-weight: 900; letter-spacing: -0.02em;
+      padding-right: 28px;
+    }
+    .grade-row {
+      display: flex; align-items: center; gap: 10px; margin: 8px 0 10px;
+    }
+    .grade {
+      width: 54px; height: 54px; border-radius: 12px;
+      background: linear-gradient(135deg, #102018, #1a3020);
+      border: 1px solid #3ecf8e; color: var(--good);
+      display: grid; place-items: center; font-size: 1.35rem; font-weight: 900;
+      box-shadow: 0 0 16px rgba(62,207,142,.3);
+    }
+    .grade-meta .run {
+      font-size: 0.72rem; font-weight: 800;
+    }
+    .grade-meta .pnl {
+      font-family: var(--mono); font-size: 0.78rem; font-weight: 800; color: var(--good); margin-top: 2px;
+    }
+    .grade-meta .note {
+      font-size: 0.6rem; color: var(--muted); margin-top: 2px;
+    }
+    .bullets {
+      list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px;
+    }
+    .bullets li {
+      font-size: 0.7rem; color: var(--text); line-height: 1.35;
+      padding: 7px 8px; border-radius: 8px; background: #0c0c0c; border: 1px solid #1e2a22;
+    }
+    .bullets li .tag {
+      display: inline-block; font-size: 0.55rem; font-weight: 900; letter-spacing: .05em;
+      text-transform: uppercase; padding: 1px 5px; border-radius: 999px; margin-right: 5px;
+      border: 1px solid #2a5a40; color: var(--good); background: #102018;
+    }
+    .bullets li .tag.bad {
+      border-color: #5a3030; color: var(--bad); background: #241010;
+    }
+    .bullets li .tag.amber {
+      border-color: #6a5320; color: var(--amber); background: #241e10;
+    }
+    .bullets li .tag.next {
+      border-color: #3a4a6a; color: #9bb8e8; background: #121820;
+    }
+    .sheet-actions {
+      display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap;
+    }
+    .sheet-actions .cta { margin-left: 0; flex: 1; text-align: center; }
+    .sheet-actions .cta.ghost { flex: 0.7; }
+    .disclaimer {
+      margin-top: 8px; font-size: 0.55rem; color: var(--muted); line-height: 1.3;
+    }
+    .sfx-cue {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 0.58rem; font-weight: 800; color: #9bb8e8;
+      padding: 2px 7px; border-radius: 999px; border: 1px solid #3a4a6a; background: #121820;
+      margin-bottom: 6px;
+    }
+
+    /* Cooking UI */
+    .cook-body { text-align: center; padding: 8px 4px 4px; }
+    .engine {
+      width: 56px; height: 56px; margin: 4px auto 10px; border-radius: 50%;
+      border: 2px solid #3a4a6a; border-top-color: #9bb8e8;
+      box-shadow: 0 0 18px rgba(120,160,220,.25);
+      display: grid; place-items: center; font-size: 1.2rem;
+    }
+    .cook-body .big {
+      font-size: 0.92rem; font-weight: 900; margin-bottom: 4px;
+    }
+    .cook-body .sub {
+      font-size: 0.68rem; color: var(--muted); max-width: 260px; margin: 0 auto 10px;
+    }
+    .bars {
+      display: flex; flex-direction: column; gap: 5px; max-width: 240px; margin: 0 auto 8px;
+    }
+    .bar {
+      height: 6px; border-radius: 999px; background: #1a222c; overflow: hidden; text-align: left;
+    }
+    .bar i {
+      display: block; height: 100%; border-radius: 999px;
+      background: linear-gradient(90deg, #5a7aaa, #9bb8e8);
+    }
+    .bar:nth-child(1) i { width: 88%; }
+    .bar:nth-child(2) i { width: 62%; }
+    .bar:nth-child(3) i { width: 40%; }
+    .cook-foot {
+      font-size: 0.58rem; color: var(--muted); margin-top: 6px;
+    }
+
+    .foot {
+      margin-top: 4px; padding: 12px 14px; border-radius: 12px;
+      background: #101010; border: 1px solid #222; font-size: 0.72rem; color: var(--muted);
+      line-height: 1.45;
+    }
+    .foot b { color: var(--text); }
+    .foot code { font-family: var(--mono); color: var(--amber); font-size: 0.68rem; }
+  </style>
+</head>
+<body>
+  <div class="banner">
+    <span class="tag warn">EYES ONLY</span>
+    <span class="tag">NOT A PR</span>
+    <span class="tag">EXAMPLE $</span>
+    <span>Game · AI post-game review · chess-style · <code>qa/mock-game-ai-review-v1</code> · draft cut <code>qa/cut-2026-10-27-ship-p-game-ai-review.md</code></span>
+  </div>
+
+  <div class="app">
+    <h1 class="claim">
+      <span>SHIP P draft · eyes only</span>
+      AI run review after 24h — like chess post-game
+    </h1>
+    <p class="lede">
+      Owner: when the <b>24h finishes</b>, want an <b>AI analyze / review</b> like chess game review —
+      short readable recap of <b>this</b> EXAMPLE run (PEBBLE / AURUM), not a wall of jargon.
+      Take time on the AI. Does <b>not</b> reopen SHIP K restart mechanics — review overlays / follows the finish state.
+      Separate from Gold Scar (N), Max unknown (O), and J→K→L→M.
+    </p>
+
+    <div class="proof">
+      <div>
+        <div class="id">AC-R01</div>
+        <h3>Offer on finish</h3>
+        <p>At 24h end (or force-end), <b>Review</b> surface appears (or one-tap Review) — not buried.</p>
+      </div>
+      <div>
+        <div class="id">AC-R02</div>
+        <h3>This run, plain EN</h3>
+        <p>Recap grounded in <b>this</b> session’s trades / P&amp;L — plain English, not raw logs or generic filler only.</p>
+      </div>
+      <div>
+        <div class="id">AC-R03</div>
+        <h3>Dismiss + restart</h3>
+        <p>Can dismiss (X/Back) and still <b>Start / Restart 24h</b> — K path intact; review doesn’t trap.</p>
+      </div>
+      <div>
+        <div class="id">AC-R04</div>
+        <h3>No block sell/history</h3>
+        <p>Review doesn’t block closed-tape / history read; honest paper / not-advice label; no stuck overlay.</p>
+      </div>
+      <div>
+        <div class="id">AC-R05</div>
+        <h3>Mute / soft cue</h3>
+        <p>Optional soft “review ready” cue; <b>Mute</b> kills it (same Sound on | Mute chrome).</p>
+      </div>
+    </div>
+
+    <div class="story-label">
+      <h2>Storyboard</h2>
+      <span class="sub">1 BEFORE no review · 2 AFTER LOADING cooking · 3 AFTER REVIEW grade+bullets+CTA</span>
+    </div>
+
+    <div class="story">
+      <!-- ========== 1 BEFORE ========== -->
+      <section class="panel before">
+        <div class="panel-head">
+          <span class="state">1 · Before</span>
+          <span class="badge stuck">No review</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">current finish</span>
+        </div>
+        <div class="stage">
+          <div class="game-shell">
+            <div class="topmini">
+              <div class="tabs"><span>Filter</span><span class="on">Game</span></div>
+              <span class="live-chip ended">SESSION ENDED</span>
+              <span class="sound-chip">🔊 Sound on</span>
+              <div class="pf"><div class="av">P</div><div>Pilot · <span class="pts">1,240 pts</span></div></div>
+            </div>
+            <div class="rocket-strip">
+              <div class="stars"></div>
+              <svg class="craft" viewBox="0 0 140 56" aria-hidden="true">
+                <defs>
+                  <linearGradient id="h0" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stop-color="#5a2ee0"/><stop offset="50%" stop-color="#c84bff"/><stop offset="100%" stop-color="#7aa8ff"/>
+                  </linearGradient>
+                </defs>
+                <ellipse cx="18" cy="28" rx="10" ry="4" fill="#3ecf8e" opacity=".25"/>
+                <ellipse cx="30" cy="22" rx="3" ry="5" fill="#12081e" stroke="#c84bff" stroke-width="1"/>
+                <ellipse cx="30" cy="34" rx="3" ry="5" fill="#12081e" stroke="#c84bff" stroke-width="1"/>
+                <path d="M32 18 C48 10, 80 8, 100 20 L112 28 L100 36 C80 48, 48 46, 32 38 Z" fill="url(#h0)" stroke="#e7e9ea" stroke-width="1"/>
+                <path d="M100 20 L128 28 L100 36 Z" fill="#eee" stroke="#ccc" stroke-width=".8"/>
+                <ellipse cx="72" cy="27" rx="9" ry="5" fill="#5b8cff" stroke="#8ab0ff" stroke-width="1"/>
+              </svg>
+              <div class="rocket-hud">
+                <div class="skin">Skin · Nebula</div>
+                <div class="dir">SESSION ENDED</div>
+                <div class="sub">rocket calm · no review</div>
+              </div>
+              <div class="pos-chip">no open · clock 00:00:00</div>
+            </div>
+            <div class="bank">
+              <div class="stat">
+                <div class="lab">Equity · ended</div>
+                <div class="val good">$6.84</div>
+                <div class="hint">from $5 · +36.8%</div>
+              </div>
+              <div class="stat">
+                <div class="lab">Closed trades</div>
+                <div class="val">4</div>
+                <div class="hint">paper · EXAMPLE</div>
+              </div>
+              <div class="stat">
+                <div class="lab">Last tick</div>
+                <div class="val dead">$0.00</div>
+                <div class="hint">run settled</div>
+              </div>
+            </div>
+            <div class="chrome">
+              <div class="session-row">
+                <span class="sess">Session ended</span>
+                <span class="clock-chip">CLOCK 00:00:00</span>
+                <span class="cta">Restart 24h</span>
+              </div>
+              <div class="closed">
+                <h4>Closed this run</h4>
+                <div class="closed-row"><span><span class="name">PEBBLE</span> · take-profit</span><span class="pnl g">+$1.42 (+71%)</span></div>
+                <div class="closed-row"><span><span class="name">AURUM</span> · stop</span><span class="pnl b">−$0.48 (−48%)</span></div>
+                <div class="closed-row"><span><span class="name">PEBBLE</span> · manual</span><span class="pnl g">+$0.61 (+30%)</span></div>
+                <div class="closed-row"><span><span class="name">AURUM</span> · force-end</span><span class="pnl b">−$0.11 (−11%)</span></div>
+              </div>
+              <div class="tape"><span class="hi">ended</span> · equity + rocket + Restart — <b style="color:var(--bad)">no AI review</b></div>
+              <div class="callout bad">Gap: 24h ends → Restart only. No chess-style recap of what went well / poorly on this run.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========== 2 LOADING ========== -->
+      <section class="panel loading">
+        <div class="panel-head">
+          <span class="state">2 · After · Loading</span>
+          <span class="badge cook">Review cooking</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">AC-R01 soft cue</span>
+        </div>
+        <div class="stage">
+          <div class="game-shell">
+            <div class="topmini">
+              <div class="tabs"><span>Filter</span><span class="on">Game</span></div>
+              <span class="live-chip ended">SESSION ENDED</span>
+              <span class="sound-chip">🔊 Sound on</span>
+              <div class="pf"><div class="av">P</div><div>Pilot · <span class="pts">1,240 pts</span></div></div>
+            </div>
+            <div class="rocket-strip" style="opacity:.55">
+              <div class="stars"></div>
+              <svg class="craft" viewBox="0 0 140 56" aria-hidden="true">
+                <defs>
+                  <linearGradient id="h1" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stop-color="#5a2ee0"/><stop offset="50%" stop-color="#c84bff"/><stop offset="100%" stop-color="#7aa8ff"/>
+                  </linearGradient>
+                </defs>
+                <ellipse cx="18" cy="28" rx="10" ry="4" fill="#3ecf8e" opacity=".2"/>
+                <ellipse cx="30" cy="22" rx="3" ry="5" fill="#12081e" stroke="#c84bff" stroke-width="1"/>
+                <ellipse cx="30" cy="34" rx="3" ry="5" fill="#12081e" stroke="#c84bff" stroke-width="1"/>
+                <path d="M32 18 C48 10, 80 8, 100 20 L112 28 L100 36 C80 48, 48 46, 32 38 Z" fill="url(#h1)" stroke="#e7e9ea" stroke-width="1"/>
+                <path d="M100 20 L128 28 L100 36 Z" fill="#eee" stroke="#ccc" stroke-width=".8"/>
+                <ellipse cx="72" cy="27" rx="9" ry="5" fill="#5b8cff" stroke="#8ab0ff" stroke-width="1"/>
+              </svg>
+              <div class="rocket-hud">
+                <div class="skin">Skin · Nebula</div>
+                <div class="dir">SESSION ENDED</div>
+                <div class="sub">dim under overlay</div>
+              </div>
+              <div class="pos-chip">tape still readable under sheet</div>
+            </div>
+            <div class="bank" style="opacity:.45">
+              <div class="stat"><div class="lab">Equity · ended</div><div class="val good">$6.84</div><div class="hint">from $5 · +36.8%</div></div>
+              <div class="stat"><div class="lab">Closed trades</div><div class="val">4</div><div class="hint">paper · EXAMPLE</div></div>
+              <div class="stat"><div class="lab">Last tick</div><div class="val dead">$0.00</div><div class="hint">run settled</div></div>
+            </div>
+            <div class="chrome" style="opacity:.4">
+              <div class="session-row">
+                <span class="sess">Session ended</span>
+                <span class="clock-chip">CLOCK 00:00:00</span>
+                <span class="cta ghost">Restart 24h</span>
+              </div>
+              <div class="closed">
+                <h4>Closed this run</h4>
+                <div class="closed-row"><span><span class="name">PEBBLE</span> · take-profit</span><span class="pnl g">+$1.42</span></div>
+                <div class="closed-row"><span><span class="name">AURUM</span> · stop</span><span class="pnl b">−$0.48</span></div>
+              </div>
+            </div>
+
+            <div class="dim center">
+              <div class="sheet cook">
+                <div class="x" title="Dismiss — keep Restart">×</div>
+                <div class="kicker">AI · post-game</div>
+                <div class="cook-body">
+                  <div class="sfx-cue">♪ soft cue · Mute kills</div>
+                  <div class="engine">♟</div>
+                  <div class="big">AI reviewing your run…</div>
+                  <div class="sub">Chess-engine vibe · reading this session’s tape · take our time · not a novel</div>
+                  <div class="bars">
+                    <div class="bar"><i></i></div>
+                    <div class="bar"><i></i></div>
+                    <div class="bar"><i></i></div>
+                  </div>
+                  <div class="cook-foot">You can dismiss anytime · Restart 24h still available</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="callout cook">Loading: brief “Review cooking…” — never dump raw logs. Soft cue respects Mute (AC-R05).</div>
+        </div>
+      </section>
+
+      <!-- ========== 3 REVIEW ========== -->
+      <section class="panel review">
+        <div class="panel-head">
+          <span class="state">3 · After · Review</span>
+          <span class="badge fix">Grade + bullets</span>
+          <span class="badge fix">Restart CTA</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">AC-R01…R05</span>
+        </div>
+        <div class="stage">
+          <div class="game-shell">
+            <div class="topmini">
+              <div class="tabs"><span>Filter</span><span class="on">Game</span></div>
+              <span class="live-chip ended">SESSION ENDED</span>
+              <span class="sound-chip">🔊 Sound on</span>
+              <div class="pf"><div class="av">P</div><div>Pilot · <span class="pts">1,240 pts</span></div></div>
+            </div>
+            <div class="rocket-strip" style="opacity:.4; height:64px">
+              <div class="stars"></div>
+              <div class="rocket-hud">
+                <div class="skin">Skin · Nebula</div>
+                <div class="dir">ENDED · reviewed</div>
+                <div class="sub">under sheet</div>
+              </div>
+              <div class="pos-chip">history still there</div>
+            </div>
+            <div class="bank" style="opacity:.35">
+              <div class="stat"><div class="lab">Equity</div><div class="val good">$6.84</div><div class="hint">+36.8%</div></div>
+              <div class="stat"><div class="lab">Closed</div><div class="val">4</div><div class="hint">intact</div></div>
+              <div class="stat"><div class="lab">Last tick</div><div class="val dead">$0.00</div><div class="hint">settled</div></div>
+            </div>
+
+            <div class="dim">
+              <div class="sheet">
+                <div class="x" title="Dismiss / Back">×</div>
+                <div class="kicker">AI run review · this 24h</div>
+                <h3>Solid grind — PEBBLE carried, AURUM leaked</h3>
+                <div class="grade-row">
+                  <div class="grade">B+</div>
+                  <div class="grade-meta">
+                    <div class="run">EXAMPLE run · 4 closed</div>
+                    <div class="pnl">+$1.84 · +36.8% on $5</div>
+                    <div class="note">Paper research · not financial advice</div>
+                  </div>
+                </div>
+                <ul class="bullets">
+                  <li><span class="tag">Best</span> <b>PEBBLE</b> take-profit (+$1.42) — you let the winner run past +50% instead of scratching early.</li>
+                  <li><span class="tag bad">Worst</span> <b>AURUM</b> stop (−$0.48) — size was fine; entry chased a late spike. Cut faster next time.</li>
+                  <li><span class="tag amber">Timing</span> Two buys clustered in the same 20m window — diversification of <i>when</i>, not just what.</li>
+                  <li><span class="tag next">Try next</span> One open at a time until mid-run equity &gt; +20%, then add a second scout ticket.</li>
+                  <li><span class="tag next">Also</span> Force-end leftover on AURUM was small (−$0.11) — clock discipline was OK.</li>
+                </ul>
+                <div class="sheet-actions">
+                  <span class="cta">Start next 24h</span>
+                  <span class="cta ghost">Dismiss</span>
+                </div>
+                <div class="disclaimer">Grounded in this EXAMPLE tape only · take-our-time AI · no “you would’ve moon’d if…” fake certainty · Mute kills soft ready cue</div>
+              </div>
+            </div>
+          </div>
+          <div class="callout good">Review: headline grade · 3–5 bullets · Start next 24h aligned with K restart · X/Dismiss frees chrome · closed history not blocked.</div>
+        </div>
+      </section>
+    </div>
+
+    <div class="foot">
+      <b>Eng / PM pointer:</b> optional SoT for SHIP P draft <code>qa/cut-2026-10-27-ship-p-game-ai-review.md</code> —
+      post-24h review sheet after finish / force-end; short grounded recap; keep K Start/Restart path;
+      dismissible; don’t block sell/history; optional soft cue respects Mute.
+      EXAMPLE $ · PEBBLE / AURUM invent · no live HACHI hero · no personal names.
+      Eyes only · do not merge · do not claim PASS.
+      Files: <code>qa/mock-game-ai-review-v1.{html,png,md}</code>
+    </div>
+  </div>
+</body>
+</html>

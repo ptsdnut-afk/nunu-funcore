@@ -1356,6 +1356,353 @@ def attach_live_dex_quote(row: dict | None, mint: str, fresh: bool = False) -> d
     return out
 
 
+# SHIP P — post-game review of a finished 24h paper run.
+# Filled from this session's closed tape and equity. Not mid-run coaching.
+# Not a forecast. Pump.fun base rates stay in the footer on purpose.
+REVIEW_DISCLAIMER = "Paper research review. Not financial advice."
+REVIEW_HUMILITY = (
+    "Pump.fun odds are ugly: about 1 in 58 graduate, a few in 10,000 get near $1M+, "
+    "and most die the same day. A winner pattern is not a promise. "
+    "Fed and CPI days dump more often — this recap does not know the calendar, and it is not a call."
+)
+_GRADE_TONE = {
+    "A": "Green book",
+    "B+": "Solid grind",
+    "B": "Small paper edge",
+    "C+": "Scratch",
+    "C": "Leaky book",
+    "D": "Heavy paper leak",
+    "F": "Down hard",
+}
+_CLOSE_WHY = {
+    "tp": "take-profit",
+    "stop": "stop",
+    "manual": "manual close",
+    "force_24h": "clock force-sell",
+}
+
+
+def review_grade(pnl_pct: float) -> str:
+    """Letter label for this run's paper P&L. It is not a forecast."""
+    try:
+        p = float(pnl_pct)
+    except (TypeError, ValueError):
+        p = 0.0
+    if p >= 50:
+        return "A"
+    if p >= 20:
+        return "B+"
+    if p >= 5:
+        return "B"
+    if p >= -5:
+        return "C+"
+    if p >= -20:
+        return "C"
+    if p >= -40:
+        return "D"
+    return "F"
+
+
+def _money(n: float, signed: bool = False) -> str:
+    v = float(n or 0)
+    if not signed:
+        return f"${v:.2f}"
+    if v > 0:
+        return f"+${v:.2f}"
+    if v < 0:
+        return f"−${abs(v):.2f}"
+    return "$0.00"
+
+
+def _pct_text(n: float) -> str:
+    v = float(n or 0)
+    if v > 0:
+        return f"+{v:.1f}%"
+    if v < 0:
+        return f"−{abs(v):.1f}%"
+    return "0.0%"
+
+
+def _why_closed(reason: str) -> str:
+    key = str(reason or "").strip()
+    return _CLOSE_WHY.get(key, key or "close")
+
+
+def _closed_rows(st: dict) -> list[dict]:
+    rows = []
+    for i, raw in enumerate(st.get("closed") or []):
+        if not isinstance(raw, dict):
+            continue
+        symbol = str(raw.get("symbol") or "").strip() or "?"
+        rows.append({
+            "symbol": symbol,
+            "pnl_usd": _f(raw.get("pnl_usd")),
+            "pnl_pct": _f(raw.get("pnl_pct")),
+            "close_reason": str(raw.get("close_reason") or "").strip(),
+            "opened_at": raw.get("opened_at"),
+            "closed_at": raw.get("closed_at"),
+            "id": raw.get("id"),
+            "_i": i,
+        })
+    return rows
+
+
+def _best_worst(rows: list[dict]) -> tuple[dict | None, dict | None]:
+    scored = [r for r in rows if r.get("pnl_usd") is not None]
+    if not scored:
+        return None, None
+    best = max(scored, key=lambda r: (float(r["pnl_usd"]), -r["_i"]))
+    worst = min(scored, key=lambda r: (float(r["pnl_usd"]), r["_i"]))
+    if best["_i"] == worst["_i"]:
+        pnl = float(best["pnl_usd"])
+        if pnl > 0.005:
+            return best, None
+        if pnl < -0.005:
+            return None, best
+        return None, None
+    return best, worst
+
+
+def _print_line(row: dict, role: str) -> str:
+    why = _why_closed(row.get("close_reason") or "")
+    pnl = row.get("pnl_usd")
+    pct = row.get("pnl_pct")
+    if pnl is None:
+        bit = f"{row['symbol']} {why} — P&L was not on this tape"
+    else:
+        pct_bit = f", {_pct_text(pct)}" if pct is not None else ""
+        bit = f"{row['symbol']} {why} ({_money(pnl, True)}{pct_bit})"
+    if role == "best":
+        return bit + " — best closed print on this tape."
+    if role == "worst":
+        return bit + " — worst closed print on this tape."
+    return bit + "."
+
+
+def _cluster_pair(rows: list[dict]) -> tuple[dict, dict] | None:
+    parsed = []
+    for row in rows:
+        opened = _parse_utc(row.get("opened_at"))
+        if opened is not None:
+            parsed.append((opened, row))
+    parsed.sort(key=lambda item: item[0])
+    best = None
+    for (ta, a), (tb, b) in zip(parsed, parsed[1:]):
+        gap = (tb - ta).total_seconds()
+        if gap <= 20 * 60 and (best is None or gap < best[0]):
+            best = (gap, a, b)
+    if not best:
+        return None
+    return best[1], best[2]
+
+
+def _held_under_5m(row: dict) -> bool:
+    opened = _parse_utc(row.get("opened_at"))
+    closed = _parse_utc(row.get("closed_at"))
+    if opened is None or closed is None:
+        return False
+    held = (closed - opened).total_seconds()
+    return 0 <= held < 300
+
+
+def _timing_text(rows: list[dict], cluster: tuple[dict, dict] | None) -> str:
+    bits = []
+    if cluster:
+        a, b = cluster
+        if a["symbol"] == b["symbol"]:
+            bits.append(f"{a['symbol']} was opened twice inside the same 20m window.")
+        else:
+            bits.append(f"{a['symbol']} and {b['symbol']} both opened inside the same 20m window.")
+    early = [r for r in rows if _held_under_5m(r)]
+    if early:
+        shown = early[:2]
+        names = ", ".join(f"{r['symbol']} {_why_closed(r.get('close_reason') or '')}" for r in shown)
+        bits.append(f"{names} cut in under 5 minutes.")
+    forced = [r for r in rows if r.get("close_reason") == "force_24h"]
+    if forced:
+        shown = forced[:2]
+        parts = []
+        for r in shown:
+            if r.get("pnl_usd") is None:
+                parts.append(r["symbol"])
+            else:
+                parts.append(f"{r['symbol']} ({_money(r['pnl_usd'], True)})")
+        bits.append("Clock force-sold " + " and ".join(parts) + ".")
+    return " ".join(bits)
+
+
+def _note_text(rows: list[dict], cluster: tuple[dict, dict] | None) -> str:
+    if not rows:
+        return "An empty tape has nothing to copy. Most coins die the same day anyway."
+    if cluster:
+        a, b = cluster
+        if a["symbol"] == b["symbol"]:
+            who = a["symbol"]
+        else:
+            who = f"{a['symbol']} and {b['symbol']}"
+        return f"{who} opened close together. Spacing is a note from this tape, not a reason the next name works."
+    pnls = [float(r["pnl_usd"]) for r in rows if r.get("pnl_usd") is not None]
+    if pnls and all(p <= 0.005 for p in pnls):
+        return "Every close was flat or red. Fewer names is a note from this tape, not a call."
+    best = max(rows, key=lambda r: float(r["pnl_usd"]) if r.get("pnl_usd") is not None else -1e18)
+    if best.get("pnl_usd") is not None and float(best["pnl_usd"]) > 0.005:
+        return f"{best['symbol']} did most of the green print. That describes this run. It is not a pattern to trust."
+    return "The grade only labels this paper book. It is not a reason to size up."
+
+
+def _session_mark(st: dict, equity_usd: float) -> tuple[float, float, float, float, float]:
+    """Match public_state P&L so the review cannot disagree with the panel."""
+    eq = float(equity_usd)
+    start = float(st.get("start_bankroll") or START_BANKROLL)
+    pnl = round(eq - start, 6)
+    pnl_pct = round((eq / start - 1.0) * 100, 2) if float(st.get("start_bankroll") or 0) else 0.0
+    try:
+        peak = float(st.get("peak_equity")) if st.get("peak_equity") is not None else eq
+    except (TypeError, ValueError):
+        peak = eq
+    return eq, start, pnl, pnl_pct, peak
+
+
+def build_run_review(st: dict | None, equity_usd: float | None = None) -> dict:
+    """Chess-style recap of one finished paper run.
+
+    Active and idle sessions get status ``none`` — no mid-run tips.
+    Ended sessions cite only this run's closed rows and equity marks.
+    """
+    st = st if isinstance(st, dict) else {}
+    sid = st.get("session_id")
+    base = {
+        "feature": "game_ai_review",
+        "status": "none",
+        "session_id": sid,
+        "advice": False,
+    }
+    if st.get("status") != "ended":
+        return base
+    if equity_usd is None:
+        equity_usd = equity(st)
+    eq, start, pnl, pnl_pct, peak = _session_mark(st, equity_usd)
+    grade = review_grade(pnl_pct)
+    tone = _GRADE_TONE[grade]
+    rows = _closed_rows(st)
+    best, worst = _best_worst(rows)
+    cluster = _cluster_pair(rows)
+    arc = (
+        f"Started {_money(start)}, peaked {_money(peak)}, finished {_money(eq)} "
+        f"({_money(pnl, True)}, {_pct_text(pnl_pct)})."
+    )
+    flat = bool(rows) and all(r.get("pnl_usd") is not None and abs(float(r["pnl_usd"])) <= 0.005 for r in rows)
+    if not rows:
+        headline = "Quiet book — no closed trades"
+        summary = f"No closed trades on this run. Grade {grade} labels this paper book only."
+    elif best and worst and float(best["pnl_usd"]) > 0.005 and float(worst["pnl_usd"]) < -0.005:
+        headline = f"{tone} — {best['symbol']} carried, {worst['symbol']} leaked"
+        summary = (
+            f"{best['symbol']} closed {_money(best['pnl_usd'], True)} and "
+            f"{worst['symbol']} closed {_money(worst['pnl_usd'], True)}. "
+            f"Grade {grade} labels this paper result only."
+        )
+    elif best and float(best["pnl_usd"]) > 0.005:
+        headline = f"{tone} — {best['symbol']} led the book"
+        summary = (
+            f"{best['symbol']} closed {_money(best['pnl_usd'], True)}. "
+            f"Grade {grade} labels this paper result only."
+        )
+    elif worst and float(worst["pnl_usd"]) < -0.005:
+        headline = f"{tone} — {worst['symbol']} was the leak"
+        summary = (
+            f"{worst['symbol']} closed {_money(worst['pnl_usd'], True)}. "
+            f"Grade {grade} labels this paper result only."
+        )
+    elif len(rows) == 1:
+        headline = f"{tone} — {rows[0]['symbol']} closed flat"
+        summary = f"{rows[0]['symbol']} closed flat. Grade {grade} labels this paper result only."
+    else:
+        headline = f"{tone} — closes were flat"
+        summary = f"Closed trades were flat. Grade {grade} labels this paper result only."
+
+    bullets: list[dict] = []
+    if not rows:
+        bullets.append({"tag": "TAPE", "text": "No closed trades on this run."})
+    if best and float(best["pnl_usd"]) > 0.005:
+        bullets.append({"tag": "BEST", "text": _print_line(best, "best")})
+    if worst and float(worst["pnl_usd"]) < -0.005 and (best is None or worst["_i"] != best["_i"]):
+        bullets.append({"tag": "WORST", "text": _print_line(worst, "worst")})
+    if flat and not bullets:
+        shown = rows[0]
+        why = _why_closed(shown.get("close_reason") or "")
+        bullets.append({
+            "tag": "TAPE",
+            "text": f"{shown['symbol']} {why} ({_money(shown.get('pnl_usd') or 0, True)}) — flat on this tape.",
+        })
+    timing = _timing_text(rows, cluster)
+    if timing:
+        bullets.append({"tag": "TIMING", "text": timing})
+    giveback = round(peak - eq, 2)
+    if giveback >= 0.01:
+        bullets.append({
+            "tag": "ARC",
+            "text": f"Gave back {_money(giveback)} from the {_money(peak)} peak. Finish was {_money(eq)}.",
+        })
+    note = _note_text(rows, cluster)
+    core = [b for b in bullets if b["tag"] != "ARC"]
+    arc_bits = [b for b in bullets if b["tag"] == "ARC"]
+    # Keep the recap to a handful of lines. Drop the give-back line before the note.
+    if len(core) >= 4:
+        arc_bits = []
+    bullets = (core + arc_bits)[:4]
+    bullets.append({"tag": "NOTE", "text": note})
+
+    takeaways = [arc]
+    if best and worst and float(best["pnl_usd"]) > 0.005 and float(worst["pnl_usd"]) < -0.005:
+        takeaways.append(
+            f"{best['symbol']} {_money(best['pnl_usd'], True)} and "
+            f"{worst['symbol']} {_money(worst['pnl_usd'], True)} are the tape, not a forecast."
+        )
+    elif rows and bullets:
+        takeaways.append(bullets[0]["text"])
+    if note not in takeaways:
+        takeaways.append(note)
+    takeaways = takeaways[:3]
+
+    cited = []
+    for r in rows:
+        cited.append({
+            "symbol": r["symbol"],
+            "pnl_usd": r["pnl_usd"],
+            "pnl_pct": r["pnl_pct"],
+            "close_reason": r["close_reason"],
+            "opened_at": r["opened_at"],
+            "closed_at": r["closed_at"],
+            "id": r["id"],
+        })
+    return {
+        "feature": "game_ai_review",
+        "status": "ready",
+        "session_id": sid,
+        "advice": False,
+        "grounded": True,
+        "label": "Paper run review",
+        "grade": grade,
+        "grade_note": "Labels this paper P&L only — not a forecast.",
+        "headline": headline,
+        "arc": arc,
+        "summary": summary,
+        "bullets": bullets,
+        "takeaways": takeaways,
+        "disclaimer": REVIEW_DISCLAIMER,
+        "humility": REVIEW_HUMILITY,
+        "pnl_usd": pnl,
+        "pnl_pct": pnl_pct,
+        "final_equity": round(eq, 6),
+        "start_bankroll": start,
+        "peak_equity": round(peak, 6),
+        "trade_count": len(rows),
+        "symbols": [r["symbol"] for r in rows],
+        "cited": cited,
+    }
+
+
 def public_state(st: dict | None = None) -> dict:
     st = tick_session(st) if st is None else st
     eq = equity(st)
@@ -1394,6 +1741,7 @@ def public_state(st: dict | None = None) -> dict:
     out["open_count"] = len(enriched)
     out["server_time"] = _utc()
     out["profile"] = public_profile()
+    out["review"] = build_run_review(st, equity_usd=eq)
     return out
 
 

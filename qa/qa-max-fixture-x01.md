@@ -4,11 +4,11 @@ Not a PASS claim. X02–X04 (hide “Max unknown”) already PASS on panel_v 74.
 
 ## Click path
 
-1. After deploy, `GET /api/health` shows `panel_v` **75**, feature `qa_max_fixture`, and still `hide_max_unknown`, `trade_chart`, `sitting_keep`, `manual_update`.
-2. Open Token Flow with the fixture on: `/?qa_max=1` (the panel adds `&v=75`). Banner: **QA Max fixture — synthetic bonding row QAMAX**.
+1. After deploy, `GET /api/health` shows `panel_v` **76**, feature `qa_max_fixture`, and still `hide_max_unknown`, `trade_chart`, `sitting_keep`, `manual_update`. `game_ai_review` is on the same health payload (SHIP P).
+2. Open Token Flow with the fixture on: `/?qa_max=1` (the panel adds `&v=76`). Banner: **QA Max fixture — synthetic bonding row QAMAX**.
 3. The **QAMAX** row (badge **QA MAX**) shows labeled **Max** and **% gone** from a **Bonding** ceiling above NOW (NOW $120.0k → Max $690.0k · 17.4% gone). FDV on that row equals NOW and is not the Max.
 4. Every other row stays Max-empty. No “Max unknown” chrome.
-5. Hard-refresh **without** `qa_max` (`/?v=75`). QAMAX is gone. Unknown rows still have no Max.
+5. Hard-refresh **without** `qa_max` (`/?v=76`). QAMAX is gone. Unknown rows still have no Max.
 
 ## API cross-check
 
