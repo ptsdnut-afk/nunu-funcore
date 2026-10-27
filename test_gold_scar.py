@@ -152,6 +152,22 @@ class GateTests(unittest.TestCase):
         self.assertFalse(verdict["gold"])
         self.assertIn("narrative", _blocked(verdict))
 
+    def test_compound_ticker_hits_elon_and_melon_does_not(self):
+        # Prefix-only matching let GTAELON through. Interior stem now fails closed.
+        self.assertEqual(gold_scar._crowded_hit({"ticker": "GTAELON", "name": "GTAELON"}), "elon")
+        self.assertEqual(gold_scar._crowded_hit({"ticker": "ELON2028", "name": "ELON2028"}), "elon")
+        self.assertIsNone(gold_scar._crowded_hit({"ticker": "MELON", "name": "Melon"}))
+        self.assertIsNone(gold_scar._crowded_hit({"ticker": "ADVANCE", "name": "Advance"}))
+        self.assertIsNone(gold_scar._crowded_hit({"ticker": "XXELON", "name": "XXELON"}))
+        row = _row("GTAELON", name="GTAELON")
+        verdict = gold_scar.evaluate(row, _ready(row, overheard_posts=_posts("GTAELON")))
+        self.assertFalse(verdict["gold"])
+        self.assertIn("narrative", _blocked(verdict))
+        self.assertIn("elon", verdict["gates"][2]["reason"])
+        melon = _row("MELON", name="Melon")
+        melon_verdict = gold_scar.evaluate(melon, _ready(melon, overheard_posts=_posts("MELON")))
+        self.assertNotIn("narrative", _blocked(melon_verdict))
+
     def test_tape_is_stricter_than_plus_300_and_requires_5m(self):
         hot = _row()
         hot["metrics"]["price_change_h1"] = 200
@@ -264,7 +280,7 @@ class FixtureRouteTests(unittest.TestCase):
 
     def test_health_is_v77_with_gold_scar(self):
         data = self.client.get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 78)
+        self.assertEqual(data["panel_v"], 79)
         self.assertIn("gold_scar", data["features"])
         for feature in (
             "game_ai_review",
@@ -277,8 +293,11 @@ class FixtureRouteTests(unittest.TestCase):
             "game_polish",
             "delay_warning",
             "game_follow_tab",
+            "filter_smart",
         ):
             self.assertIn(feature, data["features"])
+        self.assertIn("−12", data["filter_smart"])
+        self.assertIn("Not a buy", data["filter_smart"])
         self.assertIn("qa_gold=1", data["qa_gold"])
         self.assertIn("qa_gold=arrive", data["qa_gold"])
         self.assertIn("7-gate", data["gold_scar"])
@@ -361,9 +380,9 @@ class FixtureRouteTests(unittest.TestCase):
 class PanelTests(unittest.TestCase):
     def test_gold_section_is_separate_and_versioned(self):
         html = _panel()
-        self.assertIn("const PANEL_V = 78", html)
-        self.assertIn("paper only · v78", html)
-        self.assertIn("?v=78", html)
+        self.assertIn("const PANEL_V = 79", html)
+        self.assertIn("paper only · v79", html)
+        self.assertIn("?v=79", html)
         self.assertLess(html.index('id="goldScar"'), html.index("<h2>Token flow</h2>"))
         self.assertIn('data-feature="gold_scar"', html)
         self.assertIn("No gold picks yet — rare on purpose", html)

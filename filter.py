@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import game as game_mod
+import gold_scar
 from mcap_progress import apply_mcap
 from research import research_card
 
@@ -54,9 +55,36 @@ VOL_OK = 20_000.0
 RUG_SCORE_SAFE_MAX = 200              # above this = heavy penalty
 RUG_LP_LOCK_GOOD = 90.0               # % LP locked for full holder points
 
-# Run-up / late-chase heuristic (tunable)
-LATE_CHASE_MIN_AGE_H = 2.0
-LATE_CHASE_MIN_H1_PCT = 100.0
+# Run-up / late-chase. SHIP U makes the mark consequential.
+# Before: age >= 2h AND h1 >= +100% appended red_flags only (score unchanged).
+# Now: age >= 1h AND h1 >= +180% (gold tape line) costs LATE_CHASE_PENALTY
+# and blocks trench. A +100% to +179% 1h print is no longer this flag;
+# a large 24h print is the already-ran rule below.
+LATE_CHASE_MIN_AGE_H = 1.0
+LATE_CHASE_MIN_H1_PCT = 180.0
+LATE_CHASE_PENALTY = 12.0
+
+# Already-ran tape. New in SHIP U. Penalties apply after the 0–100 cap.
+ALREADY_RAN_H24_PCT = 250.0          # gold MAX_H24_PCT; age >= 2h → −18
+ALREADY_RAN_MIN_AGE_H = 2.0
+ALREADY_RAN_PENALTY = 18.0
+ALREADY_RAN_HARD_H24_PCT = 500.0     # age >= 3h → hard-fail (never flag)
+ALREADY_RAN_HARD_MIN_AGE_H = 3.0
+
+# Crowded politics / Elon / Trump stems. Shared with gold_scar._crowded_hit.
+# Soft score hit. Does not hard-ban. Blocks trench_band.
+CROWDED_PENALTY = 12.0
+
+# Clone pack on one scan cohort. Same count bar as gold (3), not a gold fail.
+CLONE_PACK_MIN = gold_scar.CLONE_PACK_MIN
+CLONE_PACK_PENALTY = 8.0
+
+# One profile URL and no description. X-only used to score 9.0 (0.45 * 20).
+SOCIALS_PROFILE_ONLY_CAP = 6.0
+
+# Trench: still score/12 >= 10, plus fresher and not a chase / crowded name.
+TRENCH_SCORE_12_MIN = 10.0
+TRENCH_MAX_AGE_H = 6.0
 
 # Sitting-time: score considered "same band" within this delta
 SCORE_STABLE_DELTA = 1.0
@@ -524,6 +552,17 @@ def score_socials(pair: dict[str, Any], side: dict[str, Any]) -> tuple[float, li
         points += W_SOCIALS * 0.10
         notes.append("has description")
     points = min(points, W_SOCIALS)
+    kinds = int(has_twitter) + int(has_telegram) + int(has_website)
+    described = bool(str(side.get("description") or "").strip())
+    # One profile URL is not overheard talk. Cap it. A second link or a
+    # description keeps the full social weight. No posts are invented.
+    profile_only = kinds == 1 and not described
+    if profile_only and points > SOCIALS_PROFILE_ONLY_CAP:
+        notes.append(
+            f"profile URL only — socials capped at {SOCIALS_PROFILE_ONLY_CAP:.0f} "
+            f"(uncapped {points:.0f})"
+        )
+        points = SOCIALS_PROFILE_ONLY_CAP
 
     detail = {
         "twitter": has_twitter,
@@ -533,6 +572,7 @@ def score_socials(pair: dict[str, Any], side: dict[str, Any]) -> tuple[float, li
         "twitter_url": twitter_url,
         "telegram_url": telegram_url,
         "website_url": website_url,
+        "profile_only": profile_only,
     }
     return points, notes, detail
 
@@ -787,9 +827,151 @@ def finalize_flagged(
     """Attach sitting time, then keep sitters on the board (SHIP S).
 
     The second list is always empty. The 5-minute hard-drop is retired.
+    Sitting time never removes a row that still clears the flag gates.
     """
     update_flag_history(flagged, now_iso)
     return apply_sitting_rule(flagged)
+
+
+def _price_change(pair: dict[str, Any], key: str) -> float | None:
+    price_change = pair.get("priceChange") or {}
+    if not isinstance(price_change, dict):
+        return None
+    raw = price_change.get(key)
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def already_ran(age_h: float | None, pch24: float | None) -> bool:
+    """Aged tape that already printed a large 24h move. Missing inputs do not fire."""
+    if age_h is None or pch24 is None:
+        return False
+    return age_h >= ALREADY_RAN_MIN_AGE_H and pch24 >= ALREADY_RAN_H24_PCT
+
+
+def already_ran_hard(age_h: float | None, pch24: float | None) -> bool:
+    """Extreme already-ran. Hard-fail. Subset of already_ran when both bars are met."""
+    if age_h is None or pch24 is None:
+        return False
+    return age_h >= ALREADY_RAN_HARD_MIN_AGE_H and pch24 >= ALREADY_RAN_HARD_H24_PCT
+
+
+def trench_band_for(
+    score_12: float,
+    age_h: float | None,
+    late_chase: bool,
+    crowded: bool,
+) -> bool:
+    """Fresher trench. Score/12 >= 10 is not enough on its own."""
+    if crowded or late_chase:
+        return False
+    if age_h is None or age_h >= TRENCH_MAX_AGE_H:
+        return False
+    return score_12 >= TRENCH_SCORE_12_MIN
+
+
+def _pair_liq_vol(pair: dict[str, Any]) -> tuple[float, float]:
+    try:
+        liq = float(((pair.get("liquidity") or {}).get("usd")) or 0)
+    except (TypeError, ValueError):
+        liq = 0.0
+    vol = pair.get("volume") or {}
+    try:
+        vol_h1 = float(vol.get("h1") or 0)
+    except (TypeError, ValueError):
+        vol_h1 = 0.0
+    return liq, vol_h1
+
+
+def clears_half_floors(pair: dict[str, Any]) -> bool:
+    """Old RugCheck gate: liquidity and 1h volume at least half the hard floors."""
+    liq, vol_h1 = _pair_liq_vol(pair)
+    return liq >= MIN_LIQUIDITY_USD * 0.5 and vol_h1 >= MIN_VOLUME_H1_USD * 0.5
+
+
+def rug_summary_wanted(pair: dict[str, Any]) -> bool:
+    """RugCheck summary only when the pair can still flag and is not already-ran.
+
+    The old gate fetched at half the liquidity and 1h-volume floors, so coins
+    that already hard-fail still paid for a summary they could not use.
+    Half-floors stay the lower bound (this does not widen the mint universe
+    or the fetch). Hard-fails and already-ran tape skip the call. Missing
+    RugCheck remains a soft holder score inside evaluate.
+    """
+    if not clears_half_floors(pair):
+        return False
+    liq, vol_h1 = _pair_liq_vol(pair)
+    if liq < MIN_LIQUIDITY_USD or vol_h1 < MIN_VOLUME_H1_USD:
+        return False
+    age_h = pair_age_hours(pair)
+    if age_h is not None and age_h > MAX_PAIR_AGE_HOURS:
+        return False
+    if already_ran(age_h, _price_change(pair, "h24")):
+        return False
+    return True
+
+
+def _apply_score(row: dict[str, Any], score: float) -> None:
+    """Write score, score/12, flag, and trench from fields already on the row."""
+    total = round(max(0.0, min(100.0, score)), 1)
+    score_12 = round(total / 100.0 * 12.0, 1)
+    hard = row.get("hard_fails") or []
+    metrics = row.get("metrics") if isinstance(row.get("metrics"), dict) else {}
+    age_h = metrics.get("pair_age_hours")
+    try:
+        age_f = float(age_h) if age_h is not None else None
+    except (TypeError, ValueError):
+        age_f = None
+    row["score"] = total
+    row["score_12"] = score_12
+    row["flagged"] = (not hard) and total >= MIN_SCORE_TO_FLAG
+    row["trench_band"] = trench_band_for(
+        score_12,
+        age_f,
+        bool(row.get("late_chase")),
+        bool(row.get("crowded_narrative")),
+    )
+
+
+def apply_clone_demotion(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Soft-demote a name family that shows up >= CLONE_PACK_MIN times this pass.
+
+    Uses gold_scar.family_key so TRUMP / TRUMP2028 / TrumpCoin share a pack.
+    Does not hard-ban. Gold's clone gate is unchanged and still fail-closed.
+    """
+    counts: dict[str, int] = {}
+    keys: list[str] = []
+    for row in rows:
+        key = gold_scar.family_key(row)
+        keys.append(key)
+        if key:
+            counts[key] = counts.get(key, 0) + 1
+    for row, key in zip(rows, keys):
+        count = int(counts.get(key) or 0) if key else 0
+        row["family_key"] = key
+        row["family_count"] = count
+        packed = bool(key) and count >= CLONE_PACK_MIN
+        row["clone_pack"] = packed
+        breakdown = row.get("breakdown") if isinstance(row.get("breakdown"), dict) else {}
+        row["breakdown"] = breakdown
+        if not packed or "clone_pack" in breakdown:
+            continue
+        breakdown["clone_pack"] = round(-CLONE_PACK_PENALTY, 1)
+        why = row.get("why") if isinstance(row.get("why"), list) else []
+        why.append(
+            f"clone pack {count} sharing {key} (−{CLONE_PACK_PENALTY:.0f}; bar {CLONE_PACK_MIN})"
+        )
+        row["why"] = why
+        red = row.get("red_flags") if isinstance(row.get("red_flags"), list) else []
+        if "clone_pack" not in red:
+            red.append("clone_pack")
+        row["red_flags"] = red
+        _apply_score(row, float(row.get("score") or 0) - CLONE_PACK_PENALTY)
+    return rows
 
 
 def evaluate(
@@ -856,22 +1038,20 @@ def evaluate(
         flow_notes.append(f"vol/liq h1 = {vol_h1/liq:.1f}x (wash risk)")
         hold_red.append("high_vol_liq")
 
-    total = max(0.0, min(100.0, liq_pts + vol_pts + hold_pts + soc_pts + flow_adj))
-    score_12 = round(total / 100.0 * 12.0, 1)
+    pch1 = _price_change(pair, "h1")
+    pcm5 = _price_change(pair, "m5")
+    pch24 = _price_change(pair, "h24")
 
-    price_change = pair.get("priceChange") or {}
-    try:
-        pch1 = float(price_change.get("h1")) if price_change.get("h1") is not None else None
-    except (TypeError, ValueError):
-        pch1 = None
-    try:
-        pcm5 = float(price_change.get("m5")) if price_change.get("m5") is not None else None
-    except (TypeError, ValueError):
-        pcm5 = None
-    try:
-        pch24 = float(price_change.get("h24")) if price_change.get("h24") is not None else None
-    except (TypeError, ValueError):
-        pch24 = None
+    # Penalties hit after the 0–100 cap so a maxed book loses the full amount.
+    penalties: dict[str, float] = {}
+    description = (side.get("description") or "")[:240]
+    crowded_stem = gold_scar._crowded_hit(
+        {"ticker": symbol, "name": name, "description": description}
+    )
+    if crowded_stem:
+        penalties["crowded"] = CROWDED_PENALTY
+        hold_red.append("crowded_narrative")
+        flow_notes.append(f"crowded narrative '{crowded_stem}' (−{CROWDED_PENALTY:.0f})")
 
     late_chase = False
     if (
@@ -881,10 +1061,28 @@ def evaluate(
         and pch1 >= LATE_CHASE_MIN_H1_PCT
     ):
         late_chase = True
+        penalties["late_chase"] = LATE_CHASE_PENALTY
         hold_red.append("late_chase")
         flow_notes.append(
-            f"late chase risk (age {age_h:.1f}h, h1 {pch1:+.0f}%)"
+            f"late chase (age {age_h:.1f}h, h1 {pch1:+.0f}%) (−{LATE_CHASE_PENALTY:.0f})"
         )
+
+    ran = already_ran(age_h, pch24)
+    ran_hard = already_ran_hard(age_h, pch24)
+    if ran_hard:
+        hard_fails.append(f"already_ran_h24>={ALREADY_RAN_HARD_H24_PCT:.0f}")
+    if ran:
+        penalties["already_ran"] = ALREADY_RAN_PENALTY
+        if "already_ran" not in hold_red:
+            hold_red.append("already_ran")
+        flow_notes.append(
+            f"already ran (age {age_h:.1f}h, h24 {pch24:+.0f}%) (−{ALREADY_RAN_PENALTY:.0f})"
+            + (" hard-fail" if ran_hard else "")
+        )
+
+    base_total = liq_pts + vol_pts + hold_pts + soc_pts + flow_adj
+    capped = min(100.0, max(0.0, base_total))
+    total = max(0.0, capped - sum(penalties.values()))
 
     why: list[str] = []
     why.append(f"liq ${liq:,.0f} → {liq_pts:.0f}/{W_LIQUIDITY:.0f}")
@@ -898,27 +1096,33 @@ def evaluate(
     image_url = extract_image_url(pair, side)
     lp_locked = hold_detail.get("lp_locked_pct")
 
-    flagged = (not hard_fails) and total >= MIN_SCORE_TO_FLAG
-    trench_band = score_12 >= 10.0
+    breakdown = {
+        "liquidity": round(liq_pts, 1),
+        "volume": round(vol_pts, 1),
+        "holders": round(hold_pts, 1),
+        "socials": round(soc_pts, 1),
+        "flow_adj": round(flow_adj, 1),
+    }
+    for key, amount in penalties.items():
+        breakdown[key] = round(-amount, 1)
 
     row = {
         "ticker": symbol,
         "name": name,
         "mint": mint,
         "ca_short": f"{mint[:4]}…{mint[-4:]}" if len(mint) > 10 else mint,
-        "score": round(total, 1),
-        "score_12": score_12,
-        "trench_band": trench_band,
-        "flagged": flagged,
+        "score": 0.0,
+        "score_12": 0.0,
+        "trench_band": False,
+        "flagged": False,
         "hard_fails": hard_fails,
         "late_chase": late_chase,
-        "breakdown": {
-            "liquidity": round(liq_pts, 1),
-            "volume": round(vol_pts, 1),
-            "holders": round(hold_pts, 1),
-            "socials": round(soc_pts, 1),
-            "flow_adj": round(flow_adj, 1),
-        },
+        "crowded_narrative": bool(crowded_stem),
+        "crowded_stem": crowded_stem,
+        "already_ran": ran,
+        "already_ran_hard": ran_hard,
+        "score_before_demotion": round(capped, 1),
+        "breakdown": breakdown,
         "metrics": {
             "liquidity_usd": round(liq, 2),
             "volume_h1_usd": round(vol_h1, 2),
@@ -960,6 +1164,7 @@ def evaluate(
         metrics = dict(metrics)
         metrics["market_cap_usd"] = prog.get("market_cap_usd")
         row["metrics"] = metrics
+    _apply_score(row, total)
     row["research"] = research_card(row)
     return row
 
@@ -1087,22 +1292,24 @@ def main() -> int:
     pairs = fetch_pairs_for_mints(mints)
     print(f"  resolved pairs for {len(pairs)} mints")
 
-    # RugCheck only for candidates that clear basic liq/vol (saves requests)
+    # RugCheck only for pairs that clear the hard floors and are not already-ran.
+    # Half-floor hard-fails and aged +250% 24h tapes skip the slow summary.
     rug_candidates: list[str] = []
+    rug_skipped = 0
+    rug_skipped_would_have_fetched = 0
     for mint, pair in pairs.items():
-        try:
-            liq = float(((pair.get("liquidity") or {}).get("usd")) or 0)
-        except (TypeError, ValueError):
-            liq = 0.0
-        vol = pair.get("volume") or {}
-        try:
-            vol_h1 = float(vol.get("h1") or 0)
-        except (TypeError, ValueError):
-            vol_h1 = 0.0
-        if liq >= MIN_LIQUIDITY_USD * 0.5 and vol_h1 >= MIN_VOLUME_H1_USD * 0.5:
+        if rug_summary_wanted(pair):
             rug_candidates.append(mint)
+            continue
+        rug_skipped += 1
+        if clears_half_floors(pair):
+            rug_skipped_would_have_fetched += 1
 
-    print(f"  fetching RugCheck for {len(rug_candidates)} candidates (workers={RUG_WORKERS})…")
+    print(
+        f"  fetching RugCheck for {len(rug_candidates)} candidates "
+        f"(skipped={rug_skipped} newly_skipped={rug_skipped_would_have_fetched} "
+        f"workers={RUG_WORKERS})…"
+    )
     rugs = fetch_rugs_parallel(rug_candidates)
     rug_ok = sum(1 for v in rugs.values() if v is not None)
     rug_fail = sum(1 for v in rugs.values() if v is None)
@@ -1114,6 +1321,7 @@ def main() -> int:
         if row:
             evaluated.append(row)
 
+    apply_clone_demotion(evaluated)
     evaluated.sort(key=lambda r: r["score"], reverse=True)
     flagged = [r for r in evaluated if r["flagged"]]
 
@@ -1122,6 +1330,10 @@ def main() -> int:
 
     trench_count = sum(1 for r in flagged if r.get("trench_band"))
     late_count = sum(1 for r in flagged if r.get("late_chase"))
+    crowded_count = sum(1 for r in evaluated if r.get("crowded_narrative"))
+    already_ran_count = sum(1 for r in evaluated if r.get("already_ran"))
+    already_ran_hard_count = sum(1 for r in evaluated if r.get("already_ran_hard"))
+    clone_count = sum(1 for r in evaluated if r.get("clone_pack"))
     sitting_kept = [r for r in flagged if r.get("sitting_kept")]
     sitting_aged_hold = [r for r in flagged if r.get("sitting_aged_hold")]
 
@@ -1170,7 +1382,18 @@ def main() -> int:
             "sitting_fresh_min": SITTING_FRESH_MIN,
             "late_chase_min_age_h": LATE_CHASE_MIN_AGE_H,
             "late_chase_min_h1_pct": LATE_CHASE_MIN_H1_PCT,
-            "trench_band_score_12_min": 10.0,
+            "late_chase_penalty": LATE_CHASE_PENALTY,
+            "already_ran_h24_pct": ALREADY_RAN_H24_PCT,
+            "already_ran_min_age_h": ALREADY_RAN_MIN_AGE_H,
+            "already_ran_penalty": ALREADY_RAN_PENALTY,
+            "already_ran_hard_h24_pct": ALREADY_RAN_HARD_H24_PCT,
+            "already_ran_hard_min_age_h": ALREADY_RAN_HARD_MIN_AGE_H,
+            "crowded_penalty": CROWDED_PENALTY,
+            "clone_pack_min": CLONE_PACK_MIN,
+            "clone_pack_penalty": CLONE_PACK_PENALTY,
+            "socials_profile_only_cap": SOCIALS_PROFILE_ONLY_CAP,
+            "trench_band_score_12_min": TRENCH_SCORE_12_MIN,
+            "trench_max_age_h": TRENCH_MAX_AGE_H,
             "weights": {
                 "liquidity": W_LIQUIDITY,
                 "volume": W_VOLUME,
@@ -1182,7 +1405,16 @@ def main() -> int:
             "dexscreener": "ok",
             "rugcheck_summaries_ok": rug_ok,
             "rugcheck_summaries_fail": rug_fail,
+            "rugcheck_summaries_skipped": rug_skipped,
+            "rugcheck_skipped_past_half_floor": rug_skipped_would_have_fetched,
             "cache_dir": str(CACHE_DIR),
+            "mint_universe": "boosts+profiles",
+        },
+        "demotions": {
+            "crowded_narrative": crowded_count,
+            "already_ran": already_ran_count,
+            "already_ran_hard": already_ran_hard_count,
+            "clone_pack": clone_count,
         },
         "disclaimer": "Paper research only. Not financial advice. No trades placed.",
         "top_scores": [
@@ -1210,7 +1442,11 @@ def main() -> int:
         f"trench={trench_count} late={late_count} "
         f"sitting_dropped=0 sitting_kept={len(sitting_kept)} "
         f"sitting_aged_hold={len(sitting_aged_hold)} "
-        f"rug_ok={rug_ok} rug_fail={rug_fail} elapsed_s={elapsed:.2f}\n"
+        f"rug_ok={rug_ok} rug_fail={rug_fail} rug_skipped={rug_skipped} "
+        f"rug_skipped_past_half_floor={rug_skipped_would_have_fetched} "
+        f"crowded={crowded_count} already_ran={already_ran_count} "
+        f"already_ran_hard={already_ran_hard_count} clone_pack={clone_count} "
+        f"elapsed_s={elapsed:.2f}\n"
     )
     with RUNS_LOG.open("a", encoding="utf-8") as f:
         f.write(log_line)

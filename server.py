@@ -38,6 +38,10 @@ app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="")
 CORS(app)
 
 _json_cache: dict[str, tuple[int, object]] = {}
+# Gold annotate is pure CPU. Pollers hit /api/flagged often. Keyed by the
+# flagged file mtime+size and the qa_max / qa_gold query so a Manual Update
+# write (new mtime) and the fixture queries cannot serve a stale board.
+_prepare_cache: dict[tuple, list] = {}
 
 
 def _utc() -> str:
@@ -121,11 +125,27 @@ def _wants_qa_gold() -> bool:
     return raw in {"1", "true", "yes", "on", "arrive"}
 
 
-def _prepare_flagged(data):
-    """Research card, optional QA rows, then a fresh Gold Scar verdict on every row.
+def _prepare_cache_key() -> tuple:
+    qa_max = _wants_qa_max()
+    qa_gold = _wants_qa_gold()
+    try:
+        st = FLAGGED_PATH.stat()
+        return (st.st_mtime_ns, st.st_size, qa_max, qa_gold)
+    except OSError:
+        return (None, 0, qa_max, qa_gold)
 
-    Gold is recomputed here. A ``gold`` stamp inside flagged.json does not promote.
+
+def _prepare_flagged(data):
+    """Research card, optional QA rows, then a Gold Scar verdict on every row.
+
+    Gold is recomputed when flagged.json changes. A ``gold`` stamp inside
+    flagged.json does not promote. Repeat reads with the same mtime and the
+    same qa_max / qa_gold query reuse the annotated payload.
     """
+    key = _prepare_cache_key()
+    cached = _prepare_cache.get(key)
+    if cached is not None:
+        return cached
     rows = _with_research_rows(data)
     if not isinstance(rows, list):
         rows = []
@@ -135,6 +155,8 @@ def _prepare_flagged(data):
     rows = gold_scar.annotate(rows)
     if _wants_qa_gold():
         rows = qa_gold.prepend(rows)
+    _prepare_cache.clear()
+    _prepare_cache[key] = rows
     return rows
 
 
@@ -179,7 +201,7 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 78,
+            "panel_v": 79,
             "time": _utc(),
             "qa_tick": "page ?qa_tick=both|up|down",
             "qa_end": "page ?qa_end=1 (one-shot) or POST /api/game/end",
@@ -193,14 +215,25 @@ def api_health():
                 "Do not combine with ?fixture=."
             ),
             "gold_scar": (
-                "Separate Gold picks section. Promotion recomputed on each flagged read from the "
-                "owner 7-gate stack, stricter: score/12 >= 11, copy pack at 3, crowded politics out, "
+                "Separate Gold picks section. Promotion recomputed when flagged.json changes, from the "
+                "owner 7-gate stack, stricter: score/12 >= 11, copy pack at 3, crowded politics out "
+                "(including a stem inside a compound ticker such as elon in GTAELON), "
                 "1h under +180 with a required 5m print, clean on-chain dig including top holders, "
                 "overheard posts only (a profile URL is not enough; live context passes none), "
                 "macro veto unless gold_macro.json explicitly says Fed-quiet and Solana-ok. "
-                "Gate evidence is on each row as gold_scar and on GET /api/gold. Empty is expected."
+                "Gate evidence is on each row as gold_scar and on GET /api/gold. Empty is expected. "
+                "No gold bar was loosened."
             ),
-            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture", "game_ai_review", "gold_scar", "game_follow_tab"],
+            "filter_smart": (
+                "Token Flow demotions, paper only. Crowded narrative −12 and no trench. "
+                "Late chase is age>=1h and h1>=+180% costing −12 (was a cosmetic flag at age>=2h and h1>=+100%). "
+                "Already-ran is h24>=+250% and age>=2h costing −18; h24>=+500% and age>=3h hard-fails. "
+                "Clone pack >=3 costs −8. A profile URL with no second link and no description caps socials at 6 "
+                "(X-only was 9). Trench needs score/12>=10, age under 6h, and not late-chase or crowded. "
+                "Gold annotate is cached on flagged mtime. RugCheck summaries skip hard-fails and already-ran. "
+                "Mint universe stays boosts+profiles. Not a buy."
+            ),
+            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture", "game_ai_review", "gold_scar", "game_follow_tab", "filter_smart"],
             "sitting_drop_min": 5.0,
             "sitting_aged_min": 180.0,
             "sitting_keep": True,
@@ -238,7 +271,7 @@ def api_gold():
     return jsonify(
         {
             "ok": True,
-            "panel_v": 78,
+            "panel_v": 79,
             "feature": "gold_scar",
             "count": len(picks),
             "empty_ok": True,

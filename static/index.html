@@ -2533,7 +2533,7 @@
         <div class="logo">N</div>
         <div>
           <h1>Nunu Filter</h1>
-          <p class="sub">Solana Research Panel · paper only · v78</p>
+          <p class="sub">Solana Research Panel · paper only · v79</p>
         </div>
       </div>
       <div class="mode-tabs" role="tablist">
@@ -2950,7 +2950,7 @@
     </div>
 
     <footer class="app-foot">
-      <div class="foot-live">Paper only · no wallets. <code>?v=78</code></div>
+      <div class="foot-live">Paper only · no wallets. <code>?v=79</code></div>
       <details class="qa-foot">
         <summary>QA fixtures</summary>
         <div>APIs: <code>/api/flagged</code> · <code>/api/update-now</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>. Social Tap is coin, meme, and crypto viral from public sources — nothing invented. Checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: <code>&amp;mode=game</code>. Equity tick proof: <code>?qa_tick=both</code>, <code>?qa_tick=up</code>, <code>?qa_tick=down</code>. Display offset only. Do not combine with <code>?fixture=</code>. 24h end proof: <code>?qa_end=1</code> (one-shot, then Start 24h). Does not auto-start. An ended run opens a paper Review (dismiss, or Start next 24h — same restart as the main button). Mute silences the soft review cue. Max fixture proof: <code>?qa_max=1</code> (one synthetic bonding row, badge QA MAX). Absent query leaves the live feed unchanged. Do not combine with <code>?fixture=</code>. Gold fixture proof: <code>?qa_gold=1</code> (one synthetic rare card in Gold picks, no chime on the seeded load) or <code>?qa_gold=arrive</code> (same card, one ♪ GOLD). Mute silences the gold cue. It is not the Token Flow new-token chime. Absent query leaves Gold empty unless a live row clears the stricter 7-gate stack. Do not combine with <code>?fixture=</code>.</div>
@@ -2992,7 +2992,7 @@
 
   <script>
 
-    const PANEL_V = 78;
+    const PANEL_V = 79;
     const QA_MAX_NOTE = "QA Max fixture — synthetic bonding row QAMAX. Live unknown rows stay Max-empty. Not a real mint.";
     const QA_GOLD_NOTE = "QA Gold fixture — synthetic rare card QAGOLD in Gold picks. Not a live mint. The normal page stays empty unless the 7-gate stack clears.";
     const QA_GOLD_ARRIVE_NOTE = "QA Gold arrive — one ♪ GOLD for the synthetic card. Mute silences it. This cue is not the Token Flow new-token chime. ?qa_gold=1 seeds quietly.";
@@ -3343,11 +3343,20 @@
       return !!r.late_chase || (Array.isArray(r.red_flags) && r.red_flags.includes("late_chase"));
     }
 
+    function inTrenchBand(r) {
+      // Server trench_band is authoritative when present. A crowded name or a
+      // late chase can still print score/12 >= 10 and must not read as trench.
+      if (!r) return false;
+      if (r.trench_band === false) return false;
+      if (r.trench_band === true) return true;
+      const s12 = score12Of(r);
+      return s12 != null && s12 >= 10;
+    }
+
     function sectionOf(r) {
       const ageH = pairAgeHours(r);
       if (ageH != null && ageH < 0.5) return "new";
-      const s12 = score12Of(r);
-      if (s12 != null && s12 >= 10) return "trench";
+      if (inTrenchBand(r)) return "trench";
       if (isLate(r)) return "late";
       return "other";
     }
@@ -4225,8 +4234,7 @@
         const m = r.metrics || {};
         const vol = m.volume_h1_usd != null ? m.volume_h1_usd : r.volume_h1_usd;
         if (vol != null && Number(vol) < minVol) return false;
-        const s12 = score12Of(r);
-        if (trenchOnly && !(s12 != null && s12 >= 10)) return false;
+        if (trenchOnly && !inTrenchBand(r)) return false;
         if (hideLate && isLate(r)) return false;
         if (q) {
           const hay = ((r.ticker || "") + " " + (r.name || "") + " " + (r.mint || "")).toLowerCase();
@@ -4317,7 +4325,7 @@
       const s12 = score12Of(r);
       const pack = scoreInputs(r);
       const raw = r.score != null ? String(r.score) : "—";
-      const trench = !!(r.trench_band || (s12 != null && s12 >= 10));
+      const trench = inTrenchBand(r);
       const factors = pack.lines.map((ln) => {
         const shown = ln.inputs[0] || "—";
         const neg = typeof ln.points === "number" && ln.points < 0;
@@ -4870,7 +4878,9 @@
             score: score,
             score_12: s12,
             flagged: true,
-            trench_band: !!(src.trench_band || top.trench_band || (s12 != null && s12 >= 10)),
+            trench_band: (src.trench_band === false || top.trench_band === false)
+              ? false
+              : !!(src.trench_band || top.trench_band || (s12 != null && s12 >= 10)),
             sitting_minutes: minsN != null && Number.isFinite(minsN) ? minsN : null,
             sitting_band: over ? "over" : (src.sitting_band || "unknown"),
             sitting_drop_min: dropMin,
@@ -4951,7 +4961,7 @@
       const status = state.status;
       const finished = latest.run_finished || "unknown";
       const dataAsOf = latest.data_as_of || finished;
-      const trenchFromRows = flagged.filter((r) => score12Of(r) >= 10 || r.trench_band).length;
+      const trenchFromRows = flagged.filter((r) => inTrenchBand(r)).length;
       const trenchN = rescued ? trenchFromRows : (latest.trench_band_count ?? trenchFromRows);
       const botRunning = status && status.bot && status.bot.running;
       const visible = applyFilters(flagged);
@@ -7689,7 +7699,7 @@
     function renderScanCard(row, meta) {
       if (!row) return '<div class="empty">No score row</div>';
       const s12 = row.score_12 != null ? Number(row.score_12) : null;
-      const trench = !!row.trench_band || (s12 != null && s12 >= 10);
+      const trench = inTrenchBand(row);
       const m = row.metrics || {};
       const chg = m.price_change_h1;
       const chgCls = chg == null ? "" : (Number(chg) >= 0 ? "chg-up" : "chg-dn");
