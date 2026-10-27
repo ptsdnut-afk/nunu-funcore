@@ -1462,7 +1462,7 @@
       background: repeating-linear-gradient(90deg, #1c1c1c 0 6px, #222 6px 12px);
     }
     #modeFilter .thin-bar.unk i { width: 0 !important; }
-    #modeFilter .mcap-prog.now-only { grid-template-columns: minmax(58px, 0.72fr) minmax(78px, 1fr); }
+    #modeFilter .mcap-prog.now-only { grid-template-columns: 1fr; }
     #modeFilter .mcap-prog .max-unk {
       font-size: 0.78rem; font-weight: 750; color: #e7e9ea; line-height: 1.25;
     }
@@ -2266,7 +2266,7 @@
         <div class="logo">N</div>
         <div>
           <h1>Nunu Filter</h1>
-          <p class="sub">Solana Research Panel · paper only · v73</p>
+          <p class="sub">Solana Research Panel · paper only · v74</p>
         </div>
       </div>
       <div class="mode-tabs" role="tablist">
@@ -2338,7 +2338,7 @@
       <div id="error"></div>
 
       <div class="panes">
-        <section class="pane token-pane" data-flow-hook="new-token">
+        <section class="pane token-pane" data-flow-hook="new-token" data-feature="hide_max_unknown">
           <div class="pane-head">
             <h2>Token flow</h2>
             <span class="sub" id="filterSub">On-chain · filtered · sitting kept past 5m</span>
@@ -2639,7 +2639,7 @@
     </div>
 
     <footer class="app-foot">
-      <div class="foot-live">Paper only · no wallets. <code>?v=73</code></div>
+      <div class="foot-live">Paper only · no wallets. <code>?v=74</code></div>
       <details class="qa-foot">
         <summary>QA fixtures</summary>
         <div>APIs: <code>/api/flagged</code> · <code>/api/update-now</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>. Social Tap is coin, meme, and crypto viral from public sources — nothing invented. Checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: <code>&amp;mode=game</code>. Equity tick proof: <code>?qa_tick=both</code>, <code>?qa_tick=up</code>, <code>?qa_tick=down</code>. Display offset only. Do not combine with <code>?fixture=</code>. 24h end proof: <code>?qa_end=1</code> (one-shot, then Start 24h). Does not auto-start.</div>
@@ -2681,7 +2681,7 @@
 
   <script>
 
-    const PANEL_V = 73;
+    const PANEL_V = 74;
     const SITTING_DROP_MIN = 5;
     const SITTING_AGED_MIN = 180;
     const SITTING_NEAR_LEAD_MIN = 1;
@@ -4125,14 +4125,14 @@
       const nowTxt = st && st.now_available ? fmtUsd(st.market_cap_usd) : null;
       const ceilTxt = st && st.ceiling_available ? fmtUsd(st.ceiling_usd) : null;
       const nowName = trade ? "MCAP" : "Now";
-      if (nowTxt && ceilTxt) return nowName + " " + nowTxt + " → ceiling " + ceilTxt;
+      if (nowTxt && ceilTxt) return nowName + " " + nowTxt + " → Max " + ceilTxt;
       if (nowTxt) return nowName + " " + nowTxt;
-      if (ceilTxt) return "Ceiling " + ceilTxt;
+      if (ceilTxt) return "Max " + ceilTxt;
       return "Market cap unavailable";
     }
 
     function mcapCeilText(st) {
-      if (st && st.ceiling_available) return (st.ceiling_label || "Ceiling") + " " + fmtUsd(st.ceiling_usd);
+      if (st && st.ceiling_available) return "Max " + fmtUsd(st.ceiling_usd);
       return "";
     }
 
@@ -4181,7 +4181,7 @@
         '<div class="mcap-cell"><span class="mval">' + fmtUsd(st.now_available ? st.market_cap_usd : null) +
         '</span><span class="mlab">Mcap now</span></div>';
       if (!st.ceiling_available) {
-        return head + '<div class="max-unk">Max unknown</div></div>';
+        return head + "</div>";
       }
       const tone = mcapTone(st);
       const width = mcapBarWidth(st).toFixed(1);
@@ -4189,7 +4189,7 @@
       const barCls = tone === "warn" ? " warn" : "";
       return head +
         '<div class="prog-wrap"><div class="prog-meta"><span class="pct ' + pctCls + '">' + esc(fmtGoneLabel(st.pct_gone)) +
-        '</span><span class="ceil">' + esc(mcapCeilText(st)) + '</span></div>' +
+        '</span><span class="ceil" title="' + esc(st.ceiling_label || "Max") + '">' + esc(mcapCeilText(st)) + '</span></div>' +
         '<div class="thin-bar' + barCls + '" aria-hidden="true"><i style="width:' + width + '%"></i></div></div></div>';
     }
 
@@ -4202,9 +4202,8 @@
       const nowCell = '<div class="cell"' + family + '><div class="lab">' + nowLab + '</div><div class="val ' + (st.now_available ? "good" : "muted") + '">' +
         fmtUsd(st.now_available ? st.market_cap_usd : null) + '</div><div class="sub">' + esc(nowSub) + "</div></div>";
       if (!st.ceiling_available) {
-        return '<section class="mcap-hero unk-hero now-only" data-section="mcap"' + mcapDataAttrs(st, source) + '>' +
-          '<div class="tri now-only">' + nowCell + "</div>" +
-          '<p class="max-unk">Max unknown.</p></section>';
+        return '<section class="mcap-hero now-only" data-section="mcap"' + mcapDataAttrs(st, source) + '>' +
+          '<div class="tri now-only">' + nowCell + "</div></section>";
       }
       const tone = mcapTone(st);
       const width = mcapBarWidth(st).toFixed(1);
@@ -4214,7 +4213,7 @@
       return '<section class="mcap-hero" data-section="mcap"' + mcapDataAttrs(st, source) + '>' +
         '<h3>Market cap progress · paper research</h3>' +
         '<div class="tri">' + nowCell +
-        '<div class="cell"><div class="lab">Ceiling</div><div class="val amber">' +
+        '<div class="cell"><div class="lab">Max</div><div class="val amber">' +
         fmtUsd(st.ceiling_usd) + '</div><div class="sub">' + esc(mcapCeilSub(st)) + "</div></div>" +
         '<div class="cell"><div class="lab">% gone</div><div class="val ' + pctCls + '">' +
         fmtGonePct(st.pct_gone) + '</div><div class="sub">' + esc(mcapPctSub(st)) + "</div></div>" +

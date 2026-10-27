@@ -207,6 +207,7 @@ def progress_from_row(row: dict[str, Any] | None, *, now_source: str | None = "s
     if not isinstance(row, dict):
         return build_mcap_progress(now_source=now_source)
     metrics = row.get("metrics") if isinstance(row.get("metrics"), dict) else {}
+    stored = row.get("mcap_progress") if isinstance(row.get("mcap_progress"), dict) else {}
 
     def pick(*keys: str) -> Any:
         for key in keys:
@@ -214,9 +215,23 @@ def progress_from_row(row: dict[str, Any] | None, *, now_source: str | None = "s
                 return metrics.get(key)
             if key in row and row.get(key) is not None:
                 return row.get(key)
+            if key in stored and stored.get(key) is not None:
+                return stored.get(key)
         return None
 
-    from_fdv = bool(metrics.get("market_cap_from_fdv") or row.get("market_cap_from_fdv"))
+    # A stored progress blob must not flip off an FDV that metrics already
+    # recorded as its own ceiling. Honor the flag from the same place as FDV.
+    fdv_from_stored = (
+        metrics.get("fdv_usd") is None
+        and row.get("fdv_usd") is None
+        and stored.get("fdv_usd") is not None
+    )
+    if metrics.get("market_cap_from_fdv") or row.get("market_cap_from_fdv"):
+        from_fdv = True
+    elif fdv_from_stored:
+        from_fdv = bool(stored.get("market_cap_from_fdv"))
+    else:
+        from_fdv = False
     return build_mcap_progress(
         market_cap_usd=pick("market_cap_usd"),
         fdv_usd=pick("fdv_usd"),
@@ -225,6 +240,36 @@ def progress_from_row(row: dict[str, Any] | None, *, now_source: str | None = "s
         ath_mcap_usd=pick("ath_mcap_usd"),
         market_cap_from_fdv=from_fdv,
         now_source=now_source,
+    )
+
+
+def merge_live_progress(row: dict[str, Any] | None, live: dict[str, Any] | None) -> dict[str, Any]:
+    """Keep a stored honest ceiling when a live pair does not repeat it.
+
+    Live NOW wins. Bonding, graduation, FDV, and ATH are taken from the live
+    pair when it has them, otherwise from the row. The Slice 9 gate runs again,
+    so a stored number at or below the new NOW is still not a ceiling.
+    """
+    stored = progress_from_row(row if isinstance(row, dict) else None, now_source="snapshot")
+    if not isinstance(live, dict) or not (live.get("now_available") or live.get("ceiling_available")):
+        return stored
+
+    def pick(key: str) -> Any:
+        if live.get(key) is not None:
+            return live.get(key)
+        return stored.get(key)
+
+    now = live.get("market_cap_usd") if live.get("now_available") else stored.get("market_cap_usd")
+    source = live.get("now_source") if live.get("now_available") else stored.get("now_source")
+    from_fdv = bool(live.get("market_cap_from_fdv")) if live.get("now_available") else bool(stored.get("market_cap_from_fdv"))
+    return build_mcap_progress(
+        market_cap_usd=now,
+        fdv_usd=pick("fdv_usd"),
+        bonding_mcap_usd=pick("bonding_mcap_usd"),
+        graduation_mcap_usd=pick("graduation_mcap_usd"),
+        ath_mcap_usd=pick("ath_mcap_usd"),
+        market_cap_from_fdv=from_fdv,
+        now_source=source if source in {"dex", "snapshot"} else None,
     )
 
 
@@ -241,7 +286,7 @@ def apply_mcap(row: dict[str, Any] | None, pair: dict[str, Any] | None = None) -
     if isinstance(pair, dict):
         live = progress_from_pair(pair, now_source="dex")
         if live["now_available"] or live["ceiling_available"]:
-            prog = live
+            prog = merge_live_progress(out, live)
             metrics["market_cap_usd"] = prog["market_cap_usd"]
             metrics["fdv_usd"] = prog["fdv_usd"]
             metrics["bonding_mcap_usd"] = prog["bonding_mcap_usd"]

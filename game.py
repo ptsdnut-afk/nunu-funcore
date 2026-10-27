@@ -17,7 +17,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote as url_quote
 from urllib.request import Request, urlopen
 
-from mcap_progress import apply_mcap, build_mcap_progress, progress_from_pair, progress_from_row
+from mcap_progress import apply_mcap, build_mcap_progress, merge_live_progress, progress_from_pair, progress_from_row
 
 DIR = Path(__file__).resolve().parent
 STATE_PATH = DIR / "game_state.json"
@@ -448,6 +448,10 @@ def fetch_dex_token(mint: str, bypass_cache: bool = False) -> dict | None:
     best = max(pool, key=liq)
     base = best.get("baseToken") or {}
     prog = progress_from_pair(best, now_source="dex")
+    # A flagged row may already hold bonding / ATH / a higher FDV the pair omits.
+    fr = flagged_row(mint)
+    if isinstance(fr, dict):
+        prog = merge_live_progress(fr, prog)
     quote = {
         "mint": mint,
         "symbol": base.get("symbol") or "?",
@@ -472,7 +476,6 @@ def fetch_dex_token(mint: str, bypass_cache: bool = False) -> dict | None:
     if not quote["image_url"]:
         quote["image_url"] = image_for_mint(mint)
     # Prefer filter name/ticker when DEX is sparse
-    fr = flagged_row(mint)
     if fr:
         if (not quote.get("name") or quote.get("name") == "?") and fr.get("name"):
             quote["name"] = fr.get("name")
@@ -1316,6 +1319,7 @@ def attach_live_dex_quote(row: dict | None, mint: str, fresh: bool = False) -> d
     out = dict(base)
     metrics = dict(metrics0)
     if live_mcap:
+        merged = merge_live_progress(base, prog)
         for key in (
             "market_cap_usd",
             "fdv_usd",
@@ -1324,9 +1328,9 @@ def attach_live_dex_quote(row: dict | None, mint: str, fresh: bool = False) -> d
             "ath_mcap_usd",
             "market_cap_from_fdv",
         ):
-            metrics[key] = prog.get(key)
-        out["mcap_progress"] = dict(prog)
-        out["market_cap_usd"] = quote_mcap
+            metrics[key] = merged.get(key)
+        out["mcap_progress"] = merged
+        out["market_cap_usd"] = merged.get("market_cap_usd")
     else:
         snap = apply_mcap(base, None)
         out["mcap_progress"] = snap.get("mcap_progress")

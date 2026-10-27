@@ -8,7 +8,7 @@ from unittest import mock
 
 import game
 import server
-from mcap_progress import apply_mcap, build_mcap_progress, progress_from_pair, progress_from_row
+from mcap_progress import apply_mcap, build_mcap_progress, merge_live_progress, progress_from_pair, progress_from_row
 
 
 class ProgressMathTests(unittest.TestCase):
@@ -220,6 +220,48 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(out["mcap_progress"]["ceiling_empty"], "at_fdv")
         self.assertEqual(out["mcap_progress"]["now_source"], "dex")
         self.assertEqual(row["metrics"]["market_cap_usd"], 1_578_621.0)
+
+    def test_live_pair_keeps_a_stored_ath_above_the_new_now(self):
+        row = {
+            "metrics": {"market_cap_usd": 826_300, "ath_mcap_usd": 1_160_000, "fdv_usd": 826_300},
+        }
+        out = apply_mcap(row, {"marketCap": 900_000, "fdv": 900_000})
+        prog = out["mcap_progress"]
+        self.assertEqual(prog["ceiling_kind"], "ath")
+        self.assertEqual(prog["ceiling_label"], "ATH")
+        self.assertEqual(prog["ceiling_usd"], 1_160_000)
+        self.assertLess(prog["pct_gone"], 100)
+        self.assertEqual(prog["now_source"], "dex")
+        self.assertEqual(prog["market_cap_usd"], 900_000)
+        self.assertEqual(out["metrics"]["ath_mcap_usd"], 1_160_000)
+
+    def test_stored_ath_at_or_below_live_now_is_not_a_ceiling(self):
+        row = {"metrics": {"market_cap_usd": 100, "ath_mcap_usd": 140}}
+        out = apply_mcap(row, {"marketCap": 150, "fdv": 150})
+        prog = out["mcap_progress"]
+        self.assertIsNone(prog["ceiling_usd"])
+        self.assertIsNone(prog["pct_gone"])
+        self.assertEqual(prog["ceiling_empty"], "at_fdv")
+        self.assertNotEqual(prog["pct_gone"], 100)
+
+    def test_progress_blob_keeps_bonding_when_metrics_omit_it(self):
+        row = {
+            "metrics": {"market_cap_usd": 381_300},
+            "mcap_progress": {"bonding_mcap_usd": 1_350_000, "market_cap_usd": 381_300},
+        }
+        prog = progress_from_row(row)
+        self.assertEqual(prog["ceiling_kind"], "bonding")
+        self.assertEqual(prog["ceiling_label"], "Bonding")
+        self.assertEqual(prog["ceiling_usd"], 1_350_000)
+        served = apply_mcap(row)
+        self.assertEqual(served["mcap_progress"]["ceiling_usd"], 1_350_000)
+
+    def test_merge_does_not_invent_when_both_sides_are_empty(self):
+        live = build_mcap_progress(market_cap_usd=5_200_000, fdv_usd=5_200_000, now_source="dex")
+        merged = merge_live_progress({"metrics": {"market_cap_usd": 5_000_000}}, live)
+        self.assertFalse(merged["ceiling_available"])
+        self.assertIsNone(merged["pct_gone"])
+        self.assertEqual(merged["ceiling_empty"], "at_fdv")
 
     def test_apply_without_pair_leaves_snapshot_empty_ceiling(self):
         row = {"metrics": {"market_cap_usd": 100.0}}
