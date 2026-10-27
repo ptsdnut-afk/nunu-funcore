@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Filter · NEW TOKEN chime mock v1 · eyes only</title>
+  <style>
+    :root {
+      --bg: #050505;
+      --panel: #121212;
+      --panel2: #161616;
+      --border: #2a2a2a;
+      --text: #e7e9ea;
+      --muted: #8b98a5;
+      --good: #3ecf8e;
+      --amber: #f0a33a;
+      --warn: #e6b84d;
+      --bad: #f07178;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: var(--sans); background: var(--bg); color: var(--text);
+      min-height: 100vh; line-height: 1.35; font-size: 15px;
+    }
+    .banner {
+      background: linear-gradient(90deg, #101810, #0a0a0a);
+      border-bottom: 1px solid #2a5a40;
+      padding: 9px 16px; font-size: 0.78rem; color: #9ed4b0; font-weight: 700;
+      display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    }
+    .banner code { font-family: var(--mono); color: var(--amber); }
+    .banner .tag {
+      display: inline-block; padding: 2px 8px; border-radius: 999px;
+      background: #102018; border: 1px solid #2a5a40; color: var(--good);
+      font-size: 0.65rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+    }
+    .app { max-width: 1560px; margin: 0 auto; padding: 14px 16px 32px; }
+    .claim {
+      margin: 0 0 6px; font-size: 1.35rem; font-weight: 900; letter-spacing: -0.03em;
+      background: linear-gradient(90deg, #fff, var(--good) 45%, var(--amber));
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .claim span {
+      display: block; font-size: 0.7rem; font-weight: 650; color: var(--muted);
+      letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 4px;
+      background: none; -webkit-background-clip: unset; color: var(--muted);
+    }
+    .lede {
+      margin: 0 0 12px; color: var(--muted); font-size: 0.82rem; max-width: 1100px;
+    }
+    .lede b { color: var(--text); }
+
+    .proof {
+      display: grid; grid-template-columns: 1.35fr 1fr; gap: 10px;
+      margin-bottom: 14px; padding: 12px 14px;
+      background: #101410; border: 1px solid #2a5a40; border-radius: 12px;
+    }
+    .proof h3 {
+      margin: 0 0 6px; font-size: 0.72rem; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--good);
+    }
+    .proof p { margin: 0; font-size: 0.78rem; color: var(--muted); line-height: 1.45; }
+    .proof b { color: var(--text); }
+    .proof .ex {
+      display: inline-block; margin-left: 4px;
+      font-size: 0.58rem; font-weight: 800; letter-spacing: .04em;
+      padding: 1px 6px; border-radius: 999px; vertical-align: middle;
+      background: #241e10; border: 1px solid #6a5320; color: var(--amber);
+    }
+    .proof .gap { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    .proof .chip {
+      font-family: var(--mono); font-size: 0.72rem; font-weight: 800;
+      padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border);
+      background: #0e0e0e;
+    }
+    .proof .chip.filter { border-color: #2a5a40; color: var(--good); }
+    .proof .chip.game { border-color: #6a5320; color: var(--amber); }
+    .proof .chip.mute { border-color: #444; color: var(--muted); }
+    .proof .note { margin-top: 8px; font-size: 0.7rem; color: #9ed4b0; }
+
+    .story-label {
+      display: flex; align-items: baseline; gap: 10px; margin: 4px 0 10px; flex-wrap: wrap;
+    }
+    .story-label h2 {
+      margin: 0; font-size: 0.78rem; text-transform: uppercase; letter-spacing: .08em; color: var(--good);
+    }
+    .story-label .sub { color: var(--muted); font-size: 0.72rem; font-family: var(--mono); }
+
+    .story {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px;
+    }
+    @media (max-width: 1100px) { .story { grid-template-columns: 1fr; } .proof { grid-template-columns: 1fr; } }
+
+    .panel {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+      overflow: hidden; display: flex; flex-direction: column;
+    }
+    .panel.before { border-color: #3a3a3a; }
+    .panel.arrive { border-color: #2a5a40; box-shadow: 0 0 20px rgba(62,207,142,.22); }
+    .panel.mute { border-color: #555; box-shadow: 0 0 12px rgba(140,140,140,.12); }
+
+    .panel-head {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 10px 12px; border-bottom: 1px solid var(--border); background: #0e0e0e;
+    }
+    .panel-head .state {
+      font-size: 0.74rem; font-weight: 900; letter-spacing: .04em; text-transform: uppercase;
+    }
+    .panel.before .panel-head .state { color: var(--muted); }
+    .panel.arrive .panel-head .state { color: var(--good); }
+    .panel.mute .panel-head .state { color: #c0c0c0; }
+    .badge {
+      font-size: 0.6rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+      padding: 2px 7px; border-radius: 999px; border: 1px solid var(--border);
+      color: var(--muted); background: #1a1a1a;
+    }
+    .badge.ex { border-color: #5a4a20; color: var(--amber); background: #241e10; }
+    .badge.quiet { border-color: #444; color: var(--muted); }
+    .badge.chime { border-color: #2a5a40; color: var(--good); background: #102018; }
+    .badge.muted { border-color: #555; color: #bbb; background: #1a1a1a; }
+    .panel-head .rule {
+      margin-left: auto; font-size: 0.62rem; color: var(--muted); font-family: var(--mono);
+    }
+
+    .stage { padding: 12px; flex: 1; display: flex; flex-direction: column; gap: 8px; background: #0a0a0a; }
+    .topbar {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+      padding-bottom: 8px; border-bottom: 1px solid #222;
+    }
+    .logo {
+      width: 26px; height: 26px; border-radius: 7px;
+      background: linear-gradient(135deg, #2a2a2a, #111);
+      display: grid; place-items: center; font-weight: 800; font-size: 0.8rem;
+    }
+    .brand { line-height: 1.1; }
+    .brand h1 { margin: 0; font-size: 0.85rem; }
+    .brand .sub { margin: 0; color: var(--muted); font-size: 0.58rem; }
+    .tabs {
+      display: inline-flex; gap: 3px; padding: 2px;
+      background: #0e0e0e; border: 1px solid var(--border); border-radius: 999px;
+    }
+    .tabs span {
+      padding: 3px 10px; border-radius: 999px;
+      font-size: 0.68rem; font-weight: 700; color: var(--muted);
+    }
+    .tabs span.on { background: #e7e9ea; color: #0a0a0a; }
+    .net {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 0.65rem; color: var(--good); font-weight: 600;
+      padding: 3px 8px; border-radius: 999px; background: #102018; border: 1px solid #2a5a40;
+    }
+    .net .dot {
+      width: 6px; height: 6px; border-radius: 50%; background: var(--good);
+      box-shadow: 0 0 0 3px rgba(62,207,142,.25);
+    }
+    .spacer { flex: 1; }
+    .sound-toggle {
+      display: inline-flex; gap: 0; border-radius: 999px; overflow: hidden;
+      border: 1px solid #2a5a40; font-size: 0.62rem; font-weight: 800;
+    }
+    .sound-toggle span { padding: 4px 9px; }
+    .sound-toggle .on { background: #102018; color: var(--good); }
+    .sound-toggle .off { background: #1a1a1a; color: var(--muted); }
+    .sound-toggle.muted-mode { border-color: #555; }
+    .sound-toggle.muted-mode .on { background: #1a1a1a; color: var(--muted); }
+    .sound-toggle.muted-mode .off { background: #2a2a2a; color: #ddd; }
+
+    .paper {
+      font-size: 0.65rem; color: #9ed4b0; padding: 5px 8px; border-radius: 6px;
+      background: #102018; border: 1px solid #2a5a40;
+    }
+
+    .flow-head {
+      display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+      margin-top: 2px;
+    }
+    .flow-head h3 {
+      margin: 0; font-size: 0.68rem; letter-spacing: .06em; text-transform: uppercase; color: var(--good);
+    }
+    .flow-head .meta { font-size: 0.62rem; color: var(--muted); font-family: var(--mono); }
+
+    .stats {
+      display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+      font-size: 0.6rem; color: var(--muted); font-family: var(--mono);
+    }
+    .stats .bot {
+      color: var(--good); font-weight: 800; padding: 2px 7px; border-radius: 999px;
+      background: #102018; border: 1px solid #2a5a40;
+    }
+
+    .cols {
+      display: grid; grid-template-columns: 1.2fr 0.5fr 0.55fr 0.7fr 0.5fr 0.45fr;
+      gap: 4px; padding: 0 8px;
+      font-size: 0.52rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .row {
+      display: grid; grid-template-columns: 1.2fr 0.5fr 0.55fr 0.7fr 0.5fr 0.45fr;
+      gap: 4px; align-items: center;
+      padding: 8px 10px; border-radius: 10px;
+      background: var(--panel2); border: 1px solid #2a2a2a;
+      position: relative;
+    }
+    .row.existing { border-color: #2a3a30; }
+    .row.new {
+      border-color: #3ecf8e;
+      background: linear-gradient(90deg, #102818 0%, #161616 55%);
+      box-shadow: 0 0 16px rgba(62,207,142,.35);
+      animation: none;
+    }
+    .row.new.pulse {
+      outline: 2px solid rgba(62,207,142,.55);
+      outline-offset: 1px;
+    }
+    .row.muted-new {
+      border-color: #555;
+      background: linear-gradient(90deg, #1a1a1a 0%, #161616 55%);
+      box-shadow: none;
+      outline: 1px dashed #555;
+      outline-offset: 1px;
+    }
+    .coin { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .coin .av {
+      width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0;
+      background: #1a2030; border: 1px solid #333;
+      display: grid; place-items: center; font-weight: 900; font-size: 0.6rem; color: #8ab4ff;
+    }
+    .coin .av.g { color: var(--good); border-color: #2a5a40; background: #102018; }
+    .coin .av.a { color: var(--amber); border-color: #6a5320; background: #241e10; }
+    .coin .name { font-weight: 800; font-size: 0.8rem; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+    .coin .tag {
+      font-size: 0.52rem; font-weight: 800; letter-spacing: .04em;
+      padding: 1px 5px; border-radius: 999px; background: #102018; border: 1px solid #2a5a40; color: var(--good);
+    }
+    .coin .tag.dim { background: #1a1a1a; border-color: #555; color: #bbb; }
+    .cell .lab { font-size: 0.5rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 700; }
+    .cell .val { font-family: var(--mono); font-size: 0.72rem; font-weight: 800; margin-top: 1px; }
+    .cell .val.amber { color: var(--amber); }
+    .cell .val.good { color: var(--good); }
+    .cell .val.bad { color: var(--bad); }
+    .cell .hint { font-size: 0.52rem; color: var(--muted); font-family: var(--mono); }
+
+    .chime-flash {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 8px 10px; border-radius: 10px;
+      border: 1px solid #3ecf8e;
+      background: linear-gradient(90deg, #102818 0%, #0e1410 70%);
+      box-shadow: 0 0 18px rgba(62,207,142,.3);
+    }
+    .chime-flash .icon {
+      width: 30px; height: 30px; border-radius: 8px;
+      display: grid; place-items: center; font-size: 1rem;
+      background: #14301f; border: 1px solid #3ecf8e; flex-shrink: 0;
+    }
+    .chime-flash .title {
+      font-size: 0.82rem; font-weight: 900; color: var(--good); letter-spacing: -0.01em;
+    }
+    .chime-flash .detail {
+      font-size: 0.65rem; color: #9ed4b0; font-family: var(--mono);
+    }
+    .chime-flash.toast-only {
+      border-style: dashed; opacity: 0.95;
+    }
+
+    .mute-banner {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 8px 10px; border-radius: 10px;
+      border: 1px dashed #666;
+      background: #151515;
+    }
+    .mute-banner .icon {
+      width: 30px; height: 30px; border-radius: 8px;
+      display: grid; place-items: center; font-size: 0.95rem;
+      background: #222; border: 1px solid #555; flex-shrink: 0; color: #bbb;
+    }
+    .mute-banner .title {
+      font-size: 0.8rem; font-weight: 900; color: #ddd;
+    }
+    .mute-banner .detail {
+      font-size: 0.65rem; color: var(--muted); font-family: var(--mono);
+    }
+
+    .toast {
+      align-self: flex-start;
+      font-size: 0.68rem; font-weight: 800;
+      padding: 5px 10px; border-radius: 8px;
+      background: #102018; border: 1px solid #3ecf8e; color: var(--good);
+      box-shadow: 0 0 12px rgba(62,207,142,.25);
+    }
+    .toast.silent {
+      background: #1a1a1a; border-color: #555; color: #bbb;
+      box-shadow: none;
+    }
+
+    .note-box {
+      font-size: 0.65rem; color: #9ed4b0; padding: 6px 8px; border-radius: 8px;
+      background: #102018; border: 1px dashed #2a5a40; line-height: 1.35;
+    }
+    .note-box b { color: var(--good); }
+    .note-box.warn {
+      color: #c0a870; background: #1a1510; border-color: #5a4a20;
+    }
+    .note-box.warn b { color: var(--amber); }
+    .note-box.dim {
+      color: var(--muted); background: #151515; border-color: #444;
+    }
+    .note-box.dim b { color: #ddd; }
+
+    .ac-note {
+      padding: 8px 12px 12px; font-size: 0.68rem; color: var(--muted); line-height: 1.4;
+      border-top: 1px dashed #2a2a2a; background: #0e0e0e;
+    }
+    .ac-note b { color: var(--text); }
+    .ac-note .ok { color: var(--good); font-weight: 800; }
+    .ac-note .no { color: var(--bad); font-weight: 800; }
+
+    /* SFX compare strip */
+    .sfx {
+      margin-bottom: 14px; padding: 14px 16px;
+      background: #0e0e0e; border: 1px solid #2a5a40; border-radius: 12px;
+    }
+    .sfx h3 {
+      margin: 0 0 10px; font-size: 0.75rem; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--good);
+    }
+    .sfx .row-sfx {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+    }
+    @media (max-width: 900px) { .sfx .row-sfx { grid-template-columns: 1fr; } }
+    .sfx-card {
+      padding: 12px; border-radius: 10px; border: 1px solid var(--border); background: #121212;
+    }
+    .sfx-card.filter { border-color: #2a5a40; box-shadow: 0 0 12px rgba(62,207,142,.15); }
+    .sfx-card.game-win { border-color: #6a5320; }
+    .sfx-card.game-loss { border-color: #6a2a32; }
+    .sfx-card .lab {
+      font-size: 0.58rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+      color: var(--muted); margin-bottom: 4px;
+    }
+    .sfx-card .hit {
+      font-size: 1rem; font-weight: 900; margin-bottom: 4px;
+    }
+    .sfx-card.filter .hit { color: var(--good); }
+    .sfx-card.game-win .hit { color: var(--amber); }
+    .sfx-card.game-loss .hit { color: var(--bad); }
+    .sfx-card .desc { font-size: 0.7rem; color: var(--muted); line-height: 1.4; }
+    .sfx-card .desc b { color: var(--text); }
+
+    .acs {
+      margin-top: 4px; padding: 14px 16px;
+      background: #0e0e0e; border: 1px dashed #333; border-radius: 12px;
+    }
+    .acs h3 {
+      margin: 0 0 8px; font-size: 0.75rem; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--amber);
+    }
+    .acs ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 0.78rem; }
+    .acs li { margin-bottom: 3px; }
+    .acs b { color: var(--text); }
+    .acs .id { color: var(--good); font-weight: 800; font-family: var(--mono); font-size: 0.72rem; }
+    .foot { margin-top: 10px; font-size: 0.68rem; color: var(--muted); text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="banner">
+    <span class="tag">Eyes only</span>
+    <span class="tag">Filter SFX</span>
+    <span class="tag">Not a PR</span>
+    MOCK · Token Flow new-token chime · distinct from Game WIN/LOSS
+    <code>qa/mock-filter-new-token-sound-v1.*</code>
+  </div>
+  <div class="app">
+    <p class="claim"><span>Proto Bot · Filter · new token sound visual SoT</span>Oh — new token. Short chime. Mute respects. Not a Game hit.</p>
+    <p class="lede">
+      Owner ask: whenever a <b>new coin</b> lands in Token Flow, play a short “oh new token” sound.
+      Filter-only. Must read/sound <b>different</b> from Game buy/sell + casino WIN HIT / LOSS HIT (SHIP B / SHIP G).
+      All tickers below are <b>EXAMPLE</b>. No prod PR. Empty table / same-coin refresh → no spam.
+    </p>
+
+    <div class="proof">
+      <div>
+        <h3>Owner ask · Token Flow only <span class="ex">EXAMPLE</span></h3>
+        <p>
+          Live panel_v 67 Token Flow can sit empty (“No tokens flagged this run”).
+          When a fresh flagged row appears, owner wants a short punchy cue —
+          not a long loop, not voiceover, not Game rocket thruster energy.
+        </p>
+        <div class="gap">
+          <span class="chip filter">♪ NEW TOKEN · Filter</span>
+          <span class="chip game">♪♪ WIN HIT · Game</span>
+          <span class="chip mute">Mute · no chime</span>
+        </div>
+        <p class="note">Palette: Game near-black + green/amber. Social Tap / Game chrome stay intact.</p>
+      </div>
+      <div>
+        <h3>Mute + no-spam rules</h3>
+        <p>
+          <b>Sound on | Mute</b> in Filter chrome (same pattern as Game).
+          Mute kills Filter chime too. Fire only on <b>new</b> flagged mint this scan —
+          not empty refresh, not re-list of same coins.
+        </p>
+      </div>
+    </div>
+
+    <div class="story-label">
+      <h2>Storyboard · Token Flow chrome</h2>
+      <span class="sub">BEFORE quiet · AFTER arrival chime · AFTER mute · EXAMPLE rows</span>
+    </div>
+
+    <div class="story">
+      <!-- BEFORE -->
+      <section class="panel before">
+        <div class="panel-head">
+          <span class="state">1 · Before</span>
+          <span class="badge quiet">No arrival cue</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">Sound on · idle</span>
+        </div>
+        <div class="stage">
+          <div class="topbar">
+            <div class="logo">N</div>
+            <div class="brand">
+              <h1>Nunu Filter</h1>
+              <p class="sub">paper only · v67</p>
+            </div>
+            <div class="tabs">
+              <span class="on">Filter</span>
+              <span>Game $5</span>
+            </div>
+            <span class="net"><span class="dot"></span> Solana Mainnet</span>
+            <span class="spacer"></span>
+            <div class="sound-toggle" title="AC-N03">
+              <span class="on">🔊 Sound on</span>
+              <span class="off">Mute</span>
+            </div>
+          </div>
+          <div class="paper">Paper research only. No wallets, keys, or orders.</div>
+          <div class="flow-head">
+            <h3>Token Flow · on-chain · filtered</h3>
+            <span class="meta">sitting drop 5m</span>
+          </div>
+          <div class="stats">
+            Flagged 2 · showing 2 · trench 0 · sitting drop 5m · <span class="bot">bot on</span>
+          </div>
+          <div class="cols">
+            <span>Coin</span><span>Score</span><span>Sitting</span><span>Mcap</span><span>1H%</span><span>Age</span>
+          </div>
+          <div class="row existing">
+            <div class="coin">
+              <div class="av">NO</div>
+              <div>
+                <div class="name">NOMO</div>
+              </div>
+            </div>
+            <div class="cell"><div class="lab">Score</div><div class="val amber">7.9/12</div></div>
+            <div class="cell"><div class="lab">Sitting</div><div class="val good">1.2m</div></div>
+            <div class="cell"><div class="lab">MCAP</div><div class="val">$50.6k</div><div class="hint">EXAMPLE</div></div>
+            <div class="cell"><div class="lab">1H%</div><div class="val good">+5.8%</div></div>
+            <div class="cell"><div class="lab">Age</div><div class="val">12m</div></div>
+          </div>
+          <div class="row existing">
+            <div class="coin">
+              <div class="av a">RI</div>
+              <div>
+                <div class="name">RIFT</div>
+              </div>
+            </div>
+            <div class="cell"><div class="lab">Score</div><div class="val amber">6.4/12</div></div>
+            <div class="cell"><div class="lab">Sitting</div><div class="val">3.1m</div></div>
+            <div class="cell"><div class="lab">MCAP</div><div class="val">$28.1k</div><div class="hint">EXAMPLE</div></div>
+            <div class="cell"><div class="lab">1H%</div><div class="val bad">−2.1%</div></div>
+            <div class="cell"><div class="lab">Age</div><div class="val">41m</div></div>
+          </div>
+          <div class="note-box dim">
+            Existing EXAMPLE rows only. <b>No ♪ flash</b>, no NEW chip pulse, no toast.
+            Sound on is armed — waiting for a fresh flagged coin this scan.
+          </div>
+        </div>
+        <div class="ac-note">
+          <b>BEFORE:</b> Quiet Token Flow. <span class="ok">Sound on</span> chip present.
+          <span class="no">No chime</span> · no arrival highlight. Same-coin refresh stays silent (AC-N04).
+        </div>
+      </section>
+
+      <!-- AFTER ARRIVAL -->
+      <section class="panel arrive">
+        <div class="panel-head">
+          <span class="state">2 · After · Arrival</span>
+          <span class="badge chime">♪ NEW TOKEN</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">AC-N01 · N02</span>
+        </div>
+        <div class="stage">
+          <div class="topbar">
+            <div class="logo">N</div>
+            <div class="brand">
+              <h1>Nunu Filter</h1>
+              <p class="sub">paper only · EXAMPLE</p>
+            </div>
+            <div class="tabs">
+              <span class="on">Filter</span>
+              <span>Game $5</span>
+            </div>
+            <span class="net"><span class="dot"></span> Solana Mainnet</span>
+            <span class="spacer"></span>
+            <div class="sound-toggle" title="AC-N03">
+              <span class="on">🔊 Sound on</span>
+              <span class="off">Mute</span>
+            </div>
+          </div>
+
+          <div class="chime-flash" role="status">
+            <div class="icon">♪</div>
+            <div>
+              <div class="title">♪ NEW TOKEN</div>
+              <div class="detail">short punchy chime · Filter only · not Game WIN HIT</div>
+            </div>
+          </div>
+          <div class="toast">New token flagged · EXAMPLE PEBBLE</div>
+
+          <div class="paper">Paper research only · new flagged row this scan</div>
+          <div class="flow-head">
+            <h3>Token Flow · on-chain · filtered</h3>
+            <span class="meta">sitting drop 5m · bot on</span>
+          </div>
+          <div class="stats">
+            Flagged 3 · showing 3 · trench 0 · sitting drop 5m · <span class="bot">bot on</span>
+          </div>
+          <div class="cols">
+            <span>Coin</span><span>Score</span><span>Sitting</span><span>Mcap</span><span>1H%</span><span>Age</span>
+          </div>
+          <div class="row new pulse">
+            <div class="coin">
+              <div class="av g">PE</div>
+              <div>
+                <div class="name">PEBBLE <span class="tag">NEW</span></div>
+              </div>
+            </div>
+            <div class="cell"><div class="lab">Score</div><div class="val amber">8.2/12</div></div>
+            <div class="cell"><div class="lab">Sitting</div><div class="val good">0.0m</div></div>
+            <div class="cell"><div class="lab">MCAP</div><div class="val">$18.4k</div><div class="hint">EXAMPLE</div></div>
+            <div class="cell"><div class="lab">1H%</div><div class="val good">+12.0%</div></div>
+            <div class="cell"><div class="lab">Age</div><div class="val good">2m</div></div>
+          </div>
+          <div class="row existing">
+            <div class="coin">
+              <div class="av">NO</div>
+              <div><div class="name">NOMO</div></div>
+            </div>
+            <div class="cell"><div class="lab">Score</div><div class="val amber">7.9/12</div></div>
+            <div class="cell"><div class="lab">Sitting</div><div class="val good">1.2m</div></div>
+            <div class="cell"><div class="lab">MCAP</div><div class="val">$50.6k</div><div class="hint">EXAMPLE</div></div>
+            <div class="cell"><div class="lab">1H%</div><div class="val good">+5.8%</div></div>
+            <div class="cell"><div class="lab">Age</div><div class="val">12m</div></div>
+          </div>
+          <div class="row existing">
+            <div class="coin">
+              <div class="av a">RI</div>
+              <div><div class="name">RIFT</div></div>
+            </div>
+            <div class="cell"><div class="lab">Score</div><div class="val amber">6.4/12</div></div>
+            <div class="cell"><div class="lab">Sitting</div><div class="val">3.1m</div></div>
+            <div class="cell"><div class="lab">MCAP</div><div class="val">$28.1k</div><div class="hint">EXAMPLE</div></div>
+            <div class="cell"><div class="lab">1H%</div><div class="val bad">−2.1%</div></div>
+            <div class="cell"><div class="lab">Age</div><div class="val">41m</div></div>
+          </div>
+          <div class="note-box">
+            <b>Arrival cue:</b> green pulse + <b>NEW</b> chip + short ♪ NEW TOKEN flash + optional toast.
+            Wording is <b>not</b> WIN HIT / LOSS HIT. One short hit — no loop (AC-N05).
+          </div>
+        </div>
+        <div class="ac-note">
+          <b>ARRIVAL:</b> <span class="ok">♪ NEW TOKEN</span> plays once for the new flagged row.
+          Distinct from Game casino hits (AC-N02). Sound on. Social Tap / Game tab still present.
+        </div>
+      </section>
+
+      <!-- AFTER MUTE -->
+      <section class="panel mute">
+        <div class="panel-head">
+          <span class="state">3 · After · Mute</span>
+          <span class="badge muted">Muted · no chime</span>
+          <span class="badge ex">EXAMPLE</span>
+          <span class="rule">AC-N03</span>
+        </div>
+        <div class="stage">
+          <div class="topbar">
+            <div class="logo">N</div>
+            <div class="brand">
+              <h1>Nunu Filter</h1>
+              <p class="sub">paper only · EXAMPLE</p>
+            </div>
+            <div class="tabs">
+              <span class="on">Filter</span>
+              <span>Game $5</span>
+            </div>
+            <span class="net"><span class="dot"></span> Solana Mainnet</span>
+            <span class="spacer"></span>
+            <div class="sound-toggle muted-mode" title="AC-N03">
+              <span class="on">Sound on</span>
+              <span class="off">🔇 Mute</span>
+            </div>
+          </div>
+
+          <div class="mute-banner" role="status">
+            <div class="icon">🔇</div>
+            <div>
+              <div class="title">muted · no chime</div>
+              <div class="detail">same NEW row UI · Filter chime suppressed · unmute restores</div>
+            </div>
+          </div>
+          <div class="toast silent">New token flagged · silent</div>
+
+          <div class="paper">Paper research only · Mute on · no Filter SFX</div>
+          <div class="flow-head">
+            <h3>Token Flow · on-chain · filtered</h3>
+            <span class="meta">sitting drop 5m · bot on</span>
+          </div>
+          <div class="stats">
+            Flagged 3 · showing 3 · trench 0 · sitting drop 5m · <span class="bot">bot on</span>
+          </div>
+          <div class="cols">
+            <span>Coin</span><span>Score</span><span>Sitting</span><span>Mcap</span><span>1H%</span><span>Age</span>
+          </div>
+          <div class="row muted-new">
+            <div class="coin">
+              <div class="av g">PE</div>
+              <div>
+                <div class="name">PEBBLE <span class="tag dim">NEW</span></div>
+              </div>
+            </div>
+            <div class="cell"><div class="lab">Score</div><div class="val amber">8.2/12</div></div>
+            <div class="cell"><div class="lab">Sitting</div><div class="val good">0.0m</div></div>
+            <div class="cell"><div class="lab">MCAP</div><div class="val">$18.4k</div><div class="hint">EXAMPLE</div></div>
+            <div class="cell"><div class="lab">1H%</div><div class="val good">+12.0%</div></div>
+            <div class="cell"><div class="lab">Age</div><div class="val good">2m</div></div>
+          </div>
+          <div class="row existing">
+            <div class="coin">
+              <div class="av">NO</div>
+              <div><div class="name">NOMO</div></div>
+            </div>
+            <div class="cell"><div class="lab">Score</div><div class="val amber">7.9/12</div></div>
+            <div class="cell"><div class="lab">Sitting</div><div class="val good">1.2m</div></div>
+            <div class="cell"><div class="lab">MCAP</div><div class="val">$50.6k</div><div class="hint">EXAMPLE</div></div>
+            <div class="cell"><div class="lab">1H%</div><div class="val good">+5.8%</div></div>
+            <div class="cell"><div class="lab">Age</div><div class="val">12m</div></div>
+          </div>
+          <div class="note-box dim">
+            <b>Mute proof:</b> NEW row can still highlight visually, but <b>no ♪ flash</b> and no chime audio.
+            Unmute restores after user gesture if browser audio policy requires it.
+          </div>
+        </div>
+        <div class="ac-note">
+          <b>MUTE:</b> <span class="ok">kills Filter new-token chime</span> (AC-N03).
+          No ♪ NEW TOKEN flash. Game mute/SFX pack unchanged this cut.
+        </div>
+      </section>
+    </div>
+
+    <!-- Optional SFX strip -->
+    <div class="sfx">
+      <h3>SFX strip · Filter vs Game (must look / read different)</h3>
+      <div class="row-sfx">
+        <div class="sfx-card filter">
+          <div class="lab">Filter · Token Flow</div>
+          <div class="hit">♪ NEW TOKEN</div>
+          <div class="desc">
+            Short soft-bright ping / “oh” cue when a <b>fresh flagged row</b> appears.
+            One hit per new mint this scan. <b>Not</b> casino stack. <b>Not</b> thruster.
+          </div>
+        </div>
+        <div class="sfx-card game-win">
+          <div class="lab">Game · positive mark</div>
+          <div class="hit">♪♪ WIN HIT</div>
+          <div class="desc">
+            Punchy casino-energy stack on tick+ / win (SHIP G AC-S01).
+            Different energy + wording from Filter NEW TOKEN.
+          </div>
+        </div>
+        <div class="sfx-card game-loss">
+          <div class="lab">Game · down / loss</div>
+          <div class="hit">♪ THUD LOSS HIT</div>
+          <div class="desc">
+            Distinct loss thud (SHIP G AC-S02). Never reused for Filter arrivals.
+            Buy/sell ticks also stay Game-only.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="acs">
+      <h3>Proposed ACs · Filter new-token chime (for PM cut)</h3>
+      <ul>
+        <li><span class="id">AC-N01</span> — When a new coin appears in Token Flow (new flagged row this scan), play a short distinct <b>“new token”</b> chime</li>
+        <li><span class="id">AC-N02</span> — Chime is clearly different from Game buy/sell and win/loss SFX</li>
+        <li><span class="id">AC-N03</span> — Mute kills the new-token chime; unmute restores after user gesture if needed</li>
+        <li><span class="id">AC-N04</span> — Empty Token Flow / no new rows → <b>no spam chime</b>; do not fire on refresh of same coins</li>
+        <li><span class="id">AC-N05</span> — Game chrome / Social Tap still work; <b>no voiceover / long loop</b></li>
+      </ul>
+    </div>
+    <p class="foot">mock-filter-new-token-sound-v1 · Token Flow new-coin chime · EYES ONLY · NOT A PR · EXAMPLE data · distinct from Game WIN/LOSS · Mute respects · no spam on empty/same refresh</p>
+  </div>
+</body>
+</html>

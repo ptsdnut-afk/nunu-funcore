@@ -698,10 +698,48 @@
     .sound-chip[data-sound="start"][data-audio="played"],
     .sound-chip[data-sound="ready"][data-audio="played"] { background: #102018; border-color: #2a5a40; color: #d4f5d8; }
     .sound-toggle {
-      display: none; align-items: center; padding: 2px; gap: 2px;
+      display: inline-flex; align-items: center; padding: 2px; gap: 2px;
       border: 1px solid #2a2a2a; border-radius: 999px; background: #12151c;
     }
     body.mode-game .sound-toggle { display: inline-flex; }
+    .token-pane .chime-flash,
+    .token-pane .mute-banner {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      margin: 8px 10px 0; padding: 8px 10px; border-radius: 10px;
+    }
+    .token-pane .chime-flash[hidden],
+    .token-pane .mute-banner[hidden] { display: none !important; }
+    .token-pane .chime-flash {
+      border: 1px solid #3ecf8e;
+      background: linear-gradient(90deg, #102818 0%, #0e1410 70%);
+      box-shadow: 0 0 18px rgba(62,207,142,.3);
+    }
+    .token-pane .chime-flash .icon,
+    .token-pane .mute-banner .icon {
+      width: 30px; height: 30px; border-radius: 8px;
+      display: grid; place-items: center; font-size: 1rem; flex-shrink: 0;
+    }
+    .token-pane .chime-flash .icon {
+      background: #14301f; border: 1px solid #3ecf8e; color: #3ecf8e;
+    }
+    .token-pane .chime-flash .title {
+      font-size: 0.82rem; font-weight: 900; color: #3ecf8e; letter-spacing: -0.01em;
+    }
+    .token-pane .chime-flash .detail,
+    .token-pane .mute-banner .detail {
+      font-size: 0.65rem; color: #9ed4b0; font-family: var(--mono);
+    }
+    .token-pane .mute-banner {
+      border: 1px dashed #666;
+      background: #151515;
+    }
+    .token-pane .mute-banner .icon {
+      background: #222; border: 1px solid #555; color: #bbb;
+    }
+    .token-pane .mute-banner .title {
+      font-size: 0.8rem; font-weight: 900; color: #ddd;
+    }
+    .token-pane .mute-banner .detail { color: var(--muted); }
     .sound-toggle .seg {
       border: 0; background: transparent; color: var(--muted); cursor: pointer;
       font-size: 0.72rem; font-weight: 800; padding: 5px 10px; border-radius: 999px;
@@ -835,6 +873,7 @@
     }
     .toast.on { opacity: 1; }
     .toast.bad { background: #241418; border-color: #6a2a32; color: #ffc9ce; }
+    .toast.silent { background: #1a1a1a; border-color: #555; color: #bbb; box-shadow: none; }
     @media (max-width: 1100px) {
       .panes { grid-template-columns: minmax(0, 1fr) minmax(240px, 300px); }
       .viral-pane { max-width: 300px; }
@@ -1355,6 +1394,39 @@
       border-color: #2a5a40;
       background: #141c18;
       box-shadow: inset 0 0 0 1px rgba(62,207,142,.12);
+    }
+    #modeFilter .tok.arrive {
+      border-color: #3ecf8e;
+      background: linear-gradient(90deg, #102818 0%, #161616 55%);
+      box-shadow: 0 0 16px rgba(62,207,142,.35);
+      outline: 2px solid rgba(62,207,142,.55);
+      outline-offset: 1px;
+      animation: flow-arrive 1.4s ease-out 3;
+    }
+    #modeFilter .tok.arrive-muted {
+      border-color: #555;
+      background: linear-gradient(90deg, #1a1a1a 0%, #161616 55%);
+      box-shadow: none;
+      outline: 1px dashed #555;
+      outline-offset: 1px;
+    }
+    #modeFilter .tag-arrive {
+      display: inline-block;
+      font-size: 0.52rem; font-weight: 800; letter-spacing: .04em;
+      padding: 1px 5px; border-radius: 999px;
+      background: #102018; border: 1px solid #2a5a40; color: #3ecf8e;
+      vertical-align: middle;
+    }
+    #modeFilter .tag-arrive.dim {
+      background: #1a1a1a; border-color: #555; color: #bbb;
+    }
+    @keyframes flow-arrive {
+      0% { box-shadow: 0 0 0 rgba(62,207,142,0); }
+      40% { box-shadow: 0 0 18px rgba(62,207,142,.55); }
+      100% { box-shadow: 0 0 16px rgba(62,207,142,.35); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #modeFilter .tok.arrive { animation: none; }
     }
     #modeFilter .tok > .score-detail { grid-column: 1 / -1; }
     #modeFilter .coin { gap: 10px; }
@@ -2030,7 +2102,7 @@
         <div class="logo">N</div>
         <div>
           <h1>Nunu Filter</h1>
-          <p class="sub">Solana Research Panel · paper only · v67</p>
+          <p class="sub">Solana Research Panel · paper only · v68</p>
         </div>
       </div>
       <div class="mode-tabs" role="tablist">
@@ -2039,7 +2111,7 @@
       </div>
       <span class="net-pill"><span class="live-dot" id="liveDot"></span>Solana Mainnet</span>
       <div class="top-actions">
-        <div class="sound-toggle" id="gSoundToggle" role="group" aria-label="Game sound" title="Sound on plays win and loss hits. Mute silences them.">
+        <div class="sound-toggle" id="gSoundToggle" role="group" aria-label="Sound" title="Sound on plays the Token Flow new-coin chime and Game win/loss hits. Mute silences both.">
           <button type="button" class="seg on" id="gSoundOnBtn" aria-pressed="true">Sound on</button>
           <button type="button" class="seg mute" id="gSoundMuteBtn" aria-pressed="false">Mute</button>
           <input type="checkbox" id="gMute" hidden />
@@ -2098,7 +2170,7 @@
       <div id="error"></div>
 
       <div class="panes">
-        <section class="pane token-pane">
+        <section class="pane token-pane" data-flow-hook="new-token">
           <div class="pane-head">
             <h2>Token flow</h2>
             <span class="sub" id="filterSub">On-chain · filtered · sitting drop 5m</span>
@@ -2108,6 +2180,20 @@
             <div class="side-tabs" role="tablist" aria-label="Side surfaces">
               <button type="button" class="side-tab" id="sideTabSocial" role="tab" aria-selected="true" aria-controls="viral" title="Social Tap side">Social Tap</button>
               <button type="button" class="side-tab" id="sideTabTraders" role="tab" aria-selected="false" aria-controls="traders" title="Traders side">Traders</button>
+            </div>
+          </div>
+          <div class="chime-flash" id="flowChime" hidden role="status" data-audio="idle">
+            <div class="icon" aria-hidden="true">♪</div>
+            <div>
+              <div class="title" id="flowChimeTitle">♪ NEW TOKEN</div>
+              <div class="detail" id="flowChimeDetail">short punchy chime · Filter only · not Game WIN HIT</div>
+            </div>
+          </div>
+          <div class="mute-banner" id="flowMuteNote" hidden role="status">
+            <div class="icon" aria-hidden="true">🔇</div>
+            <div>
+              <div class="title">muted · no chime</div>
+              <div class="detail">same NEW row · Filter chime suppressed · unmute restores</div>
             </div>
           </div>
           <div class="flow-legend" aria-hidden="true">
@@ -2413,7 +2499,7 @@
 
   <script>
 
-    const PANEL_V = 67;
+    const PANEL_V = 68;
     const SITTING_DROP_MIN = 5;
     const SITTING_NEAR_LEAD_MIN = 1;
     const SITTING_FRESH_MIN = 2;
@@ -2514,6 +2600,10 @@
       seenEventAt: null,
       audioCtx: null,
       mute: false,
+      flowMints: null,
+      flowFresh: [],
+      flowOutcome: "idle",
+      flowFlashTimer: 0,
       gameBusy: false,
       lastGameErr: null,
       gameFailCount: 0,
@@ -2767,7 +2857,8 @@
     function toast(msg, bad) {
       const el = document.getElementById("toast");
       el.textContent = msg;
-      el.className = "toast on" + (bad ? " bad" : "");
+      const silent = bad === "silent";
+      el.className = "toast on" + (silent ? " silent" : bad ? " bad" : "");
       clearTimeout(toast._t);
       toast._t = setTimeout(() => { el.className = "toast"; }, 3200);
     }
@@ -2784,6 +2875,7 @@
       ready: [[880, 0.07]],
       tick: [[880, 0.035], [1174, 0.03], [1568, 0.04], [1976, 0.05]],
       down: [[146, 0.06], [92, 0.07], [55, 0.05]],
+      newtoken: [[349.23, 0.06], [523.25, 0.09], [659.25, 0.18]],
       points: [[988, 0.04], [1318, 0.07]],
       tax: [[196, 0.05], [98, 0.09]],
       unlock: [[740, 0.04], [988, 0.045], [1568, 0.08]],
@@ -2791,11 +2883,11 @@
     const SOUND_WAVE = {
       buy: "square", sell: "sine", fail: "sawtooth", stop: "triangle",
       tp: "square", high: "triangle", start: "triangle", ready: "sine",
-      tick: "square", down: "sawtooth", points: "triangle", tax: "square", unlock: "triangle",
+      tick: "square", down: "sawtooth", newtoken: "sine", points: "triangle", tax: "square", unlock: "triangle",
     };
     const SOUND_GAIN = {
       buy: 0.07, sell: 0.11, fail: 0.045, high: 0.06, ready: 0.05,
-      tick: 0.08, down: 0.09, points: 0.045, tax: 0.04, unlock: 0.05,
+      tick: 0.08, down: 0.09, newtoken: 0.07, points: 0.045, tax: 0.04, unlock: 0.05,
     };
 
     function soundLabel(kind, outcome) {
@@ -2851,11 +2943,12 @@
       }
     }
 
-    function startTone(ctx, kind) {
+    function startTone(ctx, kind, delaySec) {
       const seq = SOUND_SEQ[kind];
+      const delay = Number(delaySec);
       if (!seq || ctx.state !== "running") return false;
       const now = ctx.currentTime;
-      let t = now;
+      let t = now + (Number.isFinite(delay) && delay > 0 ? delay : 0);
       seq.forEach(([freq, dur]) => {
         const o = ctx.createOscillator();
         const g = ctx.createGain();
@@ -2875,6 +2968,7 @@
 
     function beep(kind) {
       try {
+        if (kind === "newtoken") return;
         if (!SOUND_SEQ[kind]) return;
         const muted = !!(state.mute || (document.getElementById("gMute") && document.getElementById("gMute").checked));
         if (muted) {
@@ -2918,6 +3012,185 @@
       beep(s);
     }
 
+    /* ship-i-pure-start */
+    function tokenFlowMintKeys(rows) {
+      const out = [];
+      const seen = Object.create(null);
+      const list = Array.isArray(rows) ? rows : [];
+      for (let i = 0; i < list.length; i++) {
+        const row = list[i];
+        if (!row || typeof row !== "object") continue;
+        const key = String(row.mint == null ? "" : row.mint).trim();
+        if (!key || seen[key]) continue;
+        seen[key] = true;
+        out.push(key);
+      }
+      return out;
+    }
+
+    function tokenFlowAlertDecision(prev, rows) {
+      const next = tokenFlowMintKeys(rows);
+      if (prev == null) return { seeded: true, play: [], next: next, fresh: [] };
+      const before = Object.create(null);
+      const prior = Array.isArray(prev) ? prev : [];
+      for (let i = 0; i < prior.length; i++) before[prior[i]] = true;
+      const fresh = [];
+      for (let j = 0; j < next.length; j++) {
+        if (!before[next[j]]) fresh.push(next[j]);
+      }
+      return { seeded: false, play: fresh, next: next, fresh: fresh };
+    }
+
+    function flowAlertPlan(prev, rows, opts) {
+      const decision = tokenFlowAlertDecision(prev, rows);
+      const muted = !!(opts && opts.muted);
+      const unlocked = !!(opts && opts.unlocked);
+      let outcome = "same";
+      if (decision.seeded) outcome = "seed";
+      else if (!decision.fresh.length) outcome = "same";
+      else if (muted) outcome = "muted";
+      else if (!unlocked) outcome = "blocked";
+      else outcome = "play";
+      return {
+        outcome: outcome,
+        next: decision.next,
+        fresh: decision.fresh,
+        play: outcome === "play" ? decision.fresh.slice() : [],
+      };
+    }
+
+    function flowArrivalNames(rows, mints) {
+      const list = Array.isArray(rows) ? rows : [];
+      const keys = Array.isArray(mints) ? mints : [];
+      const byMint = Object.create(null);
+      for (let i = 0; i < list.length; i++) {
+        const row = list[i];
+        if (!row || typeof row !== "object") continue;
+        const key = String(row.mint == null ? "" : row.mint).trim();
+        if (!key || byMint[key]) continue;
+        const ticker = String(row.ticker == null ? "" : row.ticker).trim();
+        byMint[key] = ticker || key.slice(0, 4);
+      }
+      const names = [];
+      for (let j = 0; j < keys.length; j++) {
+        const name = byMint[keys[j]];
+        if (name) names.push(name);
+      }
+      return names;
+    }
+
+    function flowArrivalLabel(names) {
+      const list = Array.isArray(names) ? names.filter(Boolean) : [];
+      if (!list.length) return "coin";
+      const head = list.slice(0, 3).join(", ");
+      return list.length > 3 ? (head + " +" + (list.length - 3)) : head;
+    }
+
+    function flowArrivalCopy(outcome, names) {
+      const label = flowArrivalLabel(names);
+      if (outcome === "play" || outcome === "blocked") {
+        return {
+          flash: true,
+          muteNote: false,
+          title: "♪ NEW TOKEN",
+          detail: outcome === "blocked"
+            ? "tap Sound on — browser blocked the chime"
+            : "short punchy chime · Filter only · not Game WIN HIT",
+          toast: "New token flagged · " + label,
+          toastKind: "",
+        };
+      }
+      if (outcome === "muted") {
+        return {
+          flash: false,
+          muteNote: true,
+          title: "muted · no chime",
+          detail: "same NEW row · Filter chime suppressed · unmute restores",
+          toast: "New token flagged · silent",
+          toastKind: "silent",
+        };
+      }
+      return { flash: false, muteNote: false, title: "", detail: "", toast: "", toastKind: "" };
+    }
+    /* ship-i-pure-end */
+
+    function flowAudioUnlocked() {
+      try {
+        return !!(state.audioCtx && state.audioCtx.state === "running");
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function scheduleFlowChromeHide() {
+      clearTimeout(state.flowFlashTimer);
+      state.flowFlashTimer = setTimeout(() => {
+        const flash = document.getElementById("flowChime");
+        const muteNote = document.getElementById("flowMuteNote");
+        if (flash) flash.hidden = true;
+        if (muteNote) muteNote.hidden = true;
+      }, 7000);
+    }
+
+    function playNewTokenChime(count) {
+      const n = Number(count) || 0;
+      if (n < 1 || state.mute) return false;
+      try {
+        const ctx = ensureAudio();
+        if (!ctx || ctx.state !== "running") return false;
+        const gap = 0.42;
+        for (let i = 0; i < n; i++) {
+          if (!startTone(ctx, "newtoken", i * gap)) return false;
+        }
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function paintFlowArrival(plan, rows) {
+      const pane = document.querySelector(".token-pane");
+      const flash = document.getElementById("flowChime");
+      const muteNote = document.getElementById("flowMuteNote");
+      const toggle = document.getElementById("gSoundToggle");
+      const names = flowArrivalNames(rows, plan.fresh);
+      const copy = flowArrivalCopy(plan.outcome, names);
+      if (pane) {
+        pane.setAttribute("data-flow-audio", plan.outcome || "idle");
+        pane.setAttribute("data-flow-fresh", String((plan.fresh || []).length));
+      }
+      if (toggle) {
+        toggle.setAttribute("data-flow-audio", plan.outcome || "idle");
+        toggle.title = plan.outcome === "blocked"
+          ? "Browser blocked the Token Flow chime. Tap Sound on to allow the next new coin."
+          : "Sound on plays the Token Flow new-coin chime and Game win/loss hits. Mute silences both.";
+      }
+      if (flash) {
+        flash.hidden = !copy.flash;
+        flash.setAttribute("data-audio", plan.outcome === "blocked" ? "blocked" : (copy.flash ? "played" : "idle"));
+        const title = document.getElementById("flowChimeTitle");
+        const detail = document.getElementById("flowChimeDetail");
+        if (title && copy.title) title.textContent = copy.title;
+        if (detail) detail.textContent = copy.detail || "";
+      }
+      if (muteNote) muteNote.hidden = !copy.muteNote;
+      if (copy.toast) toast(copy.toast, copy.toastKind === "silent" ? "silent" : false);
+      if (copy.flash || copy.muteNote) scheduleFlowChromeHide();
+      else clearTimeout(state.flowFlashTimer);
+    }
+
+    function noteTokenFlowFlags(rows) {
+      const plan = flowAlertPlan(state.flowMints, rows, {
+        muted: !!state.mute,
+        unlocked: flowAudioUnlocked(),
+      });
+      state.flowMints = plan.next.slice();
+      state.flowFresh = plan.fresh.slice();
+      if (plan.outcome === "play" && !playNewTokenChime(plan.play.length)) plan.outcome = "blocked";
+      state.flowOutcome = plan.outcome;
+      paintFlowArrival(plan, rows);
+    }
+
     function looksLikeMint(s) {
       s = String(s || "").trim();
       if (s.length < 32 || s.length > 50) return false;
@@ -2951,6 +3224,18 @@
       if (pill && state.mute) pill.textContent = "Mute";
       else if (pill && rocket && rocket.getAttribute("data-sfx") !== "win" && rocket.getAttribute("data-sfx") !== "loss") {
         pill.textContent = "Sound on";
+      }
+      if (state.flowFresh && state.flowFresh.length) {
+        const flash = document.getElementById("flowChime");
+        const muteNote = document.getElementById("flowMuteNote");
+        if (state.mute) {
+          if (flash) flash.hidden = true;
+          if (muteNote) muteNote.hidden = false;
+          scheduleFlowChromeHide();
+        } else if (muteNote) {
+          muteNote.hidden = true;
+        }
+        render();
       }
     }
 
@@ -3760,6 +4045,8 @@
         : (Number(s12) >= 10 ? "win" : (Number(s12) >= 7 ? "mid" : "lo"));
       const scoreCls = "score-btn " + scoreBand;
       const mint = r.mint || "";
+      const arrived = !!(mint && (state.flowFresh || []).indexOf(mint) >= 0);
+      if (arrived) badge = '<span class="tag-arrive' + (state.mute ? " dim" : "") + '">NEW</span>';
       const selected = !!(mint && state.coinMint === mint);
       const watching = (state.watch || []).some((w) => w.mint === mint);
       const open = !!(mint && state.scoreOpenMint === mint);
@@ -3772,7 +4059,7 @@
       const detailId = "sd-" + mint.replace(/[^A-Za-z0-9]/g, "").slice(0, 24);
       const metric = (lab, val, cls) =>
         '<div class="metric"><span class="lab">' + lab + '</span><span class="mval' + (cls ? (" " + cls) : "") + '">' + val + "</span></div>";
-      return '<article class="tok' + (late ? " late-row" : "") + (isCopy ? " copy-row" : "") + (sitBand === "near" ? " sit-near" : "") + (sitBand === "over" ? " sit-over" : "") + (open ? " open" : "") + (selected ? " selected" : "") + '" data-mint="' + esc(mint) + '" data-sitting-band="' + esc(sitBand) + '">' +
+      return '<article class="tok' + (late ? " late-row" : "") + (isCopy ? " copy-row" : "") + (sitBand === "near" ? " sit-near" : "") + (sitBand === "over" ? " sit-over" : "") + (open ? " open" : "") + (selected ? " selected" : "") + (arrived ? (state.mute ? " arrive-muted" : " arrive") : "") + '" data-mint="' + esc(mint) + '" data-sitting-band="' + esc(sitBand) + '">' +
         '<button type="button" class="coin coin-open" data-mint="' + esc(mint) + '" aria-haspopup="dialog" aria-label="Open ' + esc(r.ticker || "coin") + ' detail">' + imgHtml +
           "<div><div class=\"ticker\">" + esc(r.ticker) + " " + badge + "</div>" +
           '<div class="name" title="' + esc(r.name) + '">' + esc(r.name) + "</div>" +
@@ -3867,6 +4154,9 @@
       for (const r of visible) buckets[sectionOf(r)].push(r);
       for (const k of Object.keys(buckets)) {
         buckets[k].sort((a, b) => {
+          const af = (state.flowFresh || []).indexOf((a && a.mint) || "") >= 0 ? 1 : 0;
+          const bf = (state.flowFresh || []).indexOf((b && b.mint) || "") >= 0 ? 1 : 0;
+          if (af !== bf) return bf - af;
           const ds = (score12Of(b) || 0) - (score12Of(a) || 0);
           if (ds) return ds;
           return (pairAgeHours(a) || 99) - (pairAgeHours(b) || 99);
@@ -4192,7 +4482,9 @@
       } else {
         state.flaggedError = null;
         if (!fRes.unchanged && fRes.data != null) {
-          state.flagged = Array.isArray(fRes.data) ? fRes.data : [];
+          const nextRows = Array.isArray(fRes.data) ? fRes.data : [];
+          if (!holdFlagged) noteTokenFlowFlags(nextRows);
+          state.flagged = nextRows;
           changed = true;
         }
       }
@@ -6084,10 +6376,17 @@
       });
     }
     document.getElementById("gSoundOnBtn").addEventListener("click", () => {
-      if (!state.mute) return;
-      setMuteUi(false);
-      beep("ready");
+      if (state.mute) {
+        setMuteUi(false);
+        beep("ready");
+        return;
+      }
+      ensureAudio();
     });
+    document.addEventListener("pointerdown", () => {
+      if (state.audioCtx && state.audioCtx.state === "running") return;
+      ensureAudio();
+    }, true);
     document.getElementById("gSoundMuteBtn").addEventListener("click", () => {
       if (state.mute) return;
       setMuteUi(true);
