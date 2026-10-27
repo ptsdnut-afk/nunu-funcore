@@ -1,0 +1,70 @@
+{
+  "apis": {
+    "cache_dir": "/opt/render/project/src/.cache",
+    "dexscreener": "ok",
+    "rugcheck_summaries_fail": 0,
+    "rugcheck_summaries_ok": 16
+  },
+  "data_as_of": "2026-10-27T02:36:50Z",
+  "disclaimer": "Paper research only. Not financial advice. No trades placed.",
+  "evaluated": 45,
+  "flagged_count": 0,
+  "late_chase_count": 0,
+  "pairs_resolved": 45,
+  "run_finished": "2026-10-27T02:36:50Z",
+  "run_started": "2026-10-27T02:36:45Z",
+  "scanned_mints": 45,
+  "sitting_dropped": {
+    "len": 10,
+    "sample": [
+      {
+        "mint": "6zMfMXjovo7ivtrypSP7YspHm5TcbV4Sh5TwSDgapump",
+        "score": 98.0,
+        "sitting_minutes": 5.1,
+        "ticker": "TRUMP2028"
+      },
+      {
+        "mint": "9v4airX4Vt45ADFg3QQG9pXX68LkX9Big4GiYEuJpump",
+        "score": 98.0,
+        "sitting_minutes": 5.1,
+        "ticker": "CHICO"
+      }
+    ]
+  },
+  "sitting_dropped_count": 10,
+  "thresholds": {
+    "late_chase_min_age_h": 2.0,
+    "late_chase_min_h1_pct": 100.0,
+    "max_pair_age_hours": 72.0,
+    "min_liquidity_usd": 15000.0,
+    "min_score_to_flag": 55.0,
+    "min_volume_h1_usd": 5000.0,
+    "sitting_drop_min": 5.0,
+    "sitting_fresh_min": 2.0,
+    "sitting_near_lead_min": 1.0,
+    "trench_band_score_12_min": 10.0,
+    "weights": "dict:['holders', 'liquidity', 'socials', 'volume']"
+  },
+  "top_scores": {
+    "len": 10,
+    "sample": [
+      {
+        "flagged": false,
+        "mint": "6zMfMXjovo7ivtrypSP7YspHm5TcbV4Sh5TwSDgapump",
+        "score": 98.0,
+        "score_12": 11.8,
+        "ticker": "TRUMP2028",
+        "trench_band": true
+      },
+      {
+        "flagged": false,
+        "mint": "9v4airX4Vt45ADFg3QQG9pXX68LkX9Big4GiYEuJpump",
+        "score": 98.0,
+        "score_12": 11.8,
+        "ticker": "CHICO",
+        "trench_band": true
+      }
+    ]
+  },
+  "trench_band_count": 0
+}

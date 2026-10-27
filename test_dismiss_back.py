@@ -17,7 +17,7 @@ class HealthTests(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         data = res.get_json()
         self.assertTrue(data["ok"])
-        self.assertEqual(data["panel_v"], 71)
+        self.assertEqual(data["panel_v"], 72)
         self.assertIn("dismiss_back", data["features"])
         self.assertIn("token_flow_new_sound", data["features"])
         self.assertIn("game_polish", data["features"])
@@ -27,8 +27,8 @@ class HealthTests(unittest.TestCase):
 class ChromeTests(unittest.TestCase):
     def test_score_coin_and_trade_have_a_top_right_x(self):
         html = _panel()
-        self.assertIn("const PANEL_V = 71", html)
-        self.assertIn("paper only · v71", html)
+        self.assertIn("const PANEL_V = 72", html)
+        self.assertIn("paper only · v72", html)
         self.assertIn('class="dismiss-x"', html)
         self.assertIn('data-dismiss="score"', html)
         self.assertIn('data-dismiss="coin"', html)
