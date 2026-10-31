@@ -27,7 +27,7 @@ class HealthAndChromeTests(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         data = res.get_json()
         self.assertTrue(data["ok"])
-        self.assertEqual(data["panel_v"], 88)
+        self.assertEqual(data["panel_v"], 90)
         self.assertIn("manual_update", data["features"])
         self.assertIn("delay_warning", data["features"])
         self.assertIn("game_24h_restart", data["features"])
@@ -47,7 +47,7 @@ class HealthAndChromeTests(unittest.TestCase):
 
     def test_update_now_sits_beside_refresh(self):
         html = _panel()
-        self.assertIn("const PANEL_V = 88", html)
+        self.assertIn("const PANEL_V = 90", html)
         self.assertIn("data-panel-v", html)
         self.assertIn("paintPanelVersion", html)
         self.assertNotIn("?v=76", html)

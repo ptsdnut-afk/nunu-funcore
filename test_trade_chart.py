@@ -18,7 +18,7 @@ class TradeChartTests(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         data = res.get_json()
         self.assertTrue(data["ok"])
-        self.assertEqual(data["panel_v"], 88)
+        self.assertEqual(data["panel_v"], 90)
         self.assertIn("trade_chart", data["features"])
         self.assertIn("manual_update", data["features"])
         self.assertIn("sitting_keep", data["features"])
@@ -27,7 +27,7 @@ class TradeChartTests(unittest.TestCase):
 
     def test_panel_advertises_v73_and_keeps_prior_ships(self):
         html = _panel()
-        self.assertIn("const PANEL_V = 88", html)
+        self.assertIn("const PANEL_V = 90", html)
         self.assertIn("data-panel-v", html)
         self.assertIn("paintPanelVersion", html)
         self.assertNotIn("?v=76", html)

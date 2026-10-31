@@ -1497,7 +1497,7 @@
     #modeFilter .flow-legend,
     #modeFilter .tok {
       display: grid;
-      grid-template-columns: minmax(120px, 1.05fr) 72px minmax(76px, 0.58fr) minmax(140px, 1.05fr) repeat(5, minmax(48px, 0.48fr)) minmax(168px, 0.9fr);
+      grid-template-columns: minmax(120px, 1.05fr) 72px minmax(76px, 0.58fr) minmax(140px, 1.05fr) repeat(6, minmax(48px, 0.48fr)) minmax(168px, 0.9fr);
       gap: 4px 8px;
       align-items: center;
     }
@@ -1906,7 +1906,7 @@
     }
     .coin-sheet {
       top: 0; right: 0; bottom: 0; height: 100%;
-      width: min(420px, 100%);
+      width: min(960px, 100%);
       border: 0;
       border-left: 1px solid #2a5a40;
       border-radius: 0;
@@ -2739,6 +2739,80 @@
       #gameFollow.game-follow { max-width: 100%; }
     }
     /* ship-q-polish-end */
+    /* SHIP X checklist + USD price. Same near-black / green / amber. */
+    .ck-stats { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 10px; }
+    .ck-stat { background: #121212; border: 1px solid #2a2a2a; border-radius: 9px; padding: 6px 10px; min-width: 88px; }
+    .ck-stat .lab { font-size: 0.6rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #8b98a5; }
+    .ck-stat .val { font-family: var(--mono); font-weight: 900; font-size: 1.02rem; margin-top: 1px; }
+    .ck-stat .val.good { color: #3ecf8e; }
+    .ck-stat .val.bad { color: #f07178; }
+    .ck-verdict {
+      margin-left: auto; align-self: stretch; display: flex; flex-direction: column; justify-content: center;
+      background: #241e10; border: 1px solid #6a5320; border-radius: 10px; padding: 6px 12px;
+      color: #f0a33a; text-decoration: none; min-width: 160px;
+    }
+    .ck-verdict.skip { background: #1a0c0f; border-color: #6a2030; color: #f07178; }
+    .ck-verdict.buy { background: #102018; border-color: #2a5a40; color: #3ecf8e; }
+    .ck-verdict b { font-size: 1.02rem; font-family: var(--mono); }
+    .ck-verdict small { display: block; font-size: 0.66rem; color: #d9c79a; }
+    .ck-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .ck-card { background: #121212; border: 1px solid #2a2a2a; border-radius: 12px; padding: 10px 12px; min-width: 0; }
+    .ck-card h2 {
+      margin: 0 0 7px; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.07em;
+      text-transform: uppercase; color: #8b98a5; display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+    }
+    .ck-card h2 .ck-hsrc { margin-left: auto; font-weight: 600; letter-spacing: 0; text-transform: none; font-size: 0.66rem; color: #6b7782; }
+    .ck-kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; font-size: 0.8rem; }
+    .ck-kv dt { color: #8b98a5; }
+    .ck-kv dd { margin: 0; font-family: var(--mono); text-align: right; overflow-wrap: anywhere; }
+    .ck-desc { font-size: 0.8rem; color: #c9d1d9; background: #161616; border-left: 2px solid #2a5a40; padding: 6px 9px; border-radius: 0 6px 6px 0; margin: 6px 0; }
+    .ck-socials { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+    .ck-soc { font-size: 0.72rem; font-family: var(--mono); padding: 3px 8px; border-radius: 6px; background: #161616; border: 1px solid #2a2a2a; overflow-wrap: anywhere; }
+    .ck-soc.none { color: #8b98a5; border-style: dashed; }
+    .ck-line { font-size: 0.74rem; color: #b8e6c0; margin-top: 6px; }
+    .ck-line.amber { color: #e6cf9a; }
+    .ck-src { display: inline-block; font-family: var(--sans, ui-sans-serif, system-ui, sans-serif); font-size: 0.58rem; font-weight: 700; color: #6b7782; border: 1px solid #2a2a2a; border-radius: 4px; padding: 0 4px; margin-left: 5px; vertical-align: middle; }
+    .ck-unk { color: #8b98a5; font-style: italic; }
+    .ck-span2 { grid-column: 1 / -1; }
+    .ck-bub { display: flex; gap: 10px; align-items: center; min-width: 0; }
+    .ck-bub svg, .ck-bub-empty { flex: 0 0 150px; background: #0a0a0a; border: 1px solid #2a2a2a; border-radius: 10px; }
+    .ck-bub-empty { height: 110px; display: grid; place-items: center; color: #8b98a5; font-style: italic; }
+    .ck-check { list-style: none; margin: 0; padding: 0; }
+    .ck-check li { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 5px 0; border-bottom: 1px solid #1c1c1c; font-size: 0.8rem; }
+    .ck-check li:last-child { border-bottom: 0; }
+    .ck-ic { width: 20px; height: 20px; border-radius: 5px; display: grid; place-items: center; font-weight: 900; font-size: 0.75rem; }
+    .ck-ic.p { background: #102018; color: #3ecf8e; border: 1px solid #2a5a40; }
+    .ck-ic.f { background: #241014; color: #f07178; border: 1px solid #6a2030; }
+    .ck-ic.u { background: #1a1a1a; color: #8b98a5; border: 1px solid #3a3a3a; }
+    .ck-why { display: block; font-size: 0.68rem; color: #8b98a5; }
+    .ck-sum { display: flex; height: 8px; border-radius: 4px; overflow: hidden; margin: 4px 0 8px; background: #1c1c1c; }
+    .ck-sum i { display: block; height: 100%; }
+    .ck-pill { font-size: 0.64rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; }
+    .ck-pill.good { background: #102018; border: 1px solid #2a5a40; color: #3ecf8e; }
+    .ck-pill.bad { background: #241014; border: 1px solid #6a2030; color: #f07178; }
+    .ck-pill.unk { background: #1a1a1a; border: 1px solid #3a3a3a; color: #8b98a5; }
+    .ck-pill.amber { background: #241e10; border: 1px solid #6a5320; color: #f0a33a; }
+    .ck-paper { font-size: 0.68rem; color: #8b98a5; margin-top: 6px; }
+    .ck-forced { margin: 0 0 10px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: #1a0c0f; border: 1px solid #6a2030; border-radius: 10px; padding: 8px 12px; font-size: 0.8rem; }
+    .ck-forced b.sk { font-family: var(--mono); color: #f07178; }
+    .ck-strike { text-decoration: line-through; color: #8b98a5; font-family: var(--mono); }
+    .ck-factors { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
+    .ck-fac { background: #161616; border: 1px solid #2a2a2a; border-radius: 8px; padding: 6px; text-align: center; font-size: 0.7rem; color: #8b98a5; }
+    .ck-fac b { display: block; font-family: var(--mono); color: #e7e9ea; font-size: 0.9rem; }
+    details.ck-card > summary { cursor: pointer; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase; color: #8b98a5; }
+    .ck-loading { color: #8b98a5; font-size: 0.85rem; margin: 8px 0; }
+    .ck-amber { color: #f0a33a; }
+    .ck-good { color: #3ecf8e; }
+    .ck-bad { color: #f07178; }
+    .px-usd { font-variant-numeric: tabular-nums; }
+    @media (max-width: 720px) {
+      .ck-grid { grid-template-columns: 1fr; }
+      .ck-verdict { margin-left: 0; width: 100%; }
+      .ck-stat { flex: 1 1 calc(50% - 8px); min-width: 0; }
+      .ck-bub { flex-direction: column; align-items: stretch; }
+      .ck-bub svg, .ck-bub-empty { width: 100%; flex: none; }
+      .ck-factors { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
   </style>
 </head>
 <body>
@@ -2878,6 +2952,7 @@
             <span>Score</span>
             <span>Sitting</span>
             <span>Mcap · % max</span>
+            <span>Price</span>
             <span>1h %</span>
             <span>B / S</span>
             <span>Liq</span>
@@ -2889,7 +2964,7 @@
             <div class="empty">Loading <code>/api/flagged</code>…</div>
           </div>
           <div class="foot-pane">
-            <span>Click a coin for mcap progress, rug, outlook, vitality · score opens stored inputs and why</span>
+            <span>Click a coin for the checklist · score opens stored inputs and why</span>
             <span id="lastUpdated">Last updated: —</span>
           </div>
         </section>
@@ -3228,7 +3303,7 @@
 
   <script>
 
-    const PANEL_V = 88;
+    const PANEL_V = 90;
     function paintPanelVersion() {
       const label = String(PANEL_V);
       document.querySelectorAll("[data-panel-v]").forEach((el) => {
@@ -3411,6 +3486,7 @@
       coinMint: "",
       coinSeq: 0,
       coinPreview: {},
+      coinCheck: {},
       chartPick: null,
       chartShown: "",
       chartFailedKey: "",
@@ -3461,10 +3537,21 @@
         function fmtPx(n) {
       if (n == null || n === "" || Number.isNaN(Number(n))) return "—";
       const x = Number(n);
-      if (x === 0) return "0";
-      if (Math.abs(x) >= 1) return x.toPrecision(4);
-      if (Math.abs(x) >= 0.0001) return x.toFixed(6).replace(/\.?0+$/, "");
-      return x.toExponential(3);
+      if (!Number.isFinite(x)) return "—";
+      const sign = x < 0 ? "-" : "";
+      const a = Math.abs(x);
+      if (a === 0) return "$0";
+      if (a >= 1000) return sign + "$" + a.toFixed(2);
+      if (a >= 1) return sign + "$" + String(a.toPrecision(4)).replace(/\.?0+$/, "");
+      const exp = Math.floor(Math.log10(a));
+      const zeros = -exp - 1;
+      if (zeros <= 4) {
+        const text = a.toFixed(zeros + 4).replace(/0+$/, "").replace(/\.$/, "");
+        return sign + "$" + text;
+      }
+      const mant = String(a.toExponential(3)).split("e")[0].replace(".", "").replace(/0+$/, "");
+      const sub = String(zeros).replace(/[0-9]/g, (d) => "₀₁₂₃₄₅₆₇₈₉"[Number(d)]);
+      return sign + "$0.0" + sub + mant;
     }
 
     function fmtUsd(n) {
@@ -5069,6 +5156,10 @@
       if (r.qa_max_fixture) {
         badge = '<span class="badge qa-max" title="' + esc(r.qa_label || "QA Max fixture") + '">QA MAX</span>' + badge;
       }
+      if (r.qa_x_fixture) {
+        const vName = r.checklist_verdict || "QA";
+        badge = '<span class="badge qa-max" title="' + esc(r.qa_label || "QA checklist fixture") + '">' + esc(vName) + "</span>" + badge;
+      }
       const chgCls = chg == null ? "" : (Number(chg) >= 0 ? "chg-up" : "chg-dn");
       const bsMain = (buys != null || sells != null)
         ? (fmtCount(buys) + "/" + fmtCount(sells))
@@ -5089,6 +5180,7 @@
           '<span class="score-pop">' + scorePopHtml(r) + "</span></button>" +
         sittingHtml(r) +
         mcapRowHtml(r) +
+        metric("Price", '<span class="px-usd" data-feature="usd_price">' + esc(fmtPx(m.price_usd)) + "</span>") +
         metric("1h %", fmtPct(chg), chgCls) +
         metric("B/S", esc(bsMain)) +
         metric("Liq", fmtUsd(liq)) +
@@ -5372,6 +5464,16 @@
 
     function wantsQaGold() {
       return !!qaGoldMode();
+    }
+
+    function qaXMode() {
+      let raw = "";
+      try { raw = new URLSearchParams(location.search).get("qa_x") || ""; }
+      catch (e) { raw = ""; }
+      raw = String(raw).trim().toLowerCase().replace(/[_-]/g, "");
+      if (raw === "buy" || raw === "buywatch") return "buywatch";
+      if (raw === "watch" || raw === "skip") return raw;
+      return "";
     }
 
     function flaggedFeedUrl() {
@@ -5679,7 +5781,12 @@
       }
       const tweetsPromise = loadOne("/api/tweets", "etagTweets");
       const [fRes, lRes, sRes] = await Promise.all([
-        loadOne(flaggedFeedUrl(), "etagFlagged"),
+        loadOne((function () {
+          const base = flaggedFeedUrl();
+          const mode = qaXMode();
+          if (!mode) return base;
+          return base + (base.indexOf("?") >= 0 ? "&" : "?") + "qa_x=" + encodeURIComponent(mode);
+        })(), "etagFlagged"),
         loadOne("/api/latest", "etagLatest"),
         fetch("/api/status", { cache: "no-store" }).then(async (r) => (
           r.ok ? { ok: true, data: await r.json() } : { ok: false, error: "HTTP " + r.status }
@@ -8434,8 +8541,9 @@
       if (!closed.length) cbox.innerHTML = '<div class="empty">No closed trades this run</div>';
       else {
         cbox.innerHTML = closed.slice(0, 12).map((p) =>
-          '<div class="score-row" data-reason="' + esc(p.close_reason || "") + '" data-price-ts="' + esc(p.price_ts || "") + '"><span>' + esc(p.symbol || "?") +
+          '<div class="score-row" data-reason="' + esc(p.close_reason || "") + '" data-price-ts="' + esc(p.price_ts || "") + '" data-feature="usd_price"><span>' + esc(p.symbol || "?") +
           " · " + esc(p.close_reason || "closed") +
+          " · entry " + esc(fmtPx(p.entry_price_usd)) + " · exit " + esc(fmtPx(p.exit_price_usd)) +
           (p.price_ts ? (" · " + esc(String(p.price_ts).slice(11, 19)) + "Z") : "") +
           (p.mint ? (' · <code class="ca-full">' + esc(p.mint) + "</code>") : "") +
           '</span><span class="' + (Number(p.pnl_usd) >= 0 ? "chg-up" : "chg-dn") + '">' +
@@ -9332,13 +9440,14 @@
         renderGame();
         playResponseSound(data);
         const sym = (data.position && data.position.symbol) || "?";
+        const fillPx = data.position && data.position.entry_price_usd;
         setGameLine(
           mintMismatch
             ? ("Bought " + sym + " but response mint differed — input kept")
-            : ("Bought " + sym + " $" + stake + " — marks update live"),
+            : ("Bought " + sym + " at " + fmtPx(fillPx) + " · stake " + fmtGameUsd(stake)),
           mintMismatch ? "bad" : "ok"
         );
-        toast("Bought " + sym + " $" + stake);
+        toast("Bought " + sym + " at " + fmtPx(fillPx) + " · stake " + fmtGameUsd(stake));
         setTimeout(() => loadGame(true), 1500);
       } catch (e) {
         beep("fail");
@@ -9386,8 +9495,12 @@
           else paintFollowTab();
         }
         playResponseSound(data);
-        setGameLine("Sold", "ok");
-        toast("Sold");
+        const soldRow = data.state && data.state.closed && data.state.closed[0];
+        const soldPx = (soldRow && soldRow.exit_price_usd != null) ? soldRow.exit_price_usd : data.price_usd;
+        const soldPnl = soldRow && soldRow.pnl_usd;
+        const pnlTxt = soldPnl == null ? "" : (" · P/L " + (Number(soldPnl) > 0 ? "+" : "") + fmtGameUsd(soldPnl));
+        setGameLine("Sold at " + fmtPx(soldPx) + pnlTxt, "ok");
+        toast("Sold at " + fmtPx(soldPx) + pnlTxt);
       } catch (e) {
         beep("fail");
         setGameLine("Sell failed: " + (e.message || e), "bad");
@@ -10348,6 +10461,137 @@
         "</div></section>";
     }
 
+    function ckSrc(text) {
+      if (!text) return "";
+      return '<span class="ck-src">' + esc(text) + "</span>";
+    }
+
+    function ckVal(value, source) {
+      if (value == null || value === "") return '<span class="ck-unk">Unknown</span>' + ckSrc(source);
+      return esc(String(value)) + ckSrc(source);
+    }
+
+    function bubbleSvg(bubbles) {
+      const rows = Array.isArray(bubbles) ? bubbles.slice(0, 8) : [];
+      if (!rows.length) return '<div class="ck-bub-empty">Unknown</div>';
+      const marks = rows.map((bubble, index) => {
+        const cx = 24 + (index % 4) * 34;
+        const cy = 28 + Math.floor(index / 4) * 48;
+        const pct = Number(bubble.pct) || 1;
+        const radius = Math.max(6, Math.min(16, 6 + pct * 0.35));
+        const stroke = bubble.cluster ? "#f0a33a" : "#3ecf8e";
+        const fill = bubble.cluster ? "#241e10" : "#102018";
+        return '<circle cx="' + cx + '" cy="' + cy + '" r="' + radius.toFixed(1) + '" fill="' + fill + '" stroke="' + stroke + '"></circle>';
+      }).join("");
+      return '<svg viewBox="0 0 150 110" width="150" height="110" role="img" aria-label="Holder bubbles. Amber marks the linked funding cluster.">' + marks + "</svg>";
+    }
+
+    function checklistCards(checklist) {
+      const origin = checklist.origin || {};
+      const dev = checklist.dev || {};
+      const bundle = checklist.bundle || {};
+      const socialSource = origin.social_source || "Dexscreener";
+      const soc = (label, value) => value
+        ? '<span class="ck-soc">' + esc(label) + " " + esc(value) + ckSrc(socialSource) + "</span>"
+        : '<span class="ck-soc none">' + esc(label) + ": Unknown" + ckSrc(socialSource) + "</span>";
+      const created = origin.created_source
+        ? ((checklist.header && checklist.header.age_text) || "Unknown")
+        : null;
+      const desc = origin.description
+        ? '<div class="ck-desc">“' + esc(origin.description) + "” " + ckSrc(origin.description_source) + "</div>"
+        : '<div class="ck-desc"><span class="ck-unk">Unknown</span>' + ckSrc("Pump.fun") + "</div>";
+      const devWallet = dev.wallet
+        ? esc(dev.wallet_short || dev.wallet) + ' <button type="button" class="copy-ca" data-ca="' + esc(dev.wallet) + '">copy</button>' + ckSrc(dev.wallet_source)
+        : ckVal(null, "Pump.fun");
+      const holds = dev.holds_pct == null ? null : (Number(dev.holds_pct).toFixed(1) + "%");
+      const best = dev.best_prior_mcap_usd == null ? null : fmtUsd(dev.best_prior_mcap_usd);
+      const rugs = dev.rugs == null ? null : (dev.rugs + " rug" + (dev.rugs === 1 ? "" : "s"));
+      const top = bundle.top10_pct == null ? null : (Number(bundle.top10_pct).toFixed(1) + "%");
+      const cluster = bundle.cluster_known && bundle.cluster_pct != null
+        ? (Number(bundle.cluster_pct).toFixed(1) + "%" + (bundle.cluster_wallets ? " · " + bundle.cluster_wallets + " wallets" : ""))
+        : null;
+      const clusterTone = bundle.bundled ? "ck-bad" : "";
+      const checks = Array.isArray(checklist.checks) ? checklist.checks : [];
+      const total = checklist.check_count || checks.length || 8;
+      const passN = checklist.pass_count || 0;
+      const failN = checklist.fail_count || 0;
+      const unkN = checklist.unknown_count || 0;
+      const bar = '<div class="ck-sum" aria-hidden="true">' +
+        '<i style="width:' + ((passN / total) * 100).toFixed(1) + '%;background:#3ecf8e"></i>' +
+        '<i style="width:' + ((failN / total) * 100).toFixed(1) + '%;background:#f07178"></i>' +
+        '<i style="width:' + ((unkN / total) * 100).toFixed(1) + '%;background:#3a3a3a"></i></div>';
+      const rows = checks.map((item) => {
+        const status = item.status || "unknown";
+        const icon = status === "pass" ? "✓" : (status === "fail" ? "✕" : "?");
+        const cls = status === "pass" ? "p" : (status === "fail" ? "f" : "u");
+        const pill = status === "pass" ? "good" : (status === "fail" ? "bad" : "unk");
+        return "<li><span class=\"ck-ic " + cls + "\">" + icon + "</span><span>" + esc(item.label || "") +
+          '<span class="ck-why">' + esc(item.detail || "Unknown") + ckSrc(item.source) + "</span></span>" +
+          '<span class="ck-pill ' + pill + '">' + esc(status === "unknown" ? "unknown" : status) + "</span></li>";
+      }).join("");
+      const verdictName = checklist.verdict || "SKIP";
+      const pillCls = verdictName === "BUY-WATCH" ? "good" : (verdictName === "SKIP" ? "bad" : "amber");
+      return '<div class="ck-grid" data-feature="coin_checklist" data-verdict="' + esc(verdictName) + '">' +
+        '<section class="ck-card"><h2>Origin <span class="ck-hsrc">Pump.fun + Dexscreener</span></h2>' +
+          '<dl class="ck-kv"><dt>Launchpad</dt><dd>' + ckVal(origin.launchpad, origin.launchpad_source) + "</dd>" +
+          "<dt>Created</dt><dd>" + ckVal(created, origin.created_source) + "</dd></dl>" +
+          desc +
+          '<div class="ck-socials">' + soc("X", origin.twitter) + soc("TG", origin.telegram) + soc("Site", origin.website) + "</div>" +
+          (origin.note ? '<div class="ck-line amber">' + esc(origin.note) + "</div>" : "") +
+        "</section>" +
+        '<section class="ck-card"><h2>Dev <span class="ck-hsrc">Pump.fun + Helius + RugCheck</span></h2>' +
+          '<dl class="ck-kv"><dt>Dev wallet</dt><dd>' + devWallet + "</dd>" +
+          "<dt>Coins launched</dt><dd>" + ckVal(dev.launched, dev.launched_source) + "</dd>" +
+          "<dt>Prior rugs</dt><dd>" + ckVal(rugs, dev.rugs == null ? "RugCheck" : "RugCheck") + "</dd>" +
+          "<dt>Best prior coin</dt><dd>" + ckVal(best, dev.best_prior_source || "Pump.fun") + "</dd>" +
+          "<dt>Dev holds now</dt><dd>" + ckVal(holds, dev.holds_source || "Solana RPC") + "</dd>" +
+          "<dt>Dev sold?</dt><dd>" + ckVal(dev.sold, dev.sold_source || "Helius") + "</dd></dl>" +
+          (dev.sold_note ? '<div class="ck-line amber">' + esc(dev.sold_note) + "</div>" : "") +
+          (dev.note ? '<div class="ck-line">' + esc(dev.note) + "</div>" : "") +
+        "</section>" +
+        '<section class="ck-card"><h2>Holders · Bubble map <span class="ck-hsrc">' +
+          esc(bundle.bubblemaps === "used" ? "Bubblemaps" : "Funding trace · Bubblemaps needs a paid key") + "</span></h2>" +
+          '<div class="ck-bub">' + bubbleSvg(bundle.bubbles) +
+          '<dl class="ck-kv"><dt>Top-10 hold</dt><dd>' + ckVal(top, bundle.top10_source || "Solana RPC") + "</dd>" +
+          '<dt>Linked cluster</dt><dd class="' + clusterTone + '">' + ckVal(cluster, bundle.cluster_source || "public RPC") + "</dd>" +
+          "<dt>Bundled at launch?</dt><dd>" + ckVal(bundle.bundled_at_launch, "Helius") + "</dd>" +
+          "<dt>Snipers (first 10s)</dt><dd>" + ckVal(bundle.snipers, "Helius") + "</dd>" +
+          "<dt>Holders</dt><dd>" + ckVal(bundle.holders, bundle.holders_source || "RugCheck") + "</dd></dl></div>" +
+          (bundle.note ? '<div class="ck-line amber">' + esc(bundle.note) + "</div>" : "") +
+          ((bundle.traces || []).slice(0, 5).map((trace) => {
+            const pct = trace.pct == null ? "" : (" " + Number(trace.pct).toFixed(1) + "%");
+            let funder = trace.funder_short;
+            if (!funder && trace.reason === "long_history") funder = "Unknown (history past one RPC page)";
+            else if (!funder && trace.reason === "no_funder_in_oldest") funder = "Unknown (no inbound SOL in oldest tx)";
+            else if (!funder) funder = "Unknown";
+            return '<div class="ck-line">#' + trace.rank + " " + esc(trace.owner_short || "") + pct +
+              " ← " + esc(funder) + ckSrc(trace.source) + "</div>";
+          }).join("")) +
+          (bundle.snipers_note ? '<div class="ck-line">' + esc(bundle.snipers_note) + "</div>" : "") +
+        "</section>" +
+        '<section class="ck-card" id="ck-list"><h2>Checklist · ' + passN + "/" + total + ' pass <span class="ck-pill ' + pillCls + '">' + esc(verdictName) + "</span></h2>" +
+          bar + '<ul class="ck-check">' + rows + "</ul>" +
+          '<div class="ck-paper">' + esc((checklist.rules && checklist.rules.legend) || "") +
+          ". Unknown does not pass. A rug-history dev or a linked cluster ≥" +
+          esc(String((checklist.rules && checklist.rules.cluster_bundle_at) || 10)) +
+          "% forces SKIP. Paper research only — not financial advice.</div>" +
+        "</section></div>";
+    }
+
+    function collapsedFactors(row) {
+      const pack = scoreInputs(row || {});
+      const s12 = score12Of(row || {});
+      const cells = pack.lines.slice(0, 5).map((line) => {
+        const shown = line.inputs[0] || "—";
+        return '<div class="ck-fac"><b>' + esc(shown) + "</b>" + esc(line.label) + "</div>";
+      }).join("");
+      const why = pack.why.slice(0, 3).map((bit) => esc(bit)).join(" · ");
+      return '<details class="ck-card ck-span2"><summary>Score factors (existing) · ' + esc(scoreTxtOf(s12)) + "/12</summary>" +
+        (cells ? '<div class="ck-factors">' + cells + "</div>" : '<p class="ck-loading">No breakdown stored on this row.</p>') +
+        (why ? '<div class="ck-line">' + why + "</div>" : "") +
+        "</details>";
+    }
+
     function paintCoinSheet(row, phase) {
       const sheet = document.getElementById("coinSheet");
       const head = document.getElementById("coinSheetHead");
@@ -10356,25 +10600,65 @@
       if (!sheet || !head || !body) return;
       const mint = (row && row.mint) || "";
       const research = row && row.research;
-      head.innerHTML = coinHeadHtml(row && (row.ticker || row.symbol), row && row.name, mint, row && row.image_url, "");
+      const checklist = (state.coinCheck && state.coinCheck[mint]) || null;
+      const header = (checklist && checklist.header) || {};
+      const sym = (row && row.ticker && row.ticker !== "?") ? row.ticker : (header.symbol || (row && row.ticker) || "?");
+      const nm = (row && row.name) || header.name || "";
+      const img = (row && row.image_url) || header.image_url || "";
+      head.innerHTML = coinHeadHtml(sym, nm, mint, img, "");
       const title = head.querySelector(".ticker-line");
       if (title) title.id = "coinSheetTitle";
-      const mcap = mcapHeroHtml(row);
-      const back = '<button type="button" class="dismiss-back" data-dismiss="coin">← Back to Token Flow</button>';
-      if (!research) {
-        body.innerHTML = mcap + '<p class="opening">Opening…</p>' + back;
-        sheet.setAttribute("data-live", "pending");
-        if (note) note.textContent = "Paper research. No target, wallet, or order.";
-        return;
+      const ca = head.querySelector(".ca");
+      if (ca && mint) {
+        ca.insertAdjacentHTML("beforeend", ' <button type="button" class="copy-ca" data-ca="' + esc(mint) + '">copy</button>');
       }
-      const raw = '<details class="raw-fold"><summary>More detail</summary>' +
-        rugHtml(research.rug_risk) + profitHtml(research.profit) + vitalityHtml(research.vitality) +
-        contentHtml(research.content) + fomoHtml(research.fomo_pump) + holdersHtml(research.holders) +
-        "</details>";
-      body.innerHTML = verdictHtml(row, research) + mcap + drawerHero(row, research) +
-        printSection(row) + vitalityPlain(row, research.vitality) + signalsPlain(row, research) +
-        flagStrip(row) + raw + back;
-      sheet.setAttribute("data-live", phase || "snapshot");
+      const metrics = (row && row.metrics) || {};
+      const price = header.price_usd != null ? header.price_usd : metrics.price_usd;
+      const mcapUsd = header.mcap_usd != null ? header.mcap_usd : metrics.market_cap_usd;
+      const h1 = header.h1_pct != null ? header.h1_pct : metrics.price_change_h1;
+      const ageRaw = header.age_text || (pairAgeHours(row || {}) == null ? "" : fmtAge(pairAgeHours(row || {})));
+      const age = ageRaw && ageRaw !== "—" ? ageRaw : "Unknown";
+      const priceTxt = price == null || price === "" ? "Unknown" : fmtPx(price);
+      const mcapTxt = mcapUsd == null || mcapUsd === "" ? "Unknown" : fmtUsd(mcapUsd);
+      const h1Cls = h1 == null || Number(h1) === 0 ? "" : (Number(h1) > 0 ? "good" : "bad");
+      let verdict = '<a class="ck-verdict" href="#ck-list"><b>Checklist…</b><small>paper only</small></a>';
+      let forced = "";
+      if (checklist && checklist.ok && checklist.verdict) {
+        const cls = checklist.verdict === "SKIP" ? " skip" : (checklist.verdict === "BUY-WATCH" ? " buy" : "");
+        const sub = (checklist.fail_count || 0) + " fail · " + (checklist.unknown_count || 0) + " unknown · paper only";
+        verdict = '<a class="ck-verdict' + cls + '" href="#ck-list" data-verdict="' + esc(checklist.verdict) + '"><b>' +
+          esc(checklist.pass_count + "/" + checklist.check_count + " pass · " + checklist.verdict) + "</b><small>" + esc(sub) + "</small></a>";
+        if (checklist.forced_skip) {
+          forced = '<div class="ck-forced"><span class="ck-strike">' + esc(checklist.pass_count + "/" + checklist.check_count + " pass · " + checklist.count_verdict) +
+            '</span><b class="sk">SKIP (forced)</b><span>' + esc((checklist.forced_reasons || []).join(" · ")) + "</span></div>";
+        }
+      }
+      const stats = '<div class="ck-stats" data-feature="usd_price">' +
+        '<div class="ck-stat"><div class="lab">Price (USD)</div><div class="val px-usd">' + esc(priceTxt) + "</div></div>" +
+        '<div class="ck-stat"><div class="lab">Mcap (USD)</div><div class="val">' + esc(mcapTxt) + "</div></div>" +
+        '<div class="ck-stat"><div class="lab">Age</div><div class="val">' + esc(age) + "</div></div>" +
+        '<div class="ck-stat"><div class="lab">1h</div><div class="val ' + h1Cls + '">' + esc(fmtPct(h1)) + "</div></div>" +
+        verdict + "</div>";
+      let cards = '<p class="ck-loading">Checklist loading… missing rows stay Unknown. Nothing is filled in early.</p>';
+      if (checklist && checklist.ok) cards = checklistCards(checklist);
+      else if (checklist && checklist.ok === false) {
+        cards = '<p class="ck-loading">' + esc(checklist.error || "Checklist unavailable") + ". Nothing invented.</p>";
+      }
+      const back = '<button type="button" class="dismiss-back" data-dismiss="coin">← Back to Token Flow</button>';
+      let earlier = "";
+      if (research) {
+        const raw = '<details class="raw-fold"><summary>More detail</summary>' +
+          rugHtml(research.rug_risk) + profitHtml(research.profit) + vitalityHtml(research.vitality) +
+          contentHtml(research.content) + fomoHtml(research.fomo_pump) + holdersHtml(research.holders) +
+          "</details>";
+        earlier = '<details class="ck-card ck-span2"><summary>Earlier coin detail</summary>' +
+          mcapHeroHtml(row) + verdictHtml(row, research) + drawerHero(row, research) +
+          printSection(row) + vitalityPlain(row, research.vitality) + signalsPlain(row, research) +
+          flagStrip(row) + raw + "</details>";
+      }
+      body.innerHTML = stats + forced + cards + '<div class="ck-grid">' + collapsedFactors(row) + earlier + "</div>" + back;
+      sheet.setAttribute("data-live", checklist && checklist.ok ? (phase || "checklist") : (phase || "pending"));
+      sheet.setAttribute("data-verdict", (checklist && checklist.verdict) || "");
       if (note) note.textContent = "Paper research. No target, wallet, or order.";
     }
 
@@ -10433,6 +10717,23 @@
       sheet.setAttribute("data-coin-ms", openMs.toFixed(2));
       const freshQ = opts.fresh ? "&fresh=1" : "";
       const qaQ = (row.qa_max_fixture && wantsQaMax()) ? "&qa_max=1" : "";
+      const qaX = qaXMode();
+      const qaXQ = qaX ? ("&qa_x=" + encodeURIComponent(qaX)) : "";
+      fetch("/api/coin/checklist?mint=" + encodeURIComponent(mint) + freshQ + qaQ + qaXQ, { cache: "no-store" })
+        .then((res) => res.json().then((data) => data).catch(() => ({ ok: false, error: "Bad JSON" })))
+        .then((data) => {
+          if (state.coinSeq !== seq || state.coinMint !== mint) return;
+          state.coinCheck[mint] = data && data.verdict ? data : {
+            ok: false,
+            error: (data && data.error) || "Checklist unavailable",
+          };
+          paintCoinSheet(state.coinPreview[mint] || row, sheet.getAttribute("data-live") || "snapshot");
+        })
+        .catch(() => {
+          if (state.coinSeq !== seq || state.coinMint !== mint) return;
+          state.coinCheck[mint] = { ok: false, error: "Checklist request failed" };
+          paintCoinSheet(state.coinPreview[mint] || row, "fail");
+        });
       fetch("/api/coin?mint=" + encodeURIComponent(mint) + freshQ + qaQ, { cache: "no-store" })
         .then((res) => res.json().then((data) => data).catch(() => ({ ok: false, error: "Bad JSON" })))
         .then((data) => {
