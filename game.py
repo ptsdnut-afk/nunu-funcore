@@ -643,6 +643,27 @@ def fillable_tick(tick: dict | None) -> bool:
     return px is not None and px > 0 and age is not None and age <= QUOTE_FRESH_SLA_S
 
 
+def fill_price(tick: dict | None) -> float | None:
+    """USD price a fill may use. None when the tick is not fillable.
+
+    Receipts and other callers read the fill through here. How a tick
+    becomes fillable stays in fillable_tick / fetch_live_tick.
+    """
+    if not fillable_tick(tick) or not isinstance(tick, dict):
+        return None
+    px = _f(tick.get("price_usd"))
+    if px is None or px <= 0:
+        return None
+    return float(px)
+
+
+def fill_quote_age_s(tick: dict | None) -> float | None:
+    """Quote age already stamped on this fill tick. Not recomputed later."""
+    if not isinstance(tick, dict) or not fillable_tick(tick):
+        return None
+    return _f(tick.get("quote_age_s"))
+
+
 def set_qa_walk_sid(sid: str | None) -> None:
     """Bind the QA price walk to this request. None clears it."""
     _qa_sid.set(sid or None)
@@ -837,6 +858,7 @@ def empty_state() -> dict:
         "positions": [],
         "closed": [],
         "events": [],
+        "receipts": [],
         "disclaimer": "Paper research only. Not financial advice. No real trades.",
     }
 
@@ -857,6 +879,8 @@ def load_state() -> dict:
             st["closed"] = []
         if not isinstance(st.get("events"), list):
             st["events"] = []
+        if not isinstance(st.get("receipts"), list):
+            st["receipts"] = []
         try:
             st["cash_usd"] = float(st.get("cash_usd") if st.get("cash_usd") is not None else START_BANKROLL)
         except (TypeError, ValueError):
@@ -1385,6 +1409,7 @@ def start_session(force: bool = False) -> dict:
                 return st
         now = datetime.now(timezone.utc)
         ends = now + timedelta(hours=SESSION_HOURS)
+        kept = st.get("receipts") if isinstance(st.get("receipts"), list) else []
         st = {
             "session_id": uuid.uuid4().hex[:12],
             "status": "active",
@@ -1396,6 +1421,7 @@ def start_session(force: bool = False) -> dict:
             "positions": [],
             "closed": [],
             "events": [],
+            "receipts": kept,
             "disclaimer": "Paper research only. Not financial advice. No real trades.",
         }
         _push_event(st, "start", f"New 24h run — ${START_BANKROLL:.2f} paper bankroll")
@@ -1423,6 +1449,16 @@ def _close_position(st: dict, pos: dict, price: float, reason: str, price_ts: st
         "closed_at": _utc(),
         "close_reason": reason,
     }
+    prior = float(pos.get("realized_pnl_usd") or 0)
+    prior_stake = float(pos.get("realized_stake_usd") or 0)
+    prior_proceeds = float(pos.get("realized_proceeds_usd") or 0)
+    if prior or prior_stake:
+        closed["pnl_usd"] = round(pnl + prior, 6)
+        closed["stake_usd"] = round(stake + prior_stake, 6)
+        base = float(closed["stake_usd"] or 0)
+        closed["pnl_pct"] = round((closed["pnl_usd"] / base) * 100.0, 2) if base else pnl_pct
+        closed["exit_usd"] = round(proceeds + prior_proceeds, 6)
+    _note_receipt_sell(st, pos, price, reason, ts, qty, stake, pnl, pnl_pct, True)
     st.setdefault("closed", []).insert(0, closed)
     st["positions"] = [p for p in (st.get("positions") or []) if p.get("id") != pos.get("id")]
     _push_event(
@@ -1547,12 +1583,284 @@ def _record_score(st: dict) -> None:
     save_scores(scores)
 
 
+# SHIP Z — paper buy receipts. Points and the fill live in game_state.json.
+# The picture is drawn in the browser from those points. panel_v is not bumped.
+RECEIPT_POINTS = 60
+MAX_RECEIPTS = 80
+VERDICT_SKIP_BELOW = 10.0
+
+
+def format_et(when: datetime | None = None) -> str:
+    """Wall clock in US Eastern, labeled ET. The receipt freezes this at the fill."""
+    when = when or datetime.now(timezone.utc)
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    try:
+        from zoneinfo import ZoneInfo
+        et = when.astimezone(ZoneInfo("America/New_York"))
+    except Exception:
+        et = when.astimezone(timezone(timedelta(hours=-5)))
+    hour = et.hour % 12 or 12
+    ampm = "AM" if et.hour < 12 else "PM"
+    return f"{et.strftime('%b')} {et.day}, {et.year} {hour}:{et.minute:02d} {ampm} ET"
+
+
+def _score_12_of(row: dict) -> float | None:
+    s12 = _f(row.get("score_12"))
+    if s12 is not None:
+        return s12
+    score = _f(row.get("score"))
+    if score is None:
+        return None
+    return round((score / 100.0) * 12.0, 1)
+
+
+def verdict_for_row(row: dict | None) -> str:
+    """Filter verdict frozen at the buy. No row and no score is unknown."""
+    if not isinstance(row, dict):
+        return "unknown"
+    scar = row.get("gold_scar")
+    if isinstance(scar, dict) and scar.get("gold") is True:
+        return "GOLD"
+    s12 = _score_12_of(row)
+    if s12 is None:
+        return "unknown"
+    if row.get("trench_band") is False or s12 < VERDICT_SKIP_BELOW:
+        return "SKIP"
+    return "PLAY"
+
+
+def verdict_for_mint(mint: str) -> str:
+    return verdict_for_row(flagged_row(mint))
+
+
+def _level_px(entry: float, pct, kind: str) -> float | None:
+    p = _f(pct)
+    if p is None or not entry or entry <= 0:
+        return None
+    mag = abs(float(p))
+    if kind == "stop":
+        return entry * (1.0 - mag / 100.0)
+    return entry * (1.0 + mag / 100.0)
+
+
+def _clean_points(raw, limit: int = RECEIPT_POINTS) -> list[float]:
+    if not isinstance(raw, list):
+        return []
+    src = raw[-200:] if len(raw) > 200 else raw
+    out: list[float] = []
+    for item in src:
+        if isinstance(item, dict):
+            p = _f(item.get("p") if item.get("p") is not None else item.get("price"))
+        else:
+            p = _f(item)
+        if p is not None and p > 0:
+            out.append(float(p))
+    if len(out) > limit:
+        out = out[-limit:]
+    return out
+
+
+def _receipts(st: dict) -> list:
+    rows = st.get("receipts")
+    if not isinstance(rows, list):
+        rows = []
+        st["receipts"] = rows
+    return rows
+
+
+def _receipt_for(st: dict, position_id: str | None) -> dict | None:
+    pid = str(position_id or "")
+    if not pid:
+        return None
+    for rec in _receipts(st):
+        if isinstance(rec, dict) and str(rec.get("position_id") or "") == pid:
+            return rec
+    return None
+
+
+def _held_parts(opened_at, closed_at) -> tuple[int | None, str]:
+    a = _parse_utc(opened_at) if isinstance(opened_at, str) else None
+    b = _parse_utc(closed_at) if isinstance(closed_at, str) else None
+    if a is None or b is None:
+        return None, ""
+    sec = int((b - a).total_seconds())
+    if sec < 0:
+        sec = 0
+    if sec < 60:
+        label = f"{sec}s"
+    elif sec < 3600:
+        label = f"{sec // 60}m {sec % 60}s"
+    else:
+        label = f"{sec // 3600}h {(sec % 3600) // 60}m"
+    return sec, label
+
+
+def _sol_usd_now() -> float | None:
+    """SOL/USD from the same live tick a fill uses. None when that tick is not fillable."""
+    return fill_price(fetch_live_tick(SOL_MINT))
+
+
+def _push_receipt(st: dict, rec: dict) -> None:
+    rows = _receipts(st)
+    rows.insert(0, rec)
+    if len(rows) > MAX_RECEIPTS:
+        del rows[MAX_RECEIPTS:]
+
+
+def build_receipt(st: dict, pos: dict, tick: dict | None, points=None) -> dict:
+    """Frozen buy snapshot. The fill price and quote age come from the fill tick."""
+    px = fill_price(tick)
+    if px is None:
+        px = float(_f(pos.get("entry_price_usd")) or 0)
+    age = fill_quote_age_s(tick)
+    sol = _sol_usd_now()
+    entry_sol = (px / sol) if (sol and px) else None
+    sl = pos.get("sl_pct")
+    tp = pos.get("tp_pct")
+    opened = pos.get("opened_at") or _utc()
+    opened_dt = _parse_utc(opened) if isinstance(opened, str) else None
+    stake = float(pos.get("stake_usd") or 0)
+    qty = float(pos.get("qty_tokens") or 0)
+    price_ts = tick.get("price_ts") if isinstance(tick, dict) else pos.get("price_ts")
+    return {
+        "id": uuid.uuid4().hex[:10],
+        "position_id": pos.get("id"),
+        "session_id": st.get("session_id"),
+        "mint": pos.get("mint"),
+        "symbol": pos.get("symbol") or "?",
+        "name": pos.get("name") or "?",
+        "status": "open",
+        "opened_at": opened,
+        "time_et": format_et(opened_dt),
+        "entry_price_usd": px,
+        "entry_price_sol": entry_sol,
+        "sol_usd": sol,
+        "size_usd": round(stake, 6),
+        "remaining_usd": round(stake, 6),
+        "qty_tokens": qty,
+        "remaining_qty": qty,
+        "sl_pct": sl,
+        "tp_pct": tp,
+        "stop_price_usd": _level_px(px, sl, "stop"),
+        "tp_price_usd": _level_px(px, tp, "tp"),
+        "quote_age_s": age,
+        "quote_sla_s": QUOTE_FRESH_SLA_S,
+        "stale": tick_is_stale(age),
+        "verdict": verdict_for_mint(str(pos.get("mint") or "")),
+        "points": _clean_points(points),
+        "fill_point": {"p": px, "at": price_ts},
+        "sells": [],
+    }
+
+
+def _note_receipt_sell(
+    st: dict,
+    pos: dict,
+    price: float,
+    reason: str,
+    price_ts: str | None,
+    sold_qty: float,
+    sold_stake: float,
+    slice_pnl: float,
+    slice_pct: float,
+    closes: bool,
+) -> None:
+    rec = _receipt_for(st, pos.get("id"))
+    if not rec or rec.get("status") == "closed":
+        return
+    at = _utc()
+    held_s, held = _held_parts(rec.get("opened_at") or pos.get("opened_at"), at)
+    sells = rec.get("sells")
+    if not isinstance(sells, list):
+        sells = []
+        rec["sells"] = sells
+    sells.append({
+        "at": at,
+        "size_usd": round(float(sold_stake), 6),
+        "qty_tokens": float(sold_qty),
+        "exit_price_usd": float(price),
+        "exit_price_ts": price_ts,
+        "pnl_usd": round(float(slice_pnl), 6),
+        "pnl_pct": round(float(slice_pct), 2) if slice_pct is not None else None,
+        "held_s": held_s,
+        "held": held,
+        "reason": reason,
+        "exit_reason": reason,
+    })
+    if closes:
+        rec["remaining_usd"] = 0
+        rec["remaining_qty"] = 0
+        rec["status"] = "closed"
+        rec["closed_at"] = at
+    else:
+        rec["remaining_usd"] = round(float(pos.get("stake_usd") or 0), 6)
+        rec["remaining_qty"] = float(pos.get("qty_tokens") or 0)
+        rec["status"] = "open"
+
+
+def _sell_fraction(st: dict, pos: dict, price: float, reason: str, price_ts: str | None, fraction: float) -> None:
+    """Sell a share of the original size. Whatever is left stays open. A full share closes."""
+    fraction = float(fraction)
+    if fraction <= 0:
+        return
+    if fraction >= 0.999:
+        _close_position(st, pos, price, reason, price_ts=price_ts)
+        return
+    rem_qty = float(pos.get("qty_tokens") or 0)
+    rem_stake = float(pos.get("stake_usd") or 0)
+    if rem_qty <= 0 or rem_stake <= 0:
+        _close_position(st, pos, price, reason, price_ts=price_ts)
+        return
+    rec = _receipt_for(st, pos.get("id"))
+    orig_qty = _f(pos.get("original_qty_tokens"))
+    if orig_qty is None and isinstance(rec, dict):
+        orig_qty = _f(rec.get("qty_tokens"))
+    if orig_qty is None or orig_qty <= 0:
+        orig_qty = rem_qty
+    orig_stake = _f(pos.get("original_stake_usd"))
+    if orig_stake is None and isinstance(rec, dict):
+        orig_stake = _f(rec.get("size_usd"))
+    if orig_stake is None or orig_stake <= 0:
+        orig_stake = rem_stake
+    want_qty = orig_qty * fraction
+    if want_qty >= rem_qty * 0.999:
+        _close_position(st, pos, price, reason, price_ts=price_ts)
+        return
+    sold_qty = want_qty
+    sold_stake = rem_stake * (sold_qty / rem_qty) if rem_qty else 0.0
+    entry = float(pos.get("entry_price_usd") or 0)
+    proceeds = round(price * sold_qty, 6)
+    pnl = round(proceeds - sold_stake, 6)
+    pnl_pct = round((price / entry - 1.0) * 100, 2) if entry else 0.0
+    pos["qty_tokens"] = rem_qty - sold_qty
+    pos["stake_usd"] = round(rem_stake - sold_stake, 6)
+    pos["original_qty_tokens"] = orig_qty
+    pos["original_stake_usd"] = orig_stake
+    pos["realized_pnl_usd"] = round(float(pos.get("realized_pnl_usd") or 0) + pnl, 6)
+    pos["realized_stake_usd"] = round(float(pos.get("realized_stake_usd") or 0) + sold_stake, 6)
+    pos["realized_proceeds_usd"] = round(float(pos.get("realized_proceeds_usd") or 0) + proceeds, 6)
+    pos["last_price_usd"] = price
+    if price_ts:
+        pos["price_ts"] = price_ts
+    st["cash_usd"] = round(float(st.get("cash_usd") or 0) + proceeds, 6)
+    _note_receipt_sell(st, pos, price, reason, price_ts, sold_qty, sold_stake, pnl, pnl_pct, False)
+    _push_event(
+        st,
+        reason,
+        f"{pos.get('symbol')} sell {fraction * 100:.0f}% · PnL ${pnl:+.3f} ({pnl_pct:+.1f}%) · left ${pos['stake_usd']:.3f}",
+        position_id=pos.get("id"),
+        pnl_usd=pnl,
+    )
+
+
 def buy(
     mint: str,
     stake_usd: float,
     sl_pct: float | None = None,
     tp_pct: float | None = None,
     client_request_id: str | None = None,
+    points=None,
 ) -> dict:
     with _lock:
         st = tick_session()
@@ -1569,6 +1877,7 @@ def buy(
                     "sound": "buy",
                     "deduped": True,
                     "resolved_mint": prev.get("mint"),
+                    "receipt": _receipt_for(st, prev.get("id")),
                 }
         try:
             stake = float(stake_usd)
@@ -1594,8 +1903,8 @@ def buy(
             )
         if q:
             q = _apply_live_tick(q, tick)
-        px = float(tick["price_usd"])
-        if px <= 0:
+        px = fill_price(tick)
+        if px is None or px <= 0:
             return _fail("Bad price", st)
         qty = stake / px
         price_ts = tick.get("price_ts")
@@ -1623,7 +1932,12 @@ def buy(
             "ca_short": (mint[:4] + "…" + mint[-4:]) if len(mint) > 10 else mint,
             "market_cap_usd": (q or {}).get("market_cap_usd"),
             "mcap_progress": (q or {}).get("mcap_progress"),
+            "original_stake_usd": round(stake, 6),
+            "original_qty_tokens": qty,
         }
+        rec = build_receipt(st, pos, tick, points=points)
+        pos["receipt_id"] = rec["id"]
+        _push_receipt(st, rec)
         st["cash_usd"] = round(cash - stake, 6)
         st.setdefault("positions", []).append(pos)
         _push_event(st, "buy", f"Bought {pos['symbol']} ${stake:.3f} @ {px}", position_id=pos["id"])
@@ -1635,10 +1949,11 @@ def buy(
             "sound": "buy",
             "resolved_mint": mint,
             "resolve_source": src,
+            "receipt": rec,
         }
 
 
-def sell(position_id: str) -> dict:
+def sell(position_id: str, fraction: float | None = None) -> dict:
     with _lock:
         st = load_state()
         if st.get("status") != "active":
@@ -1646,20 +1961,48 @@ def sell(position_id: str) -> dict:
         pos = next((p for p in (st.get("positions") or []) if p.get("id") == position_id), None)
         if not pos:
             return _fail("Position not found", st)
+        frac = None
+        if fraction is not None:
+            try:
+                frac = float(fraction)
+            except (TypeError, ValueError):
+                return _fail("fraction must be a number", st)
+            if frac <= 0 or frac > 1:
+                return _fail("fraction must be between 0 and 1", st)
         tick = fetch_live_tick(str(pos.get("mint") or ""))
         if not fillable_tick(tick):
             return _fail("Price is older than 5s — not selling at a stale quote", st)
-        px = float(tick["price_usd"])
+        px = fill_price(tick)
+        if px is None:
+            return _fail("Price is older than 5s — not selling at a stale quote", st)
         ts = tick.get("price_ts")
         # Same tick the stop would use. If it already crossed, the fill is that price.
         st = tick_session(st)
         pos = next((p for p in (st.get("positions") or []) if p.get("id") == position_id), None)
         if not pos:
             save_state(st)
-            return {"ok": True, "state": st, "sound": "sell", "closed_by": "stop", "price_usd": px, "price_ts": ts}
-        _close_position(st, pos, px, "manual", price_ts=ts)
+            return {
+                "ok": True,
+                "state": st,
+                "sound": "sell",
+                "closed_by": "stop",
+                "price_usd": px,
+                "price_ts": ts,
+                "receipt": _receipt_for(st, position_id),
+            }
+        if frac is None or frac >= 0.999:
+            _close_position(st, pos, px, "manual", price_ts=ts)
+        else:
+            _sell_fraction(st, pos, px, "manual", ts, frac)
         save_state(st)
-        return {"ok": True, "state": st, "sound": "sell", "price_usd": px, "price_ts": ts}
+        return {
+            "ok": True,
+            "state": st,
+            "sound": "sell",
+            "price_usd": px,
+            "price_ts": ts,
+            "receipt": _receipt_for(st, position_id),
+        }
 
 
 def present_open_position(pos: dict, now: float | None = None) -> dict:
@@ -1956,6 +2299,71 @@ def _note_text(rows: list[dict], cluster: tuple[dict, dict] | None) -> str:
     return "The grade only labels this paper book. It is not a reason to size up."
 
 
+def _px_text(n: float) -> str:
+    v = float(n)
+    if v >= 1:
+        body = f"{v:.4f}".rstrip("0").rstrip(".")
+        return "$" + (body or "0")
+    body = f"{v:.8f}".rstrip("0").rstrip(".")
+    return "$" + (body or "0")
+
+
+def _session_receipts(st: dict) -> list[dict]:
+    sid = str(st.get("session_id") or "")
+    out = []
+    for raw in st.get("receipts") or []:
+        if isinstance(raw, dict) and (not sid or str(raw.get("session_id") or "") == sid):
+            out.append(raw)
+    return out
+
+
+def _receipt_review_text(st: dict) -> str:
+    """One or two lines the review can cite. Empty when this run has no receipts."""
+    bits = []
+    for rec in _session_receipts(st)[:2]:
+        sym = str(rec.get("symbol") or "?").strip() or "?"
+        entry = _f(rec.get("entry_price_usd"))
+        verdict = str(rec.get("verdict") or "unknown")
+        age = _f(rec.get("quote_age_s"))
+        entry_bit = _px_text(entry) if entry is not None else "entry not on the receipt"
+        age_bit = "quote age unknown" if age is None else f"quote age {age:g}s"
+        sells = [s for s in (rec.get("sells") or []) if isinstance(s, dict)]
+        if sells:
+            parts = []
+            for s in sells[:4]:
+                pnl = _f(s.get("pnl_usd"))
+                why = _why_closed(str(s.get("reason") or s.get("exit_reason") or ""))
+                size = _f(s.get("size_usd"))
+                size_bit = f" size ${size:.2f}" if size is not None else ""
+                pnl_bit = _money(pnl, True) if pnl is not None else "P/L n/a"
+                parts.append(f"{why}{size_bit} {pnl_bit}")
+            sell_bit = " Sells: " + "; ".join(parts) + "."
+        else:
+            sell_bit = " No sells on this receipt."
+        bits.append(f"{sym} receipt entry {entry_bit}, verdict {verdict}, {age_bit}.{sell_bit}")
+    return " ".join(bits)
+
+
+def _review_receipts(st: dict) -> list[dict]:
+    rows = []
+    for rec in _session_receipts(st):
+        rows.append({
+            "id": rec.get("id"),
+            "position_id": rec.get("position_id"),
+            "symbol": rec.get("symbol"),
+            "entry_price_usd": rec.get("entry_price_usd"),
+            "entry_price_sol": rec.get("entry_price_sol"),
+            "quote_age_s": rec.get("quote_age_s"),
+            "verdict": rec.get("verdict") or "unknown",
+            "status": rec.get("status"),
+            "size_usd": rec.get("size_usd"),
+            "remaining_usd": rec.get("remaining_usd"),
+            "time_et": rec.get("time_et"),
+            "sells": rec.get("sells") or [],
+        })
+    return rows
+
+
 def _session_mark(st: dict, equity_usd: float) -> tuple[float, float, float, float, float]:
     """Match public_state P&L so the review cannot disagree with the panel."""
     eq = float(equity_usd)
@@ -2051,6 +2459,9 @@ def build_run_review(st: dict | None, equity_usd: float | None = None) -> dict:
             "text": f"Gave back {_money(giveback)} from the {_money(peak)} peak. Finish was {_money(eq)}.",
         })
     note = _note_text(rows, cluster)
+    receipt_text = _receipt_review_text(st)
+    if receipt_text:
+        bullets.insert(0, {"tag": "RECEIPT", "text": receipt_text})
     core = [b for b in bullets if b["tag"] != "ARC"]
     arc_bits = [b for b in bullets if b["tag"] == "ARC"]
     # Keep the recap to a handful of lines. Drop the give-back line before the note.
@@ -2072,8 +2483,9 @@ def build_run_review(st: dict | None, equity_usd: float | None = None) -> dict:
     takeaways = takeaways[:3]
 
     cited = []
+    by_pos = {str(rec.get("position_id") or ""): rec for rec in _session_receipts(st)}
     for r in rows:
-        cited.append({
+        item = {
             "symbol": r["symbol"],
             "pnl_usd": r["pnl_usd"],
             "pnl_pct": r["pnl_pct"],
@@ -2081,7 +2493,14 @@ def build_run_review(st: dict | None, equity_usd: float | None = None) -> dict:
             "opened_at": r["opened_at"],
             "closed_at": r["closed_at"],
             "id": r["id"],
-        })
+        }
+        rec = by_pos.get(str(r["id"] or ""))
+        if rec:
+            item["verdict"] = rec.get("verdict") or "unknown"
+            item["entry_price_usd"] = rec.get("entry_price_usd")
+            item["quote_age_s"] = rec.get("quote_age_s")
+            item["receipt_id"] = rec.get("id")
+        cited.append(item)
     return {
         "feature": "game_ai_review",
         "status": "ready",
@@ -2106,6 +2525,7 @@ def build_run_review(st: dict | None, equity_usd: float | None = None) -> dict:
         "trade_count": len(rows),
         "symbols": [r["symbol"] for r in rows],
         "cited": cited,
+        "receipts": _review_receipts(st),
     }
 
 
