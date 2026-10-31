@@ -21,7 +21,7 @@ class FinalPolishHealthTests(unittest.TestCase):
     def test_health_is_v81_with_final_polish(self):
         data = server.app.test_client().get("/api/health").get_json()
         self.assertTrue(data["ok"])
-        self.assertEqual(data["panel_v"], 94)
+        self.assertEqual(data["panel_v"], 95)
         for feature in (
             "final_polish",
             "profile_custom_pic",
@@ -41,7 +41,7 @@ class FinalPolishHealthTests(unittest.TestCase):
 class FinalPolishPanelTests(unittest.TestCase):
     def test_toast_clears_the_follow_chip_and_narrow_dock_fits(self):
         html = _panel()
-        self.assertIn("const PANEL_V = 94", html)
+        self.assertIn("const PANEL_V = 95", html)
         self.assertIn("data-panel-v", html)
         self.assertIn("paintPanelVersion", html)
         self.assertIn("paintPanelVersion", html)

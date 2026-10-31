@@ -793,7 +793,7 @@ def _stale_jupiter_fallback(mint: str) -> dict | None:
         "fetched_at": _utc_ms(),
         "source": "jupiter_fallback",
         "src": "jupiter_fallback",
-        "driver": "swap",
+        "driver": "jupiter_fallback",
         "block_id": _block,
         "rate_limited": _limited,
     }
@@ -939,7 +939,8 @@ def fetch_live_tick(
             "fetched_at": _utc_ms(),
             "source": "pool_swap",
             "src": "pool_swap",
-            "driver": "swap",
+            "driver": "no_baseline",
+            "stale_reason": "no_baseline",
         }
         return _force_stale(_out(waiting, old, now))
 
@@ -1031,7 +1032,9 @@ def fetch_live_tick(
             if trade_stream.is_pool_source(prev):
                 source = "jupiter_fallback"
             else:
-                source = "jupiter"
+                # No pool price yet. The first Jupiter print is the fallback
+                # label, not a plain live swap.
+                source = "jupiter_fallback"
         mid = trade_stream.prefer_mid_over_jupiter(mint, px)
         if mid:
             px = mid
@@ -1045,7 +1048,7 @@ def fetch_live_tick(
             "fetched_at": _utc_ms(),
             "source": source,
             "block_id": block,
-            "driver": "swap",
+            "driver": "jupiter_fallback" if source == "jupiter_fallback" else "swap",
             "rate_limited": limited,
         }
         if payload.get("source") in ("qa_tick", "qa") or payload.get("qa_tick"):
@@ -1741,7 +1744,14 @@ def start_session(force: bool = False) -> dict:
         return st
 
 
-def _close_position(st: dict, pos: dict, price: float, reason: str, price_ts: str | None = None) -> None:
+def _close_position(
+    st: dict,
+    pos: dict,
+    price: float,
+    reason: str,
+    price_ts: str | None = None,
+    fill_label: str | None = None,
+) -> None:
     qty = float(pos.get("qty_tokens") or 0)
     proceeds = round(price * qty, 6)
     entry = float(pos.get("entry_price_usd") or 0)
@@ -1761,16 +1771,66 @@ def _close_position(st: dict, pos: dict, price: float, reason: str, price_ts: st
         "closed_at": _utc(),
         "close_reason": reason,
     }
+    if fill_label:
+        closed["fill_label"] = fill_label
     st.setdefault("closed", []).insert(0, closed)
     st["positions"] = [p for p in (st.get("positions") or []) if p.get("id") != pos.get("id")]
+    msg = f"{pos.get('symbol')} {reason} · PnL ${pnl:+.3f} ({pnl_pct:+.1f}%)"
+    if fill_label:
+        msg = f"{msg} · {fill_label}"
     _push_event(
         st,
         reason,
-        f"{pos.get('symbol')} {reason} · PnL ${pnl:+.3f} ({pnl_pct:+.1f}%)",
+        msg,
         position_id=pos.get("id"),
         pnl_usd=pnl,
     )
     _maybe_early_sell_points(pos, reason)
+
+
+def pm_crash_stop(mint: str, entry: float, sl_pct: float) -> tuple[float, str] | None:
+    """Fill a stop from the executed swap while swap and vault disagree.
+
+    The published tick can stay stale. The fill is the latest non-dust
+    executed swap, not the stop level. Returns None when that swap is not
+    below the stop.
+    """
+    import trade_stream
+
+    try:
+        level = float(entry) * (1.0 - abs(float(sl_pct)) / 100.0)
+    except (TypeError, ValueError):
+        return None
+    if level <= 0:
+        return None
+    swap_px, vault_px = trade_stream.latest_legs(mint)
+    executed = trade_stream.latest_executed_swap(mint)
+
+    def _below(px: float | None) -> bool:
+        return px is not None and px < level
+
+    swap_below = _below(swap_px)
+    vault_below = _below(vault_px)
+    if not swap_below and not vault_below:
+        return None
+    if (
+        swap_px
+        and vault_px
+        and min(swap_px, vault_px) > 0
+        and abs(swap_px - vault_px) / min(swap_px, vault_px) <= trade_stream.SPIKE_PAIR
+    ):
+        return None
+    label = "filled at the last executed swap"
+    if swap_below and vault_below:
+        if executed is None or not _below(executed):
+            return None
+        return float(executed), label
+    fill = executed if _below(executed) else None
+    if fill is None:
+        fill = trade_stream.fetch_latest_executed_swap(mint, budget_s=10.0)
+    if fill is not None and fill < level:
+        return float(fill), label
+    return None
 
 
 def tick_session(st: dict | None = None) -> dict:
@@ -1875,6 +1935,19 @@ def tick_session(st: dict | None = None) -> dict:
                 if tp is not None and chg >= abs(float(tp)):
                     _close_position(st, pos, stop_px, "tp", price_ts=stop_ts)
                     continue
+            # Disagreement crash: do not wait for a fresh agreed tick.
+            # The walked price stays on the browser that armed it. This fill
+            # uses that position's own stop and the executed swap only.
+            if entry and sl is not None and mint:
+                crash = pm_crash_stop(str(mint), entry, float(sl))
+                if crash:
+                    fill_px, label = crash
+                    pos["price_source"] = "pool_swap"
+                    pos["fill_label"] = label
+                    _close_position(
+                        st, pos, fill_px, "stop", price_ts=_utc(), fill_label=label,
+                    )
+                    continue
             still.append(pos)
         st["positions"] = still
 
@@ -1950,7 +2023,8 @@ def buy(
         mint = resolved
         q = fetch_dex_token(mint, bypass_cache=True) or {}
         tick = fetch_live_tick(mint, apply_qa=False)
-        if not fillable_tick(tick):
+        import trade_stream
+        if trade_stream.legs_disagree(mint) or not fillable_tick(tick) or _f(tick.get("price_usd") if tick else None) is None:
             return _fail(
                 "STALE — no fill until a live price lands.",
                 st,
@@ -2027,7 +2101,8 @@ def sell(position_id: str) -> dict:
         if not pos:
             return _fail("Position not found", st)
         tick = fetch_live_tick(str(pos.get("mint") or ""), apply_qa=False)
-        if not fillable_tick(tick):
+        import trade_stream
+        if trade_stream.legs_disagree(str(pos.get("mint") or "")) or not fillable_tick(tick):
             return _fail("Price stale — can't sell yet", st)
         px = float(tick["price_usd"])
         ts = tick.get("price_ts")
