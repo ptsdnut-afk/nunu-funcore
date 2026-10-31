@@ -252,7 +252,7 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 85,
+            "panel_v": 86,
             "time": _utc(),
             "qa_tick": "page ?qa_tick=both|up|down",
             "qa_end": "page ?qa_end=1 (one-shot) or POST /api/game/end",
@@ -310,8 +310,9 @@ def api_health():
             ),
             "qa_tick_down": (
                 "Server ?qa_tick=down on /api/game/tick (also buy, sell, and quote) walks this browser "
-                "session's one armed mint down 27% over about 20s so a 20% stop can fire. Other mints stay "
-                "on the real feed. When the 20s ends the walk stops and a later buy fills at the real price. "
+                "session's one armed mint down 27% over about 60s so a 20% stop can fire (the "
+                "cross is inside that minute). Other mints stay on the real feed. When the 60s ends "
+                "the walk stops and a later buy fills at the real price. "
                 "?qa_tick=off, ?qa_tick=0, and ?qa_tick=up clear the walk cookie. "
                 "/api/game/state?qa_tick=down stays the display-only equity nudge. "
                 "The shared tick cache and other browsers are not changed."
@@ -360,7 +361,7 @@ def api_gold():
     return jsonify(
         {
             "ok": True,
-            "panel_v": 85,
+            "panel_v": 86,
             "feature": "gold_scar",
             "count": len(picks),
             "empty_ok": True,
@@ -615,6 +616,8 @@ def api_coin():
     mint = (request.args.get("mint") or request.args.get("ca") or request.args.get("q") or "").strip()
     if not mint:
         return jsonify({"ok": False, "error": "mint required"}), 400
+    if game_mod.looks_like_mint(mint):
+        game_mod.watch_mint(mint)
     if qa_gold.is_fixture_mint(mint):
         # Never scan this synthetic mint. The card exists only while qa_gold is on.
         if not _wants_qa_gold():

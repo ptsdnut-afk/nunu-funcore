@@ -55,8 +55,8 @@ JUP_PRICE_URL = "https://lite-api.jup.ag/price/v3?ids={mint}"
 # QA only. ?qa_tick=down walks one browser session's copy of the tick.
 # The shared Jupiter cache is never written with this price.
 QA_WALK_COOKIE = "nunu_qa_walk"
-QA_WALK_DROP = 0.27  # 27% so the print is down 25%+ by the end of the span
-QA_WALK_SPAN_S = 20.0
+QA_WALK_DROP = 0.27  # crosses a 20% stop well before the span ends
+QA_WALK_SPAN_S = 60.0  # −20% by ~44s, full drop by ~60s, so a stop can be tested
 _live_cache: dict[str, tuple[float, dict]] = {}
 _live_backoff_until: dict[str, float] = {}
 _live_backoff_s: dict[str, float] = {}
@@ -66,6 +66,7 @@ _qa_walks: dict[str, dict[str, dict]] = {}
 _qa_walk_guard = threading.Lock()
 _qa_sid: contextvars.ContextVar[str | None] = contextvars.ContextVar("nunu_qa_sid", default=None)
 _fetch_pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="dexq")
+_http_local = threading.local()
 
 
 def _utc() -> str:
@@ -523,6 +524,7 @@ def _live_lock(mint: str) -> threading.Lock:
 
 def _http_json(url: str) -> tuple[int, dict | None]:
     """GET JSON. 429 is returned as a status so the caller can back off."""
+    limit = float(getattr(_http_local, "timeout", _LIVE_TIMEOUT) or _LIVE_TIMEOUT)
     req = Request(
         url,
         headers={
@@ -532,7 +534,7 @@ def _http_json(url: str) -> tuple[int, dict | None]:
         },
     )
     try:
-        with urlopen(req, timeout=_LIVE_TIMEOUT) as resp:
+        with urlopen(req, timeout=limit) as resp:
             raw = json.loads(resp.read().decode("utf-8"))
             code = int(getattr(resp, "status", 200) or 200)
             return code, raw if isinstance(raw, dict) else None
@@ -543,8 +545,14 @@ def _http_json(url: str) -> tuple[int, dict | None]:
 
 
 def _arm_live_backoff(mint: str, now: float) -> None:
-    delay = _live_backoff_s.get(mint, 1.0)
-    delay = min(20.0, max(2.0, delay * 2))
+    """Hold a 429 or a transport miss for under a second.
+
+    A poll one second later still reaches Jupiter. The 20s ladder left quiet
+    coins on the last success for 30s+, so quote_age_s climbed until the
+    price number itself changed. An immediate second caller in the same
+    burst still shares the single-flight result instead of hammering.
+    """
+    delay = 0.9
     _live_backoff_s[mint] = delay
     _live_backoff_until[mint] = now + delay
 
@@ -586,13 +594,20 @@ def _jup_decimals(raw: dict | None, mint: str) -> int | None:
     return dec
 
 
-def _jupiter_price(mint: str) -> tuple[float | None, int | None, bool]:
+def _jupiter_price(mint: str, timeout: float | None = None) -> tuple[float | None, int | None, bool]:
     """Jupiter Price API mid in USD. One request. (price, block, rate_limited).
 
     usdPrice is the pool mid. A one-way swap quote is not used: its price
     impact and fees print 6–9% above Dexscreener.
     """
-    code, raw = _http_json(JUP_PRICE_URL.format(mint=mint))
+    url = JUP_PRICE_URL.format(mint=mint)
+    prev = getattr(_http_local, "timeout", _LIVE_TIMEOUT)
+    if timeout is not None:
+        _http_local.timeout = timeout
+    try:
+        code, raw = _http_json(url)
+    finally:
+        _http_local.timeout = prev
     if code == 429:
         return None, None, True
     px, block = _parse_jup_price(raw, mint)
@@ -601,9 +616,9 @@ def _jupiter_price(mint: str) -> tuple[float | None, int | None, bool]:
     return None, block, code == 429
 
 
-def _pull_live_price(mint: str) -> tuple[float | None, str, int | None, bool]:
+def _pull_live_price(mint: str, timeout: float | None = None) -> tuple[float | None, str, int | None, bool]:
     """Return (price, source, block_id, rate_limited). Jupiter only."""
-    px, block, limited = _jupiter_price(mint)
+    px, block, limited = _jupiter_price(mint, timeout=timeout)
     if px is not None and px > 0:
         return px, "jupiter", block, False
     return None, "", block, limited
@@ -730,6 +745,14 @@ def _qa_overlay(sid: str | None, tick: dict | None) -> dict | None:
     return out
 
 
+def watch_mint(mint: str) -> None:
+    """Remember a Quote, an open coin, or a /tick poll and attach the stream."""
+    import trade_stream
+
+    trade_stream.note_view(mint)
+    trade_stream.ensure_started()
+
+
 def fetch_live_tick(
     mint: str,
     bypass_cache: bool = False,
@@ -738,22 +761,24 @@ def fetch_live_tick(
 ) -> dict | None:
     """Fresh USD price for one mint.
 
-    Cache hits younger than LIVE_TICK_TTL_S do not call upstream. A 429 or a
-    transport error backs off and may reuse the last tick only while it is
-    still inside QUOTE_FRESH_SLA_S. Older than that, quote_live is false.
+    Cache hits younger than LIVE_TICK_TTL_S do not call upstream. A tick or a
+    Quote whose cached fetch is older than that always does one single-flight
+    Jupiter refetch, even when usdPrice is unchanged. A 429 holds the next
+    try for under a second and may reuse the last tick only while it is still
+    inside QUOTE_FRESH_SLA_S. Older than that, quote_live is false.
 
     The shared cache stores only the real price. apply_qa copies a walked
-    price for this session's display. Stops, TP, buy, and sell pass
-    apply_qa=False so a walked price cannot fill or leak into another session.
+    price for this session's display. The walked copy is not written back.
     quote_age_s is the time since this successful fetch or trade, not since
-    the price number last changed.
+    the price number last changed. A cold mint waits up to about 3s for that
+    first fetch instead of returning no price.
     """
     mint = (mint or "").strip()
     if not mint or len(mint) < 32:
         return None
     import trade_stream
 
-    trade_stream.note_view(mint)
+    watch_mint(mint)
     sid = None
     if apply_qa:
         sid = _qa_sid.get() if qa_sid is None else qa_sid
@@ -773,31 +798,45 @@ def fetch_live_tick(
             # A walked price must never sit in the shared cache. Drop it.
             _live_cache.pop(mint, None)
             hit = None
+        cache_age = None if not hit else max(0.0, now - float(hit[0]))
         if (
             trade_stream.stream_is_fresh(mint, now)
             and hit
             and hit[1].get("source") == "stream"
+            and cache_age is not None
+            and cache_age <= trade_stream.STREAM_SILENCE_S
         ):
             return _out(hit[1], hit[0], now)
-        if now < _live_backoff_until.get(mint, 0):
+        cache_fresh = cache_age is not None and cache_age < LIVE_TICK_TTL_S
+        # 429 holds the next try for under a second, then a poll refetches
+        # even when usdPrice did not change. Quote passes bypass_cache.
+        if not bypass_cache and now < _live_backoff_until.get(mint, 0):
             if hit:
                 return _out(hit[1], hit[0], now)
             return None
-        if not bypass_cache and hit and now - hit[0] < LIVE_TICK_TTL_S:
+        if not bypass_cache and cache_fresh:
             return _out(hit[1], hit[0], now)
-        px, source, block, limited = _pull_live_price(mint)
+        cold = hit is None
+        timeout = 3.0 if cold else _LIVE_TIMEOUT
+        deadline = time.time() + (3.0 if cold else 0.0)
+        px, source, block, limited = _pull_live_price(mint, timeout=timeout)
+        if (px is None or px <= 0) and cold and time.time() < deadline:
+            left = max(0.3, deadline - time.time())
+            px, source, block, limited = _pull_live_price(mint, timeout=left)
         if px is None or px <= 0:
-            _arm_live_backoff(mint, now)
+            _arm_live_backoff(mint, time.time())
             if hit:
-                return _out(hit[1], hit[0], now)
+                return _out(hit[1], hit[0], time.time())
             return None
         _clear_live_backoff(mint)
+        fetched = time.time()
         payload = {
             "mint": mint,
             "price_usd": px,
             "price_ts": _utc(),
             "trade_ts": _utc_ms(),
-            "trade_epoch": now,
+            "trade_epoch": fetched,
+            "fetched_at": fetched,
             "source": source,
             "block_id": block,
             "rate_limited": limited,
@@ -807,9 +846,9 @@ def fetch_live_tick(
             payload.pop("qa_tick", None)
             payload.pop("qa_walk_drop", None)
             payload["source"] = "jupiter"
-        _live_cache[mint] = (now, dict(payload))
-        trade_stream.note_anchor(mint, px, now)
-        return _out(payload, now, now)
+        _live_cache[mint] = (fetched, dict(payload))
+        trade_stream.note_anchor(mint, px, fetched)
+        return _out(payload, fetched, fetched)
 
 
 def _apply_live_tick(quote: dict, tick: dict) -> dict:
@@ -1535,8 +1574,11 @@ def tick_session(st: dict | None = None) -> dict:
 
         mints = list({p.get("mint") for p in (st.get("positions") or []) if p.get("mint")})
         ticks: dict[str, dict] = {}
+        # Real prices go in the shared book. This request's QA walk, if any,
+        # is applied only for the stop/TP check so a 20% walk can fire the stop
+        # without writing the synthetic price into another session's mark.
+        qa_sid = _qa_sid.get()
         if mints:
-            # Real tick only. A qa walk must not close another session's position.
             futs = {_fetch_pool.submit(fetch_live_tick, m, False, None, False): m for m in mints}
             try:
                 for fut in as_completed(futs, timeout=max(4.0, _LIVE_TIMEOUT + 1)):
@@ -1554,8 +1596,11 @@ def tick_session(st: dict | None = None) -> dict:
         for pos in list(st.get("positions") or []):
             mint = pos.get("mint")
             tick = ticks.get(mint) if mint else None
+            shown = _qa_overlay(qa_sid, tick) if qa_sid and isinstance(tick, dict) else tick
             fresh = fillable_tick(tick)
             px = _f(tick.get("price_usd")) if fresh and tick else None
+            shown_fresh = fillable_tick(shown)
+            shown_px = _f(shown.get("price_usd")) if shown_fresh and isinstance(shown, dict) else None
             entry = float(pos.get("entry_price_usd") or 0)
             if fresh and px is not None:
                 prev = _f(pos.get("last_price_usd"))
@@ -1590,13 +1635,18 @@ def tick_session(st: dict | None = None) -> dict:
             # Stops and targets fill at this tick's price, and only when that
             # tick is still inside the 5s window. A frozen cache must not gap
             # the fill past the mark the player was shown.
-            if fresh and entry and px:
-                chg = (px / entry - 1.0) * 100
+            stop_px = shown_px if shown_px is not None else (px if fresh else None)
+            stop_fresh = shown_fresh if qa_sid else fresh
+            stop_ts = (shown.get("price_ts") if isinstance(shown, dict) else None) or (
+                tick.get("price_ts") if isinstance(tick, dict) else None
+            )
+            if stop_fresh and entry and stop_px:
+                chg = (stop_px / entry - 1.0) * 100
                 if sl is not None and chg <= -abs(float(sl)):
-                    _close_position(st, pos, px, "stop", price_ts=tick.get("price_ts") if tick else None)
+                    _close_position(st, pos, stop_px, "stop", price_ts=stop_ts)
                     continue
                 if tp is not None and chg >= abs(float(tp)):
-                    _close_position(st, pos, px, "tp", price_ts=tick.get("price_ts") if tick else None)
+                    _close_position(st, pos, stop_px, "tp", price_ts=stop_ts)
                     continue
             still.append(pos)
         st["positions"] = still
@@ -2283,7 +2333,13 @@ def qa_tick_view(payload: dict | None, mode: str | None) -> dict:
 
 
 def sell_all() -> dict:
-    """Close every open position in one pass. The saved book is the count."""
+    """Close every open position in one pass. The saved book is the count.
+
+    W3 fetched the second mint while still holding the state lock and the
+    live-tick lock from tick_session's pool, and apply_qa=False plus a long
+    429 backoff left that mint unfillable. Prices are fetched first, one mint
+    at a time, outside that wait, then every still-open id is closed.
+    """
     with _lock:
         st = load_state()
         if st.get("status") != "active":
@@ -2292,16 +2348,27 @@ def sell_all() -> dict:
         positions = [p for p in list(st.get("positions") or []) if p.get("id")]
         if not positions:
             return _fail("No open positions", st)
-        wanted = [p.get("id") for p in positions]
-        ticks: dict[str, dict] = {}
+        wanted = [str(p.get("id")) for p in positions]
+        mints: list[str] = []
         for pos in positions:
             mint = str(pos.get("mint") or "")
-            if mint and mint not in ticks:
-                tick = fetch_live_tick(mint, apply_qa=False)
-                if isinstance(tick, dict):
-                    ticks[mint] = tick
-        for pos in positions:
-            if pos.get("id") not in {p.get("id") for p in (st.get("positions") or [])}:
+            if mint and mint not in mints:
+                mints.append(mint)
+    ticks: dict[str, dict] = {}
+    for mint in mints:
+        # Real book price. A walked copy must not be the only fill for mint 2.
+        tick = fetch_live_tick(mint, bypass_cache=True, apply_qa=False)
+        if not fillable_tick(tick):
+            tick = fetch_live_tick(mint, bypass_cache=True, apply_qa=False)
+        if isinstance(tick, dict):
+            ticks[mint] = tick
+    with _lock:
+        st = load_state()
+        if st.get("status") != "active":
+            return _fail("No active session", st)
+        for pos in list(st.get("positions") or []):
+            pid = str(pos.get("id") or "")
+            if pid not in wanted:
                 continue
             mint = str(pos.get("mint") or "")
             tick = ticks.get(mint)
@@ -2309,7 +2376,7 @@ def sell_all() -> dict:
                 continue
             _close_position(st, pos, float(tick["price_usd"]), "manual", price_ts=tick.get("price_ts"))
         save_state(st)
-        still = {p.get("id") for p in (st.get("positions") or []) if p.get("id")}
+        still = {str(p.get("id")) for p in (st.get("positions") or []) if p.get("id")}
         sold = len([pid for pid in wanted if pid not in still])
         if sold == 0 and still:
             return _fail("Price stale — can't sell yet", st)
@@ -2420,6 +2487,7 @@ def quote_payload(mint: str, fresh: bool = False) -> dict:
     resolved, err, src = resolve_mint(mint)
     if not resolved:
         return _fail(err or "No quote")
+    watch_mint(resolved)
     q = fetch_dex_token(resolved, bypass_cache=fresh) or {}
     tick = fetch_live_tick(resolved, bypass_cache=True, apply_qa=False)
     if not fillable_tick(tick):
