@@ -2529,6 +2529,219 @@ def build_run_review(st: dict | None, equity_usd: float | None = None) -> dict:
     }
 
 
+# SHIP AD — profile paper P/L. Every number is summed from Z receipts
+# (_receipts for lifetime, _session_receipts for this run). panel_v is not bumped.
+# A flat print is the same dust the run review ignores.
+PNL_FLAT_USD = 0.005
+_PNL_WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+def _eastern(when: datetime) -> datetime:
+    """US Eastern wall time, same clock a receipt's ET label uses."""
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    try:
+        from zoneinfo import ZoneInfo
+        return when.astimezone(ZoneInfo("America/New_York"))
+    except Exception:
+        return when.astimezone(timezone(timedelta(hours=-5)))
+
+
+def _pnl_receipts(st: dict, scope: str) -> list[dict]:
+    """Lifetime is every stored receipt. This run is Z's session filter.
+
+    An idle book with no session id is not a run, so it does not inherit
+    the lifetime list (Z returns every receipt when the id is blank).
+    """
+    if scope == "run":
+        if not str(st.get("session_id") or ""):
+            return []
+        return [rec for rec in _session_receipts(st) if isinstance(rec, dict)]
+    return [rec for rec in _receipts(st) if isinstance(rec, dict)]
+
+
+def _sell_rows(rec: dict) -> list[dict]:
+    return [row for row in (rec.get("sells") or []) if isinstance(row, dict)]
+
+
+def _sell_pnls(rec: dict) -> list[float]:
+    out: list[float] = []
+    for sell in _sell_rows(rec):
+        pnl = _f(sell.get("pnl_usd"))
+        if pnl is not None:
+            out.append(float(pnl))
+    return out
+
+
+def _trade_pnl(rec: dict) -> float | None:
+    parts = _sell_pnls(rec)
+    if not parts:
+        return None
+    return round(sum(parts), 6)
+
+
+def _pnl_sign(pnl: float) -> int:
+    if pnl > PNL_FLAT_USD:
+        return 1
+    if pnl < -PNL_FLAT_USD:
+        return -1
+    return 0
+
+
+def _as_hold_s(value) -> int | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return max(0, int(value))
+    return None
+
+
+def _closed_stamp(rec: dict) -> datetime:
+    raw = rec.get("closed_at")
+    if not isinstance(raw, str) or not raw:
+        sells = _sell_rows(rec)
+        raw = sells[-1].get("at") if sells else None
+    parsed = _parse_utc(raw) if isinstance(raw, str) else None
+    if parsed is None:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _trade_hold_s(rec: dict) -> int | None:
+    """Hold of a closed trade: the last sell's held_s, else open-to-close."""
+    sells = _sell_rows(rec)
+    if sells:
+        held = _as_hold_s(sells[-1].get("held_s"))
+        if held is not None:
+            return held
+        closed = rec.get("closed_at") or sells[-1].get("at")
+    else:
+        closed = rec.get("closed_at")
+    sec, _label = _held_parts(rec.get("opened_at"), closed)
+    return sec
+
+
+def _hold_label(seconds: int) -> str:
+    start = datetime(2020, 1, 1, tzinfo=timezone.utc)
+    end = start + timedelta(seconds=max(0, int(seconds)))
+    _sec, label = _held_parts(
+        start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+    return label
+
+
+def _day_window(now: datetime) -> list[tuple[str, str]]:
+    end = _eastern(now).date()
+    out = []
+    for offset in range(6, -1, -1):
+        day = end - timedelta(days=offset)
+        out.append((day.isoformat(), _PNL_WEEKDAYS[day.weekday()]))
+    return out
+
+
+def profile_pnl_stats(st: dict | None, scope: str = "lifetime", now: datetime | None = None) -> dict:
+    """Paper P/L for the profile card.
+
+    Total P/L and the 7-day chart sum every sell on the receipts in scope,
+    including a partial that is still open. Trades, win rate, hold, streak,
+    and best/worst count only receipts Z has closed. Nothing is read from
+    the closed-trade book or from live equity.
+    """
+    st = st if isinstance(st, dict) else {}
+    scope = "run" if scope == "run" else "lifetime"
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    rows = _pnl_receipts(st, scope)
+    day_keys = _day_window(now)
+    day_sum = {iso: 0.0 for iso, _label in day_keys}
+    realized = 0.0
+    closed: list[tuple[float, dict, float]] = []
+    for rec in rows:
+        for sell in _sell_rows(rec):
+            pnl = _f(sell.get("pnl_usd"))
+            if pnl is None:
+                continue
+            realized += float(pnl)
+            raw_at = sell.get("at")
+            parsed = _parse_utc(raw_at) if isinstance(raw_at, str) else None
+            if parsed is None:
+                continue
+            iso = _eastern(parsed).date().isoformat()
+            if iso in day_sum:
+                day_sum[iso] += float(pnl)
+        if rec.get("status") != "closed":
+            continue
+        pnl = _trade_pnl(rec)
+        if pnl is None:
+            continue
+        closed.append((pnl, rec, _closed_stamp(rec).timestamp()))
+
+    wins = sum(1 for pnl, _rec, _ts in closed if _pnl_sign(pnl) > 0)
+    losses = sum(1 for pnl, _rec, _ts in closed if _pnl_sign(pnl) < 0)
+    flats = len(closed) - wins - losses
+    trades = len(closed)
+    holds = []
+    for _pnl, rec, _ts in closed:
+        held = _trade_hold_s(rec)
+        if held is not None:
+            holds.append(held)
+    avg_s = int(round(sum(holds) / len(holds))) if holds else None
+    ordered = sorted(closed, key=lambda row: row[2], reverse=True)
+    streak = 0
+    for pnl, _rec, _ts in ordered:
+        sign = _pnl_sign(pnl)
+        if sign == 0:
+            break
+        if streak == 0:
+            streak = sign
+        elif (streak > 0) == (sign > 0):
+            streak += sign
+        else:
+            break
+
+    def _extreme(row: tuple[float, dict, float] | None) -> dict | None:
+        if row is None:
+            return None
+        pnl, rec, _ts = row
+        return {
+            "receipt_id": rec.get("id"),
+            "position_id": rec.get("position_id"),
+            "symbol": rec.get("symbol") or "?",
+            "pnl_usd": round(pnl, 6),
+        }
+
+    best = _extreme(max(closed, key=lambda row: (row[0], row[2])) if closed else None)
+    worst = _extreme(min(closed, key=lambda row: (row[0], -row[2])) if closed else None)
+    if streak > 0:
+        streak_label = "1 win" if streak == 1 else f"{streak} wins"
+    elif streak < 0:
+        n = abs(streak)
+        streak_label = "1 loss" if n == 1 else f"{n} losses"
+    else:
+        streak_label = ""
+    return {
+        "scope": scope,
+        "pnl_usd": round(realized, 6),
+        "win_rate": round(wins / trades, 4) if trades else None,
+        "wins": wins,
+        "losses": losses,
+        "flats": flats,
+        "trades": trades,
+        "avg_hold_s": avg_s,
+        "avg_hold": _hold_label(avg_s) if avg_s is not None else "",
+        "best": best,
+        "worst": worst,
+        "streak": streak,
+        "streak_label": streak_label,
+        "days": [
+            {"date": iso, "label": label, "pnl_usd": round(day_sum[iso], 6)}
+            for iso, label in day_keys
+        ],
+    }
+
+
 def public_state(st: dict | None = None) -> dict:
     st = tick_session(st) if st is None else st
     eq = equity(st)
@@ -2568,6 +2781,10 @@ def public_state(st: dict | None = None) -> dict:
     out["server_time"] = _utc()
     out["profile"] = public_profile()
     out["review"] = build_run_review(st, equity_usd=eq)
+    out["pnl_stats"] = {
+        "lifetime": profile_pnl_stats(st, "lifetime", now=now),
+        "run": profile_pnl_stats(st, "run", now=now),
+    }
     return out
 
 

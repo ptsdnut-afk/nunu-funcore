@@ -1064,8 +1064,66 @@
     }
     .modal-bg.on { display: flex; }
     .modal {
-      width: min(420px, 100%); background: var(--panel);
+      width: min(480px, 100%); max-height: min(92vh, 820px); overflow: auto;
+      background: var(--panel);
       border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px;
+    }
+    .pnl-card {
+      margin: 0 0 12px; padding: 10px;
+      border: 1px solid #2a2a2a; border-radius: 12px; background: #121212;
+    }
+    .pnl-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .pnl-head h4 {
+      margin: 0; font-size: 0.72rem; letter-spacing: .06em;
+      text-transform: uppercase; color: var(--muted);
+    }
+    .pnl-toggle { display: flex; gap: 4px; }
+    .pnl-toggle button {
+      border: 1px solid #2a2a2a; background: #0e0e0e; color: var(--muted);
+      border-radius: 999px; padding: 4px 8px; font-size: 0.68rem; font-weight: 800; cursor: pointer;
+    }
+    .pnl-toggle button[aria-selected="true"] { color: var(--text); border-color: #3a5a80; background: #141820; }
+    .pnl-total { font-family: var(--mono); font-size: 1.7rem; font-weight: 900; margin: 6px 0 2px; }
+    .pnl-total.up { color: var(--good); }
+    .pnl-total.dn { color: var(--bad); }
+    .pnl-note { margin: 0 0 8px; font-size: 0.68rem; color: var(--muted); line-height: 1.35; }
+    .pnl-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+    .pnl-grid div { background: #0e0e0e; border: 1px solid #2a2a2a; border-radius: 8px; padding: 6px; min-width: 0; }
+    .pnl-grid span {
+      display: block; font-size: 0.58rem; text-transform: uppercase; letter-spacing: .04em;
+      color: var(--muted); font-weight: 800;
+    }
+    .pnl-grid b { display: block; margin-top: 2px; font-family: var(--mono); font-size: 0.82rem; }
+    .pnl-extremes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+    .pnl-extreme {
+      text-align: left; cursor: pointer; color: inherit; font: inherit;
+      background: #0e0e0e; border: 1px solid #2a2a2a; border-radius: 8px; padding: 8px;
+    }
+    .pnl-extreme:disabled { cursor: default; opacity: 0.72; }
+    .pnl-extreme .k {
+      display: block; font-size: 0.58rem; text-transform: uppercase; letter-spacing: .04em;
+      color: var(--muted); font-weight: 800;
+    }
+    .pnl-extreme b { display: block; margin-top: 2px; font-family: var(--mono); font-size: 0.84rem; }
+    .pnl-extreme[data-extreme="best"] b { color: var(--good); }
+    .pnl-extreme[data-extreme="worst"] b { color: var(--bad); }
+    .pnl-chart {
+      display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 4px; margin-top: 10px;
+    }
+    .pnl-col { min-width: 0; text-align: center; }
+    .pnl-col .up-slot, .pnl-col .dn-slot { height: 32px; display: flex; justify-content: center; }
+    .pnl-col .up-slot { align-items: flex-end; }
+    .pnl-col .dn-slot { align-items: flex-start; border-top: 1px solid #2a2a2a; }
+    .pnl-col i { display: block; width: 70%; max-width: 18px; border-radius: 3px; min-height: 3px; }
+    .pnl-col i.up { background: #3ecf8e; }
+    .pnl-col i.dn { background: #f07178; }
+    .pnl-col .lab { display: block; margin-top: 3px; font-size: 0.58rem; color: var(--muted); font-weight: 800; }
+    .pnl-col .amt { display: block; font-family: var(--mono); font-size: 0.56rem; color: var(--muted); }
+    .pnl-col .amt.up { color: var(--good); }
+    .pnl-col .amt.dn { color: var(--bad); }
+    @media (max-width: 520px) {
+      .pnl-grid { grid-template-columns: 1fr 1fr; }
     }
     .modal h3 { margin: 0 0 8px; font-size: 1rem; }
     .modal .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 10px 0; }
@@ -2726,7 +2784,7 @@
           <button type="button" class="seg mute" id="gSoundMuteBtn" aria-pressed="false">Mute</button>
           <input type="checkbox" id="gMute" hidden />
         </div>
-        <button type="button" class="profile-chip" id="profileChip" title="Edit name and picture">
+        <button type="button" class="profile-chip" id="profileChip" title="Profile — paper P/L, name, and picture">
           <span class="pf-av" id="pfAv">P</span>
           <span class="pf-meta">
             <span class="name" id="pfNameLabel">Pilot</span>
@@ -3173,8 +3231,30 @@
 
   <div class="modal-bg" id="profileModal">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="profileTitle">
-      <h3 id="profileTitle">Edit profile</h3>
-      <p class="muted" style="margin:0 0 8px">Name and picture only. Points stay on this browser’s paper profile.</p>
+      <h3 id="profileTitle">Profile</h3>
+      <p class="muted" style="margin:0 0 8px">Paper P/L is summed from buy receipts. Name and picture stay on this browser.</p>
+      <section id="gPnlCard" class="pnl-card" data-feature="profile_pnl" data-scope="lifetime">
+        <div class="pnl-head">
+          <h4>Paper P/L</h4>
+          <div class="pnl-toggle" role="tablist" aria-label="Stats window">
+            <button type="button" id="gPnlLife" data-pnl-scope="lifetime" aria-selected="true">Lifetime</button>
+            <button type="button" id="gPnlRun" data-pnl-scope="run" aria-selected="false">This run</button>
+          </div>
+        </div>
+        <div class="pnl-total" id="gPnlTotal">$0.00</div>
+        <p class="pnl-note" id="gPnlNote">From buy receipts. Lifetime stays after a 24h reset.</p>
+        <div class="pnl-grid">
+          <div><span>Win rate</span><b id="gPnlWin">—</b></div>
+          <div><span>Trades</span><b id="gPnlTrades">0</b></div>
+          <div><span>Avg hold</span><b id="gPnlHold">—</b></div>
+          <div><span>Streak</span><b id="gPnlStreak">—</b></div>
+        </div>
+        <div class="pnl-extremes">
+          <button type="button" class="pnl-extreme" id="gPnlBest" data-extreme="best" data-receipt="" disabled><span class="k">Best</span><b>—</b></button>
+          <button type="button" class="pnl-extreme" id="gPnlWorst" data-extreme="worst" data-receipt="" disabled><span class="k">Worst</span><b>—</b></button>
+        </div>
+        <div class="pnl-chart" id="gPnlChart" role="img" aria-label="Paper P/L by day, last 7 days"></div>
+      </section>
       <label>Name
         <input id="pfName" maxlength="24" autocomplete="nickname" />
       </label>
@@ -3312,6 +3392,7 @@
       tickTimer: null,
       mode: "filter",
       game: null,
+      pnlScope: "lifetime",
       gameTimer: null,
       lastPeak: 0,
       seenEventAt: null,
@@ -6213,6 +6294,45 @@
     }
     /* ship-z-pure-end */
 
+    /* ship-ad-pure-start */
+    function pnlScopeStats(game, scope) {
+      const bundle = (game && game.pnl_stats) || {};
+      const key = scope === "run" ? "run" : "lifetime";
+      const row = bundle[key];
+      return row && typeof row === "object" ? row : null;
+    }
+
+    function pnlExtremeId(stats, which) {
+      const row = stats && stats[which === "worst" ? "worst" : "best"];
+      if (!row || !row.receipt_id) return "";
+      return String(row.receipt_id);
+    }
+
+    function receiptForExtreme(receipts, stats, which) {
+      const id = pnlExtremeId(stats, which);
+      if (!id) return null;
+      const found = (receipts || []).find((row) => row && String(row.id) === id);
+      return found || null;
+    }
+
+    function fmtSignedUsd(n) {
+      const v = Number(n);
+      if (!Number.isFinite(v)) return "—";
+      const body = Math.abs(v).toFixed(2);
+      if (v > 0.0000005) return "+$" + body;
+      if (v < -0.0000005) return "−$" + body;
+      return "$0.00";
+    }
+
+    function fmtWinRate(stats) {
+      if (!stats || !stats.trades) return "—";
+      const wins = Number(stats.wins);
+      const trades = Number(stats.trades);
+      if (!Number.isFinite(wins) || !Number.isFinite(trades) || trades <= 0) return "—";
+      return Math.round((wins / trades) * 100) + "%";
+    }
+    /* ship-ad-pure-end */
+
     // QA force-tick. DexScreener marks often sit inside TICK_EPS for minutes,
     // so a Game poll never crosses tick+ / nose-down. ?qa_tick=both|up|down
     // sequences a display offset on /api/game/state. The paper book is not written.
@@ -7466,6 +7586,90 @@
       }
     }
 
+    function pnlDayMarkup(days) {
+      const rows = Array.isArray(days) ? days.slice(0, 7) : [];
+      let peak = 0;
+      rows.forEach((day) => {
+        const n = Math.abs(Number(day && day.pnl_usd) || 0);
+        if (n > peak) peak = n;
+      });
+      return rows.map((day) => {
+        const n = Number(day && day.pnl_usd) || 0;
+        const up = n > 0.0000005;
+        const dn = n < -0.0000005;
+        const pct = peak > 0 && (up || dn) ? Math.max(12, Math.round((Math.abs(n) / peak) * 100)) : 0;
+        const bar = pct ? '<i class="' + (up ? "up" : "dn") + '" style="height:' + pct + '%"></i>' : "";
+        const tone = up ? "up" : (dn ? "dn" : "");
+        return '<div class="pnl-col" data-date="' + esc(day && day.date || "") + '">' +
+          '<div class="up-slot">' + (up ? bar : "") + "</div>" +
+          '<div class="dn-slot">' + (dn ? bar : "") + "</div>" +
+          '<span class="lab">' + esc(day && day.label || "") + "</span>" +
+          '<span class="amt ' + tone + '">' + esc(fmtSignedUsd(n)) + "</span></div>";
+      }).join("");
+    }
+
+    function paintPnlExtreme(id, kind, row) {
+      const btn = document.getElementById(id);
+      if (!btn) return;
+      const title = kind === "worst" ? "Worst" : "Best";
+      const receiptId = row && row.receipt_id ? String(row.receipt_id) : "";
+      btn.disabled = !receiptId;
+      btn.setAttribute("data-receipt", receiptId);
+      btn.innerHTML = '<span class="k">' + title + "</span><b>" +
+        (receiptId ? (esc(row.symbol || "?") + " " + esc(fmtSignedUsd(row.pnl_usd))) : "—") +
+        "</b>";
+    }
+
+    function paintPnlCard(g) {
+      const card = document.getElementById("gPnlCard");
+      if (!card) return;
+      const scope = state.pnlScope === "run" ? "run" : "lifetime";
+      state.pnlScope = scope;
+      card.setAttribute("data-scope", scope);
+      const life = document.getElementById("gPnlLife");
+      const run = document.getElementById("gPnlRun");
+      if (life) life.setAttribute("aria-selected", scope === "lifetime" ? "true" : "false");
+      if (run) run.setAttribute("aria-selected", scope === "run" ? "true" : "false");
+      const stats = pnlScopeStats(g, scope) || {};
+      const total = document.getElementById("gPnlTotal");
+      const pnl = Number(stats.pnl_usd);
+      if (total) {
+        total.textContent = fmtSignedUsd(Number.isFinite(pnl) ? pnl : 0);
+        total.classList.toggle("up", pnl > 0.0000005);
+        total.classList.toggle("dn", pnl < -0.0000005);
+      }
+      const note = document.getElementById("gPnlNote");
+      if (note) {
+        note.textContent = scope === "run"
+          ? "This run only. A 24h reset clears it. Still summed from buy receipts."
+          : "Lifetime. Stays after a 24h reset. Summed from buy receipts.";
+      }
+      const win = document.getElementById("gPnlWin");
+      const trades = document.getElementById("gPnlTrades");
+      const hold = document.getElementById("gPnlHold");
+      const streak = document.getElementById("gPnlStreak");
+      if (win) win.textContent = fmtWinRate(stats);
+      if (trades) trades.textContent = String(stats.trades || 0);
+      if (hold) hold.textContent = stats.avg_hold || "—";
+      if (streak) streak.textContent = stats.streak_label || "—";
+      paintPnlExtreme("gPnlBest", "best", stats.best);
+      paintPnlExtreme("gPnlWorst", "worst", stats.worst);
+      const chart = document.getElementById("gPnlChart");
+      if (chart) chart.innerHTML = pnlDayMarkup(stats.days);
+    }
+
+    function openPnlExtreme(which) {
+      const stats = pnlScopeStats(state.game, state.pnlScope || "lifetime");
+      const rec = receiptForExtreme((state.game && state.game.receipts) || [], stats, which);
+      if (!rec) return;
+      closeProfile();
+      openReceipt(rec);
+      const sheet = document.getElementById("gReceiptSheet");
+      if (sheet && sheet.scrollIntoView) {
+        try { sheet.scrollIntoView({ block: "center" }); } catch (e) {}
+      }
+    }
+
     function paintFinish(g) {
       const profile = (g && g.profile) || null;
       const name = (profile && profile.name) || "Pilot";
@@ -7556,6 +7760,7 @@
         }).join("") || '<div class="empty">Shop loads with the game.</div>';
       }
       if (profile) notePointSounds(profile);
+      paintPnlCard(g);
     }
 
     function openProfile() {
@@ -7573,7 +7778,11 @@
       paintProfileDraft();
       const modal = document.getElementById("profileModal");
       if (modal) modal.classList.add("on");
+      paintPnlCard(state.game);
+      const dialog = modal && modal.querySelector(".modal");
+      if (dialog) dialog.scrollTop = 0;
       if (input) input.focus();
+      if (dialog) requestAnimationFrame(() => { dialog.scrollTop = 0; });
     }
 
     function closeProfile() {
@@ -9869,6 +10078,20 @@
     if (profileModal) {
       profileModal.addEventListener("click", (ev) => {
         if (ev.target === profileModal) closeProfile();
+      });
+    }
+    const gPnlCard = document.getElementById("gPnlCard");
+    if (gPnlCard) {
+      gPnlCard.addEventListener("click", (ev) => {
+        const scopeBtn = ev.target.closest("[data-pnl-scope]");
+        if (scopeBtn) {
+          state.pnlScope = scopeBtn.getAttribute("data-pnl-scope") === "run" ? "run" : "lifetime";
+          paintPnlCard(state.game);
+          return;
+        }
+        const extreme = ev.target.closest("[data-extreme]");
+        if (!extreme || extreme.disabled) return;
+        openPnlExtreme(extreme.getAttribute("data-extreme"));
       });
     }
     document.querySelectorAll("#pfPicks button").forEach((btn) => {
