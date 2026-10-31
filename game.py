@@ -704,13 +704,16 @@ def _jupiter_price(mint: str) -> tuple[float | None, int | None, bool]:
 def _pull_live_price(mint: str) -> tuple[float | None, str, int | None, bool]:
     """Return (price, source, block_id, rate_limited).
 
-    The tick is the newest GeckoTerminal trade on the mint's SOL pool — the
-    same print the Dex chart draws — and it moves as trades land. Jupiter is
-    the fallback. DexScreener priceUsd is not read.
+    Jupiter's SOL→token quote is the tick (it tracks the pool and moves
+    between polls). A fresh GeckoTerminal trade is the fallback, then
+    Gecko's simple price. DexScreener priceUsd is not read.
     """
+    px, block, jup_limited = _jupiter_price(mint)
+    if px is not None and px > 0:
+        return px, "jup", block, False
     pool = _cached_pool(mint)
-    limited = False
-    if not pool:
+    limited = jup_limited
+    if not pool and not limited:
         code, raw = _http_json(GECKO_POOLS_URL.format(mint=mint))
         if code == 429:
             limited = True
@@ -726,10 +729,7 @@ def _pull_live_price(mint: str) -> tuple[float | None, str, int | None, bool]:
             trade_px, trade_ts = _trade_price(traw, mint)
             if trade_px is not None and trade_px > 0 and _trade_is_fresh(trade_ts):
                 return trade_px, "gecko", None, False
-    px, block, jup_limited = _jupiter_price(mint)
-    if px is not None and px > 0:
-        return px, "jup", block, False
-    if limited or jup_limited:
+    if limited:
         gcode, graw = _http_json(GECKO_PRICE_URL.format(mint=mint))
         if gcode != 429:
             gpx = _parse_gecko_price(graw, mint)

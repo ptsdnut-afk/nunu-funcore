@@ -120,7 +120,7 @@ class LiveTickCacheTests(unittest.TestCase):
         gap = abs(tick["price_usd"] - dex) / dex
         self.assertLess(gap, 0.02)
 
-    def test_pool_trade_is_the_tick_not_a_jupiter_mark(self):
+    def test_pool_trade_is_the_fallback_when_jupiter_is_down(self):
         pool = "Pool111111111111111111111111111111111111111"
         def fake(url: str):
             if "/pools?" in url or url.endswith("/pools?page=1"):
@@ -146,7 +146,9 @@ class LiveTickCacheTests(unittest.TestCase):
                         }
                     }]
                 }
-            return 200, {MINT: {"usdPrice": 0.000762, "decimals": 6, "blockId": 1}}
+            if "jup.ag" in url:
+                return 200, {}
+            return 200, {}
 
         with mock.patch.object(game, "_http_json", side_effect=fake):
             tick = game.fetch_live_tick(MINT, bypass_cache=True)

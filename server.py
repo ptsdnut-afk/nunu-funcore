@@ -246,8 +246,8 @@ def api_health():
                 "A rejected profile file cannot flip the avatar to Star."
             ),
             "live_tick": (
-                "Game price and the rocket chart share one tick: the latest GeckoTerminal trade "
-                "on the mint's SOL pool (the print the Dex chart draws). Jupiter is the fallback. "
+                "Game price and the rocket chart share one tick: a Jupiter SOL-to-token quote "
+                "(GeckoTerminal's latest pool trade, then Gecko's simple price, if Jupiter is down). "
                 "DexScreener priceUsd is not read. Server cache is 1s so a 2s poll refetches. "
                 "A 429 or a timeout backs off and, past 5s, the panel shows stale Ns and will not "
                 "buy, sell, or stop on that print. Buy, sell, and stop fill at that tick and store price_ts."
