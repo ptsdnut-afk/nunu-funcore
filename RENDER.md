@@ -37,6 +37,8 @@ Render’s native Python runtime already does this when `requirements.txt` is pr
 | `HOST` | `0.0.0.0` | Flask bind address. |
 | `INTERVAL_MIN` | `15` | Minutes between filter passes. Optional. |
 | `SKIP_FRESH_SEC` | `0` | Passed through to `bot.py`. `0` runs a real pass on boot, so a deploy does not treat the git `latest.json` (new file mtime, old `data_as_of`) as fresh and then sleep the whole interval. Set `240` only if something else is also writing `latest.json`. |
+| `X_BEARER_TOKEN` | unset | X API bearer token for the X Tracker feed. The owner must set this on the web service. If it is missing, the X Tracker tab says **X not configured** and does not invent posts. |
+| `X_WATCHLIST_PATH` | `x_watchlist.json` next to the app | Optional. The watchlist file. Point it at a persistent disk if the list should survive a new deploy. A process restart keeps the file on the same disk. |
 
 No panel change. `panel_v` stays **60**.
 

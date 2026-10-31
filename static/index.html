@@ -2698,6 +2698,69 @@
       .ck-bub svg, .ck-bub-empty { width: 100%; flex: none; }
       .ck-factors { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     }
+
+    /* SHIP AC X Tracker. Read only. Same near-black / green / amber. */
+    #modeX { display: none; }
+    body.mode-x #modeFilter { display: none; }
+    body.mode-x #modeX { display: block; }
+    body.mode-x #lagBanner { display: none; }
+    .x-wrap {
+      display: grid;
+      grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
+    }
+    .x-add { display: flex; gap: 8px; margin-bottom: 8px; }
+    .x-add input {
+      flex: 1; min-width: 0;
+      background: #101010; color: #e7e9ea;
+      border: 1px solid #2a2a2a; border-radius: 8px;
+      padding: 8px 10px; font-family: var(--mono); font-size: 0.85rem;
+    }
+    .x-error, .x-row-error, .x-feed-error {
+      color: #f07178; font-size: 0.8rem; line-height: 1.35; margin: 0 0 8px;
+    }
+    .x-error[data-state="idle"] { display: none; }
+    .x-row {
+      background: #161616; border: 1px solid #2a2a2a; border-radius: 10px;
+      padding: 8px; margin-bottom: 6px;
+    }
+    .x-row-top { display: flex; align-items: center; gap: 8px; }
+    .x-at { font-family: var(--mono); font-weight: 800; color: #e7e9ea; }
+    .x-row .x-remove { margin-left: auto; }
+    .x-live {
+      background: #102018; color: #3ecf8e; border: 1px solid #2a5a40;
+      border-radius: 999px; font-size: 0.66rem; font-weight: 800;
+      letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 7px;
+    }
+    .x-post {
+      background: #161616; border: 1px solid #2a2a2a; border-radius: 12px;
+      padding: 10px 12px; margin-bottom: 8px;
+    }
+    .x-post.hit { border-color: #6a5320; box-shadow: inset 3px 0 0 #f0a33a; background: #1a160e; }
+    .x-who { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; font-size: 0.78rem; margin-bottom: 4px; }
+    .x-who b { font-weight: 800; }
+    .x-who time, .x-meta { color: #8b98a5; font-family: var(--mono); font-size: 0.68rem; }
+    .x-text { margin: 0 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.92rem; line-height: 1.4; }
+    .x-ticker { color: #f0a33a; font-weight: 800; }
+    .x-ca { color: #3ecf8e; font-family: var(--mono); font-size: 0.78rem; }
+    .x-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+    .x-ca-chip {
+      cursor: pointer; font-family: var(--mono); font-size: 0.72rem; font-weight: 800;
+      background: #102018; color: #3ecf8e; border: 1px solid #2a5a40;
+      border-radius: 999px; padding: 4px 8px;
+    }
+    .x-ca-chip:hover { border-color: #3ecf8e; }
+    .x-meta a { color: #8b98a5; font-weight: 700; text-decoration: none; }
+    .x-meta a:hover { text-decoration: underline; }
+    .x-unconfigured {
+      border: 1px solid #6a5320; background: #1a160e; border-radius: 12px; padding: 16px;
+    }
+    .x-unconfigured b { display: block; color: #f0a33a; font-size: 1.05rem; margin-bottom: 4px; }
+    .x-unconfigured p { margin: 0; color: #e7e9ea; }
+    @media (max-width: 800px) {
+      .x-wrap { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
@@ -2713,6 +2776,7 @@
       <div class="mode-tabs" role="tablist">
         <button type="button" class="on" id="tabFilter" role="tab">Filter</button>
         <button type="button" id="tabGame" role="tab">Game $5</button>
+        <button type="button" id="tabX" role="tab" aria-selected="false">X Tracker</button>
       </div>
       <span class="net-pill"><span class="live-dot" id="liveDot"></span>Solana Mainnet</span>
       <div class="top-actions">
@@ -3125,11 +3189,45 @@
       </div>
     </div>
 
+    <div id="modeX" data-feature="x_tracker">
+      <div class="x-wrap">
+        <section class="pane" id="xWatchPane" aria-label="X watchlist">
+          <div class="pane-head">
+            <h2>Watchlist</h2>
+            <span class="sub" id="xWatchSub">Handles you watch</span>
+          </div>
+          <div class="pane-body">
+            <form id="xAddForm" class="x-add" autocomplete="off">
+              <input type="text" id="xHandleInput" placeholder="@handle" spellcheck="false" aria-label="Add X handle" />
+              <button type="submit" class="gbtn primary" id="xAddBtn">Add</button>
+            </form>
+            <p id="xHandleError" class="x-error" role="alert" data-state="idle"></p>
+            <div id="xWatchList" data-state="loading">
+              <div class="empty">Loading watchlist…</div>
+            </div>
+          </div>
+          <div class="foot-pane"><span>Stored on the server · survives reload and restart</span></div>
+        </section>
+        <section class="pane" id="xFeedPane" aria-label="X feed">
+          <div class="pane-head">
+            <h2>X Tracker</h2>
+            <span class="sub" id="xFeedSub">Latest posts · refresh within 2 minutes</span>
+          </div>
+          <div class="pane-body">
+            <div id="xFeed" data-state="loading">
+              <div class="empty">Loading posts…</div>
+            </div>
+          </div>
+          <div class="foot-pane"><span>Read only. No posting, DMs, or trades. No posts are invented.</span></div>
+        </section>
+      </div>
+    </div>
+
     <footer class="app-foot">
       <div class="foot-live">Paper only · no wallets. <code>?v=84</code></div>
       <details class="qa-foot">
         <summary>QA fixtures</summary>
-        <div>APIs: <code>/api/flagged</code> · <code>/api/update-now</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>. Social Tap is coin, meme, and crypto viral from public sources — nothing invented. Checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: <code>&amp;mode=game</code>. Equity tick proof: <code>?qa_tick=both</code>, <code>?qa_tick=up</code>, <code>?qa_tick=down</code>. Display offset only. Do not combine with <code>?fixture=</code>. 24h end proof: <code>?qa_end=1</code> (one-shot, then Start 24h). Does not auto-start. An ended run opens a paper Review (dismiss, or Start next 24h — same restart as the main button). Mute silences the soft review cue. Max fixture proof: <code>?qa_max=1</code> (one synthetic bonding row, badge QA MAX). Absent query leaves the live feed unchanged. Do not combine with <code>?fixture=</code>. Gold fixture proof: <code>?qa_gold=1</code> (one synthetic rare card in Gold picks, no chime on the seeded load) or <code>?qa_gold=arrive</code> (same card, one ♪ GOLD). Mute silences the gold cue. It is not the Token Flow new-token chime. Absent query leaves Gold empty unless a live row clears the stricter 7-gate stack. Do not combine with <code>?fixture=</code>.</div>
+        <div>APIs: <code>/api/flagged</code> · <code>/api/update-now</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>. Social Tap is coin, meme, and crypto viral from public sources — nothing invented. Checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: <code>&amp;mode=game</code>. Equity tick proof: <code>?qa_tick=both</code>, <code>?qa_tick=up</code>, <code>?qa_tick=down</code>. Display offset only. Do not combine with <code>?fixture=</code>. 24h end proof: <code>?qa_end=1</code> (one-shot, then Start 24h). Does not auto-start. An ended run opens a paper Review (dismiss, or Start next 24h — same restart as the main button). Mute silences the soft review cue. Max fixture proof: <code>?qa_max=1</code> (one synthetic bonding row, badge QA MAX). Absent query leaves the live feed unchanged. Do not combine with <code>?fixture=</code>. Gold fixture proof: <code>?qa_gold=1</code> (one synthetic rare card in Gold picks, no chime on the seeded load) or <code>?qa_gold=arrive</code> (same card, one ♪ GOLD). Mute silences the gold cue. It is not the Token Flow new-token chime. Absent query leaves Gold empty unless a live row clears the stricter 7-gate stack. Do not combine with <code>?fixture=</code>. X Tracker: <code>?mode=x</code> · <code>/api/x/watchlist</code> · <code>/api/x/feed</code>. Needs <code>X_BEARER_TOKEN</code>. If it is missing the tab says X not configured and invents nothing. Read only — no posting, DMs, or trades.</div>
       </details>
     </footer>
   </div>
@@ -3188,6 +3286,7 @@
   <script>
 
     const PANEL_V = 84;
+    const X_POLL_MS = 30000;
     const QA_MAX_NOTE = "QA Max fixture — synthetic bonding row QAMAX. Live unknown rows stay Max-empty. Not a real mint.";
     const QA_GOLD_NOTE = "QA Gold fixture — synthetic rare card QAGOLD in Gold picks. Not a live mint. The normal page stays empty unless the 7-gate stack clears.";
     const QA_GOLD_ARRIVE_NOTE = "QA Gold arrive — one ♪ GOLD for the synthetic card. Mute silences it. This cue is not the Token Flow new-token chime. ?qa_gold=1 seeds quietly.";
@@ -3288,6 +3387,7 @@
       mode: "filter",
       game: null,
       gameTimer: null,
+      xTimer: 0,
       lastPeak: 0,
       seenEventAt: null,
       audioCtx: null,
@@ -4255,15 +4355,26 @@
     function setMode(mode) {
       state.mode = mode;
       document.body.classList.toggle("mode-game", mode === "game");
+      document.body.classList.toggle("mode-x", mode === "x");
       document.getElementById("tabFilter").classList.toggle("on", mode === "filter");
       document.getElementById("tabGame").classList.toggle("on", mode === "game");
-      if (mode !== "filter" && typeof closeCoinDetail === "function") closeCoinDetail();
+      const tabX = document.getElementById("tabX");
+      if (tabX) {
+        tabX.classList.toggle("on", mode === "x");
+        tabX.setAttribute("aria-selected", mode === "x" ? "true" : "false");
+      }
+      if (mode === "game" && typeof closeCoinDetail === "function") closeCoinDetail();
+      if (mode !== "x" && state.xTimer) {
+        clearInterval(state.xTimer);
+        state.xTimer = 0;
+      }
       if (mode === "game") {
         if (state.game) renderGame();
         loadGame(true);
         if (!state.gameTimer) state.gameTimer = setInterval(() => loadGame(true), state.GAME_POLL_MS || 2000);
         ensureLiveTick();
       }
+      if (mode === "x") ensureXPoll();
       if (typeof paintFollowTab === "function") paintFollowTab();
     }
 
@@ -9014,8 +9125,260 @@
 
     let coinCloseTimer = 0;
 
+    function xChips(cas) {
+      return (cas || []).map((ca) => {
+        const short = ca.length > 12 ? (ca.slice(0, 4) + "…" + ca.slice(-4)) : ca;
+        return '<button type="button" class="x-ca-chip" data-opens="coin-drawer" data-mint="' + esc(ca) + '">CA ' + esc(short) + "</button>";
+      }).join("");
+    }
+
+    function xLiveBadge(space) {
+      if (!space || space.live !== true) return "";
+      const title = space.title ? (' title="' + esc(space.title) + '"') : "";
+      return '<span class="x-live"' + title + ' data-space="live">Live</span>';
+    }
+
+    function renderXText(text, cas, tickers) {
+      const src = String(text || "");
+      const marks = [];
+      (cas || []).forEach((ca) => {
+        if (!ca) return;
+        let from = 0;
+        while (from < src.length) {
+          const at = src.indexOf(ca, from);
+          if (at < 0) break;
+          marks.push({ start: at, end: at + ca.length, kind: "ca" });
+          from = at + ca.length;
+        }
+      });
+      (tickers || []).forEach((ticker) => {
+        const safe = String(ticker || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        if (!safe) return;
+        const re = new RegExp("\\$" + safe + "(?![A-Za-z0-9])", "ig");
+        let match;
+        while ((match = re.exec(src))) {
+          marks.push({ start: match.index, end: match.index + match[0].length, kind: "ticker" });
+          if (match.index === re.lastIndex) re.lastIndex += 1;
+        }
+      });
+      marks.sort((a, b) => a.start - b.start || b.end - a.end);
+      let html = "";
+      let cursor = 0;
+      marks.forEach((mark) => {
+        if (mark.start < cursor) return;
+        html += esc(src.slice(cursor, mark.start));
+        const slice = src.slice(mark.start, mark.end);
+        html += '<span class="' + (mark.kind === "ca" ? "x-ca" : "x-ticker") + '">' + esc(slice) + "</span>";
+        cursor = mark.end;
+      });
+      html += esc(src.slice(cursor));
+      return html;
+    }
+
+    function spaceFor(handle, feed) {
+      const rows = (feed && feed.handles) || [];
+      const want = String(handle || "").toLowerCase();
+      for (let i = 0; i < rows.length; i++) {
+        if (String(rows[i].handle || "").toLowerCase() === want) return rows[i].space || null;
+      }
+      return null;
+    }
+
+    function xPostHtml(post, feed) {
+      const cas = post.cas || [];
+      const hit = post.highlight ? " hit" : "";
+      const when = post.created_at ? fmtUtc(post.created_at) : "";
+      const metrics = post.metrics || {};
+      const bits = [];
+      if (metrics.like_count != null) bits.push(metrics.like_count + " likes");
+      if (metrics.retweet_count != null) bits.push(metrics.retweet_count + " reposts");
+      if (metrics.reply_count != null) bits.push(metrics.reply_count + " replies");
+      const link = post.url
+        ? '<a href="' + esc(post.url) + '" target="_blank" rel="noopener">Open on X</a>'
+        : "";
+      const meta = [link].concat(bits.map((bit) => esc(bit))).filter(Boolean).join(" · ");
+      return '<article class="x-post' + hit + '" data-id="' + esc(post.id || "") + '" data-highlight="' + (post.highlight ? "1" : "0") + '">' +
+        '<div class="x-who"><b>' + esc(post.name || ("@" + (post.handle || ""))) + '</b> <span class="x-at">@' + esc(post.handle || "") +
+        "</span>" + xLiveBadge(spaceFor(post.handle, feed)) +
+        (when ? (' <time datetime="' + esc(post.created_at) + '">' + esc(when) + "</time>") : "") +
+        "</div>" +
+        '<p class="x-text">' + renderXText(post.text || "", cas, post.tickers || []) + "</p>" +
+        (cas.length ? ('<div class="x-chips">' + xChips(cas) + "</div>") : "") +
+        (meta ? ('<div class="x-meta">' + meta + "</div>") : "") +
+        "</article>";
+    }
+
+    function xHandleRow(handle, info) {
+      const err = info && info.error ? '<div class="x-row-error" role="alert">' + esc(info.error) + "</div>" : "";
+      return '<div class="x-row" data-handle="' + esc(handle) + '"><div class="x-row-top"><span class="x-at">@' +
+        esc(handle) + "</span>" + xLiveBadge(info && info.space) +
+        '<button type="button" class="x-remove" data-handle="' + esc(handle) + '">Remove</button></div>' +
+        err + "</div>";
+    }
+
+    function renderXWatch(watch, feed) {
+      const host = document.getElementById("xWatchList");
+      const sub = document.getElementById("xWatchSub");
+      if (!host) return;
+      const listed = (watch && watch.handles) || [];
+      const extra = {};
+      ((feed && feed.handles) || []).forEach((row) => {
+        extra[String(row.handle || "").toLowerCase()] = row;
+      });
+      if (!listed.length) {
+        host.setAttribute("data-state", "empty");
+        host.innerHTML = '<div class="empty">Watchlist is empty. Add an @handle.</div>';
+      } else {
+        host.setAttribute("data-state", "ready");
+        host.innerHTML = listed.map((row) => xHandleRow(row.handle || "", extra[String(row.handle || "").toLowerCase()] || {})).join("");
+      }
+      if (sub) sub.textContent = listed.length ? (listed.length + (listed.length === 1 ? " handle" : " handles")) : "No handles yet";
+    }
+
+    function renderXFeed(feed) {
+      const box = document.getElementById("xFeed");
+      const sub = document.getElementById("xFeedSub");
+      if (!box) return;
+      feed = feed || {};
+      if (feed.configured === false) {
+        if (sub) sub.textContent = "X not configured";
+        box.setAttribute("data-state", "unconfigured");
+        box.innerHTML = '<div class="x-unconfigured" data-state="unconfigured" role="status"><b>X not configured</b><p>' +
+          esc(feed.detail || "Set X_BEARER_TOKEN on the server. No posts are invented.") + "</p></div>";
+        return;
+      }
+      if (sub) {
+        sub.textContent = feed.fetched_at
+          ? ("Updated " + fmtUtc(feed.fetched_at))
+          : "Latest posts · refresh within 2 minutes";
+      }
+      const posts = Array.isArray(feed.posts) ? feed.posts : [];
+      if (feed.error && !posts.length) {
+        box.setAttribute("data-state", "error");
+        box.innerHTML = '<div class="x-feed-error" role="alert">' + esc(feed.error) + "</div>";
+        return;
+      }
+      if (!posts.length) {
+        box.setAttribute("data-state", "empty");
+        box.innerHTML = '<div class="empty">No posts yet. Nothing invented.</div>';
+        return;
+      }
+      box.setAttribute("data-state", "ready");
+      const note = (feed.stale && feed.error)
+        ? ('<div class="x-feed-error" role="status">' + esc(feed.error) + " Showing the last fetch. Nothing invented.</div>")
+        : "";
+      box.innerHTML = note + posts.map((post) => xPostHtml(post, feed)).join("");
+    }
+
+    function renderXTracker() {
+      renderXWatch(state.xWatch, state.xFeed);
+      renderXFeed(state.xFeed || {});
+    }
+
+    function showXHandleError(msg) {
+      const el = document.getElementById("xHandleError");
+      if (!el) return;
+      const text = String(msg || "").trim();
+      el.textContent = text;
+      el.setAttribute("data-state", text ? "error" : "idle");
+    }
+
+    async function loadXTracker() {
+      const seq = (state.xSeq = (state.xSeq || 0) + 1);
+      try {
+        const [wRes, fRes] = await Promise.all([
+          fetch("/api/x/watchlist", { cache: "no-store" }),
+          fetch("/api/x/feed", { cache: "no-store" }),
+        ]);
+        const watch = await wRes.json().catch(() => ({}));
+        const feed = await fRes.json().catch(() => ({}));
+        if (seq !== state.xSeq) return;
+        state.xWatch = watch;
+        state.xFeed = feed;
+        renderXTracker();
+      } catch (e) {
+        if (seq !== state.xSeq) return;
+        const box = document.getElementById("xFeed");
+        if (box) {
+          box.setAttribute("data-state", "error");
+          box.innerHTML = '<div class="x-feed-error" role="alert">Could not load X Tracker.</div>';
+        }
+      }
+    }
+
+    function ensureXPoll() {
+      loadXTracker();
+      if (state.xTimer) return;
+      state.xTimer = setInterval(loadXTracker, X_POLL_MS);
+    }
+
+    async function addXHandle(raw) {
+      const btn = document.getElementById("xAddBtn");
+      if (btn) btn.disabled = true;
+      try {
+        const res = await fetch("/api/x/watchlist", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ handle: raw }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.ok === false) {
+          showXHandleError((data && data.error) || "Could not add that handle.");
+          return;
+        }
+        showXHandleError("");
+        const input = document.getElementById("xHandleInput");
+        if (input) input.value = "";
+        await loadXTracker();
+      } catch (e) {
+        showXHandleError("Could not add that handle.");
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    async function removeXHandle(raw) {
+      showXHandleError("");
+      try {
+        const res = await fetch("/api/x/watchlist?handle=" + encodeURIComponent(raw), { method: "DELETE" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.ok === false) {
+          showXHandleError((data && data.error) || "Could not remove that handle.");
+          return;
+        }
+        await loadXTracker();
+      } catch (e) {
+        showXHandleError("Could not remove that handle.");
+      }
+    }
+
     document.getElementById("tabFilter").addEventListener("click", () => setMode("filter"));
     document.getElementById("tabGame").addEventListener("click", () => setMode("game"));
+    const tabXBtn = document.getElementById("tabX");
+    if (tabXBtn) tabXBtn.addEventListener("click", () => setMode("x"));
+    const modeX = document.getElementById("modeX");
+    if (modeX) {
+      modeX.addEventListener("submit", (ev) => {
+        const form = ev.target && ev.target.id === "xAddForm" ? ev.target : null;
+        if (!form) return;
+        ev.preventDefault();
+        const input = document.getElementById("xHandleInput");
+        addXHandle(input ? input.value : "");
+      });
+      modeX.addEventListener("click", (ev) => {
+        const chip = ev.target.closest && ev.target.closest(".x-ca-chip");
+        if (chip) {
+          ev.preventDefault();
+          openCoinFromMint(chip.getAttribute("data-mint") || "");
+          return;
+        }
+        const rm = ev.target.closest && ev.target.closest(".x-remove");
+        if (rm) {
+          ev.preventDefault();
+          removeXHandle(rm.getAttribute("data-handle") || "");
+        }
+      });
+    }
     try {
       const sp = new URLSearchParams(location.search);
       const vRaw = sp.get("v");
@@ -9027,6 +9390,8 @@
         location.replace(location.pathname + (qs ? ("?" + qs) : "") + location.hash);
       } else if ((sp.get("mode") || "").toLowerCase() === "game" || (state.fixture || "").indexOf("game-") === 0) {
         setMode("game");
+      } else if ((sp.get("mode") || "").toLowerCase() === "x") {
+        setMode("x");
       }
     } catch (e) {}
     /* ship-l-update-start */

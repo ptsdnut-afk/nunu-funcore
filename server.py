@@ -24,6 +24,7 @@ import manual_update
 import qa_gold
 import qa_max
 import viral as viral_mod
+import x_tracker
 from mcap_progress import apply_mcap
 
 DIR = Path(__file__).resolve().parent
@@ -272,8 +273,18 @@ def api_health():
                 "Filter and the coin sheet use the Dexscreener USD price. "
                 "Game fills stay on the live USD tick."
             ),
+            "x_tracker": (
+                "X Tracker tab. Watchlist of handles (seed @slingoorio) stored in "
+                "x_watchlist.json. GET /api/x/watchlist, POST to add, DELETE to remove. "
+                "GET /api/x/feed reads the X API with X_BEARER_TOKEN and refetches at "
+                "least every 60s. The panel polls every 30s, so a new post shows within "
+                "2 minutes. Missing token returns configured:false, error 'X not configured', "
+                "and posts:[]. Nothing is invented. A Solana CA on a post is a chip that "
+                "opens the coin drawer. A live Space hosted by the handle shows a Live badge; "
+                "otherwise no badge. Read only: no posting, no DMs, no trades."
+            ),
             "live_tick_ttl_s": game_mod.LIVE_TICK_TTL_S,
-            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture", "game_ai_review", "gold_scar", "game_follow_tab", "filter_smart", "profile_custom_pic", "final_polish", "live_tick", "coin_checklist", "usd_price"],
+            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture", "game_ai_review", "gold_scar", "game_follow_tab", "filter_smart", "profile_custom_pic", "final_polish", "live_tick", "coin_checklist", "usd_price", "x_tracker"],
             "sitting_drop_min": 5.0,
             "sitting_aged_min": 180.0,
             "sitting_keep": True,
@@ -614,6 +625,43 @@ def api_coin():
     result = filter_mod.coin_payload(mint, bypass_cache=fresh)
     code = 200 if result.get("ok") else 400
     return jsonify(result), code
+
+
+def _x_status(result: dict) -> int:
+    if result.get("ok"):
+        return 200
+    try:
+        return int(result.get("status") or 400)
+    except (TypeError, ValueError):
+        return 400
+
+
+@app.get("/api/x/watchlist")
+def api_x_watchlist():
+    """SHIP AC watchlist. Seed @slingoorio until the owner changes it."""
+    return jsonify(x_tracker.watchlist_payload())
+
+
+@app.post("/api/x/watchlist")
+def api_x_watchlist_add():
+    body = request.get_json(silent=True) or {}
+    handle = body.get("handle") or body.get("username") or request.args.get("handle") or ""
+    result = x_tracker.add_handle(str(handle))
+    return jsonify(result), _x_status(result)
+
+
+@app.delete("/api/x/watchlist")
+def api_x_watchlist_remove():
+    body = request.get_json(silent=True) or {}
+    handle = body.get("handle") or body.get("username") or request.args.get("handle") or ""
+    result = x_tracker.remove_handle(str(handle))
+    return jsonify(result), _x_status(result)
+
+
+@app.get("/api/x/feed")
+def api_x_feed():
+    """Latest posts for the watchlist. Empty and explicit when X is not configured."""
+    return jsonify(x_tracker.feed_payload())
 
 
 @app.get("/api/coin/checklist")
