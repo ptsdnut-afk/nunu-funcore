@@ -41,6 +41,24 @@ def _hit(symbol="PEPE", name="Pepe", created=None, source="Pump.fun", mint=OTHER
 
 
 class NarrativeRowTests(unittest.TestCase):
+    def test_the_same_mint_on_two_sources_counts_as_one_rerun(self):
+        pump = dict(base._clean_sources()["pump"])
+        pump["symbol"] = "GROPE"
+        pump["name"] = "GROK PEPE"
+        out = cc.assemble(MINT, base._clean_sources(
+            pump=pump,
+            launches=_launches(
+                _hit(symbol="GROPE", name="GROKE PEPE", created=NOW - 600, source="Dexscreener"),
+                _hit(symbol="GROPE", name="GROKE PEPE", created=NOW - 600, source="Pump.fun"),
+            ),
+        ), now=NOW)
+        row = next(item for item in out["checks"] if item["id"] == "narrative")
+        self.assertEqual(row["status"], "fail")
+        self.assertNotIn("2 in 7 days", row["detail"])
+        self.assertIn("Dexscreener", row["source"])
+        self.assertIn("Pump.fun", row["source"])
+        self.assertIn("GROPE", row["detail"])
+
     def test_same_ticker_inside_seven_days_fails_and_names_the_source(self):
         pump = dict(base._clean_sources()["pump"])
         pump["symbol"] = "PEPE"

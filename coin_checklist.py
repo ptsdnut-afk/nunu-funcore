@@ -184,8 +184,7 @@ def narrative_verdict(
     if not _norm_symbol(symbol) and len(_norm_name(name)) < 4:
         return "unknown", "Unknown — ticker and name were not returned", source
     hits = [hit for hit in (launches.get("hits") or []) if isinstance(hit, dict)]
-    reruns = []
-    undated = []
+    grouped: dict[str, dict[str, Any]] = {}
     for hit in hits:
         other = str(hit.get("mint") or "").strip()
         if not other or other == mint:
@@ -193,34 +192,50 @@ def narrative_verdict(
         kind = _same_launch(symbol or "", name or "", hit)
         if not kind:
             continue
-        created = _when(hit.get("created_at"))
+        slot = grouped.get(other)
+        src = str(hit.get("source") or "")
+        if slot is None:
+            grouped[other] = {"hit": hit, "kind": kind, "sources": [src] if src else []}
+            continue
+        if src and src not in slot["sources"]:
+            slot["sources"].append(src)
+        if _when(slot["hit"].get("created_at")) is None and _when(hit.get("created_at")) is not None:
+            slot["hit"] = hit
+            slot["kind"] = kind
+    reruns = []
+    undated = []
+    for other, slot in grouped.items():
+        created = _when(slot["hit"].get("created_at"))
         if created is None:
-            undated.append(hit)
+            undated.append(slot)
             continue
         if now - created <= NARRATIVE_WINDOW_S and now - created >= -60:
-            reruns.append((created, kind, hit))
+            reruns.append((created, other, slot))
     if reruns:
         reruns.sort(key=lambda item: item[0], reverse=True)
-        created, kind, hit = reruns[0]
+        created, other, slot = reruns[0]
+        hit = slot["hit"]
+        kind = slot["kind"]
         age = _age_text(now - created) or "just now"
-        label = _present(str(hit.get("symbol") or "")) or _present(str(hit.get("name") or "")) or "a coin"
-        where = hit.get("source") or source
+        if kind == "ticker":
+            label = _present(str(symbol or "")) or _norm_symbol(symbol) or "ticker"
+        else:
+            label = _present(str(hit.get("name") or "")) or _norm_name(name) or "name"
+        where = " + ".join(slot["sources"]) or str(hit.get("source") or source)
         noun = "ticker" if kind == "ticker" else "name"
-        detail = (
-            f"Rerun — same {noun} {label} launched {age} ago"
-            f" ({_short(str(hit.get('mint')))})"
-        )
+        detail = f"Rerun — same {noun} {label} launched {age} ago ({_short(other)})"
         if len(reruns) > 1:
             detail += f" · {len(reruns)} in 7 days"
-        return "fail", detail, str(where)
+        return "fail", detail, where
     if undated:
-        hit = undated[0]
-        where = hit.get("source") or source
+        slot = undated[0]
+        hit = slot["hit"]
+        where = " + ".join(slot["sources"]) or str(hit.get("source") or source)
         label = _present(str(hit.get("symbol") or "")) or "a match"
         return (
             "unknown",
             f"Unknown — {label} matched on {where} but launch time was not returned",
-            str(where),
+            where,
         )
     if failed or not checked:
         missing = ", ".join(failed) if failed else "Dexscreener and Pump.fun"
