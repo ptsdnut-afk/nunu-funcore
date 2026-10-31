@@ -267,13 +267,22 @@ def api_health():
                 "Lookups are cached on the server. Strict Filter and AI traders should "
                 "key off the verdict name."
             ),
+            "filter_worth": (
+                "Default Token Flow lists only an X verdict of 6/8 or better that is "
+                "not a forced SKIP (WATCH or BUY-WATCH). Trending or new alone never "
+                "qualifies. An empty list is allowed and reads "
+                "Nothing worth watching right now. "
+                "Show all reveals the rest, dimmed, each with its verdict. "
+                "GET /api/coin/checklists?mints= returns the same checklist payload "
+                "as GET /api/coin/checklist, plus worth. panel_v is unchanged."
+            ),
             "usd_price": (
                 "Token prices, entries, exits, and P/L render in USD. "
                 "Filter and the coin sheet use the Dexscreener USD price. "
                 "Game fills stay on the live USD tick."
             ),
             "live_tick_ttl_s": game_mod.LIVE_TICK_TTL_S,
-            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture", "game_ai_review", "gold_scar", "game_follow_tab", "filter_smart", "profile_custom_pic", "final_polish", "live_tick", "coin_checklist", "usd_price"],
+            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture", "game_ai_review", "gold_scar", "game_follow_tab", "filter_smart", "profile_custom_pic", "final_polish", "live_tick", "coin_checklist", "usd_price", "filter_worth"],
             "sitting_drop_min": 5.0,
             "sitting_aged_min": 180.0,
             "sitting_keep": True,
@@ -616,22 +625,93 @@ def api_coin():
     return jsonify(result), code
 
 
-@app.get("/api/coin/checklist")
-def api_coin_checklist():
-    """SHIP X checklist. Verdict name is BUY-WATCH, WATCH, or SKIP."""
+def _parse_mints(raw: str, cap: int = 40) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for part in str(raw or "").replace(";", ",").split(","):
+        mint = part.strip()
+        if not mint or mint in seen:
+            continue
+        seen.add(mint)
+        out.append(mint)
+        if len(out) >= cap:
+            break
+    return out
+
+
+def _checklist_for_mint(mint: str, *, fresh: bool = False) -> dict:
+    """Same sheet as /api/coin/checklist, plus the strict-Filter worth flag."""
     import coin_checklist
 
-    mint = (request.args.get("mint") or request.args.get("ca") or "").strip()
-    if not mint:
-        return jsonify({"ok": False, "error": "mint required", "verdict": None}), 400
     if qa_gold.is_fixture_mint(mint) or qa_max.is_fixture_mint(mint):
         payload = coin_checklist.assemble(mint, {})
         payload["fixture"] = True
-        return jsonify(payload)
+    else:
+        payload = coin_checklist.for_mint(mint, bypass=fresh)
+    out = dict(payload)
+    out.setdefault("mint", mint)
+    out["worth"] = bool(coin_checklist.worth_watching(out))
+    return out
+
+
+def _checklists_for(mints: list[str]) -> list[dict]:
+    from concurrent.futures import ThreadPoolExecutor
+
+    def one(mint: str) -> dict:
+        try:
+            return _checklist_for_mint(mint)
+        except Exception:
+            return {
+                "ok": False,
+                "mint": mint,
+                "error": "checklist failed",
+                "verdict": None,
+                "worth": False,
+            }
+
+    if not mints:
+        return []
+    workers = min(4, len(mints))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        return list(pool.map(one, mints))
+
+
+@app.get("/api/coin/checklist")
+def api_coin_checklist():
+    """SHIP X checklist. Verdict name is BUY-WATCH, WATCH, or SKIP."""
+    mint = (request.args.get("mint") or request.args.get("ca") or "").strip()
+    if not mint:
+        return jsonify({"ok": False, "error": "mint required", "verdict": None, "worth": False}), 400
     fresh = (request.args.get("fresh") or "").lower() in ("1", "true", "yes")
-    payload = coin_checklist.for_mint(mint, bypass=fresh)
+    payload = _checklist_for_mint(mint, fresh=fresh)
     code = 200 if payload.get("ok") else 400
     return jsonify(payload)
+
+
+@app.get("/api/coin/checklists")
+def api_coin_checklists():
+    """SHIP Y batch. Same verdicts as the drawer. worth is the default-list gate."""
+    import coin_checklist
+
+    mints = _parse_mints(request.args.get("mints") or "")
+    if not mints:
+        return jsonify({"ok": False, "error": "mints required", "items": []}), 400
+    items = _checklists_for(mints)
+    return jsonify(
+        {
+            "ok": True,
+            "feature": "filter_worth",
+            "panel_v": 84,
+            "min_pass": coin_checklist.WORTH_MIN_PASS,
+            "of": coin_checklist.WORTH_OF,
+            "qualifying_verdicts": sorted(coin_checklist.WORTH_VERDICTS),
+            "forced_skip_qualifies": False,
+            "trending_or_new_qualifies": False,
+            "empty_ok": True,
+            "empty_text": coin_checklist.WORTH_EMPTY,
+            "items": items,
+        }
+    )
 
 
 # —— Paper log (research CSV) ——

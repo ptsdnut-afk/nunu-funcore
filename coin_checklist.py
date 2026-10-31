@@ -93,6 +93,38 @@ def count_verdict(pass_count: int) -> str:
     return verdict_for(pass_count, forced_skip=False)
 
 
+# Strict Filter. 6/8 or better, and not a forced SKIP. Callers key off the
+# verdict name. Trending and new are not arguments: those labels never qualify
+# on their own, and they never block a coin that clears this gate.
+WORTH_MIN_PASS = 6
+WORTH_OF = 8
+WORTH_VERDICTS = frozenset({"WATCH", "BUY-WATCH"})
+WORTH_EMPTY = "Nothing worth watching right now"
+
+
+def worth_watching(checklist: dict[str, Any] | None) -> bool:
+    """True when this X verdict belongs on the default Filter list.
+
+    A coin qualifies only at 6/8 or better (WATCH or BUY-WATCH) when it is
+    not a forced SKIP. Missing checklists, Unknown-heavy sheets, and SKIP
+    stay off the default list. Trending or new is not an input.
+    """
+    if not isinstance(checklist, dict) or checklist.get("ok") is False:
+        return False
+    if checklist.get("forced_skip"):
+        return False
+    if checklist.get("verdict") not in WORTH_VERDICTS:
+        return False
+    try:
+        passes = int(checklist.get("pass_count"))
+        total = int(checklist.get("check_count"))
+    except (TypeError, ValueError):
+        return False
+    if total < WORTH_OF or passes < WORTH_MIN_PASS:
+        return False
+    return passes * WORTH_OF >= WORTH_MIN_PASS * total
+
+
 def rules_payload() -> dict[str, Any]:
     return {
         "bands": [

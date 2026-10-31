@@ -1506,6 +1506,18 @@
     }
     #modeFilter .sec.late .sec-head { background: #241418; color: #f07178; border-color: #6a2a32; }
     #modeFilter .sec.other .sec-head { background: #161616; color: #8b98a5; border-color: #2a2a2a; }
+    #modeFilter .sec.rest .sec-head { background: #141414; color: #8b98a5; border-color: #333; }
+    #modeFilter .tok.dim { opacity: 0.42; }
+    #modeFilter .x-verdict {
+      display: inline-flex; align-items: center;
+      padding: 1px 6px; border-radius: 999px;
+      font-family: var(--mono); font-size: 0.62rem; font-weight: 800;
+      letter-spacing: 0.02em; border: 1px solid #6a5320;
+      color: #f0a33a; background: #241e10;
+    }
+    #modeFilter .x-verdict.skip { background: #1a0c0f; border-color: #6a2030; color: #f07178; }
+    #modeFilter .x-verdict.buy { background: #102018; border-color: #2a5a40; color: #3ecf8e; }
+    #modeFilter .x-verdict.pending { color: #8b98a5; border-color: #3a3a3a; background: #141414; border-style: dashed; }
     #modeFilter .tok {
       grid-template-areas: none;
       padding: 6px 8px;
@@ -2756,13 +2768,14 @@
     <div id="fixtureNote" class="fixture-note" hidden></div>
 
     <div id="modeFilter">
-      <div class="controls filter-only" id="controls">
+      <div class="controls filter-only" id="controls" data-feature="filter_worth">
         <span class="ctl-k">List</span>
         <label>Min vol 1h $
           <input type="number" id="minVol" value="5000" min="0" step="1000" />
         </label>
         <label><input type="checkbox" id="trenchOnly" /> Trench band only (10–12)</label>
         <label><input type="checkbox" id="hideLate" /> Hide late chase</label>
+        <label title="Show coins under 6/8 and forced SKIP, dimmed, each with its verdict"><input type="checkbox" id="showAll" /> Show all</label>
         <span class="muted" id="pollHint">Auto · ETag skip when unchanged</span>
         <span class="muted" id="lastRefresh">panel —</span>
       </div>
@@ -2849,7 +2862,7 @@
             <div class="empty">Loading <code>/api/flagged</code>…</div>
           </div>
           <div class="foot-pane">
-            <span>Click a coin for the checklist · score opens stored inputs and why</span>
+            <span>Click a coin for the checklist · default list is 6/8 or better · score opens stored inputs and why</span>
             <span id="lastUpdated">Last updated: —</span>
           </div>
         </section>
@@ -3360,6 +3373,12 @@
       coinSeq: 0,
       coinPreview: {},
       coinCheck: {},
+      worthReady: false,
+      worthSeq: 0,
+      worthKey: "",
+      worthAt: 0,
+      worthError: false,
+      worthInflight: false,
       chartPick: null,
       chartShown: "",
       chartFailedKey: "",
@@ -4463,6 +4482,61 @@
       return (el && el.value || "").trim().toLowerCase();
     }
 
+    const WORTH_MIN_PASS = 6;
+    const WORTH_OF = 8;
+    const WORTH_EMPTY = "Nothing worth watching right now";
+
+    function worthWatching(checklist) {
+      // Trending, new, trench, and the score/12 are not inputs.
+      // Only an X verdict of 6/8 or better that is not a forced SKIP qualifies.
+      if (!checklist || typeof checklist !== "object") return false;
+      if (checklist.ok === false) return false;
+      if (checklist.forced_skip) return false;
+      const verdict = checklist.verdict;
+      if (verdict !== "WATCH" && verdict !== "BUY-WATCH") return false;
+      const pass = Number(checklist.pass_count);
+      const total = Number(checklist.check_count);
+      if (!Number.isFinite(pass) || !Number.isFinite(total)) return false;
+      if (total < WORTH_OF || pass < WORTH_MIN_PASS) return false;
+      return pass * WORTH_OF >= WORTH_MIN_PASS * total;
+    }
+
+    function checklistOf(row) {
+      const mint = row && row.mint;
+      if (!mint || !state || !state.coinCheck) return null;
+      return state.coinCheck[mint] || null;
+    }
+
+    function splitWorth(rows, checksByMint, showAll) {
+      const worth = [];
+      const rest = [];
+      const book = checksByMint || {};
+      for (const r of (rows || [])) {
+        const mint = r && r.mint;
+        const ck = mint ? book[mint] : null;
+        if (worthWatching(ck)) worth.push(r);
+        else rest.push(r);
+      }
+      return {
+        worth: worth,
+        rest: rest,
+        visible: showAll ? worth.concat(rest) : worth,
+        empty: !showAll && !worth.length,
+      };
+    }
+
+    function worthEmptyHtml(ready) {
+      if (!ready) {
+        return '<div class="empty" data-empty="checking" data-feature="filter_worth">Checking checklists…</div>';
+      }
+      return '<div class="empty" data-empty="worth" data-feature="filter_worth">' + WORTH_EMPTY + "</div>";
+    }
+
+    function showAllOn() {
+      const el = document.getElementById("showAll");
+      return !!(el && el.checked);
+    }
+
     function applyFilters(rows) {
       const minVol = Number(document.getElementById("minVol").value || 0);
       const trenchOnly = document.getElementById("trenchOnly").checked;
@@ -4981,6 +5055,21 @@
         '<div class="formula"><b>Ceiling math:</b> ' + esc(st.formula || "") + "</div></section>";
     }
 
+    function verdictChip(r) {
+      const ck = checklistOf(r);
+      if (!ck || !ck.verdict) {
+        return '<span class="x-verdict pending" data-verdict="">checklist…</span>';
+      }
+      const name = String(ck.verdict);
+      const cls = name === "SKIP" ? "skip" : (name === "BUY-WATCH" ? "buy" : "watch");
+      const pass = ck.pass_count;
+      const total = ck.check_count;
+      const text = (pass != null && total != null)
+        ? (pass + "/" + total + " pass · " + name)
+        : name;
+      return '<span class="x-verdict ' + cls + '" data-verdict="' + esc(name) + '">' + esc(text) + "</span>";
+    }
+
     function rowHtml(r, dupTickers) {
       const m = r.metrics || {};
       const s12 = score12Of(r);
@@ -5030,9 +5119,13 @@
       const detailId = "sd-" + mint.replace(/[^A-Za-z0-9]/g, "").slice(0, 24);
       const metric = (lab, val, cls) =>
         '<div class="metric"><span class="lab">' + lab + '</span><span class="mval' + (cls ? (" " + cls) : "") + '">' + val + "</span></div>";
-      return '<article class="tok' + (late ? " late-row" : "") + (isCopy ? " copy-row" : "") + (sitBand === "near" ? " sit-near" : "") + (sitBand === "over" ? " sit-over" : "") + (open ? " open" : "") + (selected ? " selected" : "") + (arrived ? (state.mute ? " arrive-muted" : " arrive") : "") + (r.qa_max_fixture ? " qa-max-row" : "") + '" data-mint="' + esc(mint) + '" data-sitting-band="' + esc(sitBand) + '"' + (r.qa_max_fixture ? ' data-qa-max="1"' : "") + '>' +
+      const ck = checklistOf(r);
+      const worth = worthWatching(ck);
+      const verdictName = (ck && ck.verdict) ? String(ck.verdict) : "";
+      const passAttr = (ck && ck.pass_count != null) ? String(ck.pass_count) : "";
+      return '<article class="tok' + (late ? " late-row" : "") + (isCopy ? " copy-row" : "") + (sitBand === "near" ? " sit-near" : "") + (sitBand === "over" ? " sit-over" : "") + (open ? " open" : "") + (selected ? " selected" : "") + (arrived ? (state.mute ? " arrive-muted" : " arrive") : "") + (r.qa_max_fixture ? " qa-max-row" : "") + (worth ? "" : " dim") + '" data-mint="' + esc(mint) + '" data-sitting-band="' + esc(sitBand) + '" data-worth="' + (worth ? "1" : "0") + '" data-verdict="' + esc(verdictName) + '" data-pass="' + esc(passAttr) + '"' + (r.qa_max_fixture ? ' data-qa-max="1"' : "") + '>' +
         '<button type="button" class="coin coin-open" data-mint="' + esc(mint) + '" aria-haspopup="dialog" aria-label="Open ' + esc(r.ticker || "coin") + ' detail">' + imgHtml +
-          "<div><div class=\"ticker\">" + esc(r.ticker) + " " + badge + "</div>" +
+          "<div><div class=\"ticker\">" + esc(r.ticker) + " " + badge + verdictChip(r) + "</div>" +
           '<div class="name" title="' + esc(r.name) + '">' + esc(r.name) + "</div>" +
           (warnHtml ? '<div class="warns">' + warnHtml + "</div>" : "") +
           "</div></button>" +
@@ -5203,7 +5296,10 @@
       const trenchFromRows = flagged.filter((r) => inTrenchBand(r)).length;
       const trenchN = rescued ? trenchFromRows : (latest.trench_band_count ?? trenchFromRows);
       const botRunning = status && status.bot && status.bot.running;
-      const visible = applyFilters(flagged);
+      const matched = applyFilters(flagged);
+      const showAll = showAllOn();
+      const split = splitWorth(matched, state.coinCheck || {}, showAll);
+      const visible = split.visible;
       const dupTickers = sameTickerMap(flagged);
 
       paintLag(dataAsOf);
@@ -5255,7 +5351,7 @@
         renderTraders();
         return;
       }
-      if (!visible.length) {
+      if (!matched.length) {
         wrap.innerHTML = '<div class="empty">' + (qShown
           ? ("No flagged rows match “" + esc(qShown) + "”. Search / Scan still looks that name up.")
           : "No rows match filters (min vol / trench / hide late).") + "</div>";
@@ -5263,10 +5359,31 @@
         renderTraders();
         return;
       }
+      if (!showAll && !split.worth.length) {
+        wrap.innerHTML = worthEmptyHtml(!!state.worthReady);
+        wrap.setAttribute("data-state", "empty");
+        wrap.setAttribute("data-show-all", "0");
+        wrap.setAttribute("data-worth", "0");
+        wrap.setAttribute("data-rest", String(split.rest.length));
+        renderTraders();
+        return;
+      }
 
       const buckets = { new: [], trench: [], late: [], other: [] };
-      for (const r of visible) buckets[sectionOf(r)].push(r);
-      for (const k of Object.keys(buckets)) {
+      for (const r of split.worth) buckets[sectionOf(r)].push(r);
+      const sectionOrder = ["new", "trench", "late", "other"];
+      const sectionTitle = {
+        new: "New · under 30m",
+        trench: "Trench · 10–12",
+        late: "Late · chase",
+        other: "Other · under 10",
+        rest: "The rest · under 6/8 or SKIP",
+      };
+      if (showAll) {
+        buckets.rest = split.rest.slice();
+        sectionOrder.push("rest");
+      }
+      for (const k of sectionOrder) {
         buckets[k].sort((a, b) => {
           const af = (state.flowFresh || []).indexOf((a && a.mint) || "") >= 0 ? 1 : 0;
           const bf = (state.flowFresh || []).indexOf((b && b.mint) || "") >= 0 ? 1 : 0;
@@ -5285,16 +5402,69 @@
         ? '<div class="sit-keep-note" data-sitting-keep="1">Sitting coins stay listed past ' +
           SITTING_DROP_MIN + "m. They are not removed from Token Flow.</div>"
         : "";
-      wrap.innerHTML = keepNote +
-        renderSection("new", "New · under 30m", buckets.new, dupTickers) +
-        renderSection("trench", "Trench · 10–12", buckets.trench, dupTickers) +
-        renderSection("late", "Late · chase", buckets.late, dupTickers) +
-        renderSection("other", "Other · under 10", buckets.other, dupTickers);
+      wrap.innerHTML = keepNote + sectionOrder.map((k) => renderSection(k, sectionTitle[k], buckets[k], dupTickers)).join("");
       wrap.scrollTop = scroll;
       wrap.setAttribute("data-state", "ready");
+      wrap.setAttribute("data-show-all", showAll ? "1" : "0");
+      wrap.setAttribute("data-worth", String(split.worth.length));
+      wrap.setAttribute("data-rest", String(split.rest.length));
       const ms = ((typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now()) - t0;
       wrap.setAttribute("data-render-ms", ms.toFixed(2));
       renderTraders();
+    }
+
+    function refreshFilterWorth() {
+      if (flaggedFixtureOn()) return;
+      const rows = Array.isArray(state.flagged) ? state.flagged : [];
+      const seen = {};
+      const mints = [];
+      for (const r of rows) {
+        const mint = r && r.mint ? String(r.mint).trim() : "";
+        if (!mint || seen[mint] || r.qa_gold_fixture) continue;
+        seen[mint] = 1;
+        mints.push(mint);
+        if (mints.length >= 40) break;
+      }
+      const key = mints.join(",");
+      if (!mints.length) {
+        state.worthReady = true;
+        state.worthKey = "";
+        state.worthInflight = false;
+        return;
+      }
+      const stale = !state.worthAt || (Date.now() - state.worthAt > 60000);
+      if (state.worthInflight && state.worthKey === key) return;
+      if (state.worthKey === key && state.worthReady && !stale && !state.worthError) return;
+      const seq = (state.worthSeq = (state.worthSeq || 0) + 1);
+      state.worthKey = key;
+      state.worthInflight = true;
+      const missing = mints.some((mint) => {
+        const ck = state.coinCheck[mint];
+        return !(ck && (ck.verdict || ck.ok === false));
+      });
+      if (missing) state.worthReady = false;
+      fetch("/api/coin/checklists?mints=" + encodeURIComponent(key), { cache: "no-store" })
+        .then((res) => res.json().then((data) => data).catch(() => ({ ok: false })))
+        .then((data) => {
+          if (seq !== state.worthSeq) return;
+          const items = data && Array.isArray(data.items) ? data.items : [];
+          for (const item of items) {
+            if (item && item.mint) state.coinCheck[item.mint] = item;
+          }
+          state.worthReady = true;
+          state.worthError = !data || data.ok === false;
+          state.worthAt = Date.now();
+          state.worthInflight = false;
+          render();
+        })
+        .catch(() => {
+          if (seq !== state.worthSeq) return;
+          state.worthReady = true;
+          state.worthError = true;
+          state.worthAt = Date.now();
+          state.worthInflight = false;
+          render();
+        });
     }
 
     async function loadOne(url, etagKey) {
@@ -5671,8 +5841,9 @@
           }
           const mc = document.getElementById("metaCompact");
           if (mc) mc.innerHTML = "<strong>Could not load flagged.</strong>";
-        } else if (changed) {
-          render();
+        } else {
+          refreshFilterWorth();
+          if (changed) render();
         }
       }
 
@@ -10000,16 +10171,13 @@
       fetch("/api/coin/checklist?mint=" + encodeURIComponent(mint) + freshQ + qaQ, { cache: "no-store" })
         .then((res) => res.json().then((data) => data).catch(() => ({ ok: false, error: "Bad JSON" })))
         .then((data) => {
+          rememberChecklist(mint, data);
           if (state.coinSeq !== seq || state.coinMint !== mint) return;
-          state.coinCheck[mint] = data && data.verdict ? data : {
-            ok: false,
-            error: (data && data.error) || "Checklist unavailable",
-          };
           paintCoinSheet(state.coinPreview[mint] || row, sheet.getAttribute("data-live") || "snapshot");
         })
         .catch(() => {
+          rememberChecklist(mint, { ok: false, error: "Checklist request failed" });
           if (state.coinSeq !== seq || state.coinMint !== mint) return;
-          state.coinCheck[mint] = { ok: false, error: "Checklist request failed" };
           paintCoinSheet(state.coinPreview[mint] || row, "fail");
         });
       fetch("/api/coin?mint=" + encodeURIComponent(mint) + freshQ + qaQ, { cache: "no-store" })
@@ -10050,6 +10218,23 @@
           const note = document.getElementById("coinSheetNote");
           if (note) note.textContent = "Live snapshot failed (" + ((e && e.message) || "network") + "). Nothing invented.";
         });
+    }
+
+    function rememberChecklist(mint, data) {
+      const next = (data && data.verdict) ? data : {
+        ok: false,
+        mint: mint,
+        error: (data && data.error) || "Checklist unavailable",
+        verdict: null,
+        worth: false,
+      };
+      const prev = state.coinCheck[mint];
+      state.coinCheck[mint] = next;
+      const changed = !prev
+        || prev.verdict !== next.verdict
+        || prev.pass_count !== next.pass_count
+        || !!prev.forced_skip !== !!next.forced_skip;
+      if (changed && !flaggedFixtureOn()) render();
     }
 
     function openCoinFromMint(mint) {
@@ -10186,7 +10371,7 @@
       if (state.filterTimer) clearTimeout(state.filterTimer);
       state.filterTimer = setTimeout(render, 80);
     }
-    ["minVol", "trenchOnly", "hideLate"].forEach((id) => {
+    ["minVol", "trenchOnly", "hideLate", "showAll"].forEach((id) => {
       const el = document.getElementById(id);
       el.addEventListener("change", debounceRender);
       el.addEventListener("input", debounceRender);
