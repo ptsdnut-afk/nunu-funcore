@@ -1189,6 +1189,14 @@
       border-color: #2a5a40;
       box-shadow: 0 0 24px rgba(62,207,142,.28);
     }
+    body.mode-game .stat.equity[data-stale="1"] {
+      background: linear-gradient(160deg, #241e10 0%, #161616 62%);
+      border-color: #6a5320;
+      box-shadow: none;
+    }
+    body.mode-game .stat.equity[data-stale="1"] .streak-pill {
+      background: #241e10; border-color: #6a5320; color: #f0a33a;
+    }
     body.mode-game .stat.clock.urgent {
       background: linear-gradient(160deg, #241e10, #161616);
       border-color: #6a5320;
@@ -2270,6 +2278,12 @@
     .rocket-bank .val.good { color: var(--good); }
     .rocket-bank .val.bad { color: var(--bad); }
     .rocket-bank .hint { margin-top: 2px; font-size: 0.62rem; color: var(--muted); font-family: var(--mono); }
+    .tick-debug {
+      margin: 0; max-height: 7.5rem; overflow: auto; padding: 6px 8px;
+      font-family: var(--mono); font-size: 0.62rem; line-height: 1.35;
+      color: #c0c8d0; background: #0e0e0e; border-top: 1px solid #2a2a2a;
+      white-space: pre-wrap; overflow-wrap: anywhere;
+    }
     .gain-flash { animation: rocket-bank 1.2s ease-in-out infinite; }
     .finish-row { display: grid; grid-template-columns: 1.05fr 1.35fr; gap: 12px; margin-top: 12px; }
     .pts-bal {
@@ -2622,6 +2636,27 @@
       body.mode-game .streak-pill {
         position: static; display: inline-flex; margin: 0 0 4px;
       }
+      html, body, .app { max-width: 100%; overflow-x: hidden; }
+      .brand h1 { white-space: normal; }
+      .topbar, .game-search, .game-hero, .rocket-live, .rocket-bank, #modeFilter, #modeGame {
+        max-width: 100%; min-width: 0;
+      }
+      .game-search .gbtn { white-space: normal; max-width: 100%; }
+      .rocket-live { overflow: visible; }
+      .rocket-strip { overflow: hidden; }
+      .rocket-head, .rocket-hud, .rocket-hud .dir, .rocket-hud .sub, .pos-chip,
+      .rocket-bank .stat, .rocket-bank .val, .rocket-bank .hint {
+        max-width: 100%; min-width: 0; overflow-wrap: anywhere;
+      }
+      .rocket-hud { max-width: 46%; }
+      .pos-chip { max-width: 50%; }
+      .rocket-bank { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+      #modeFilter .token-pane, #modeFilter .pane, #modeFilter .pane-body, #modeFilter .tok {
+        max-width: 100%; min-width: 0;
+      }
+      #modeFilter .mcap-cell .mval, #modeFilter .metric .mval { white-space: normal; overflow-wrap: anywhere; }
+      body.follow-live footer.app-foot { padding-bottom: 72px; }
+      #gameFollow.game-follow { max-width: 100%; }
     }
     /* ship-q-polish-end */
   </style>
@@ -2633,7 +2668,7 @@
         <div class="logo">N</div>
         <div>
           <h1>Nunu Filter</h1>
-          <p class="sub">Solana Research Panel · paper only · v83</p>
+          <p class="sub">Solana Research Panel · paper only · v84</p>
         </div>
       </div>
       <div class="mode-tabs" role="tablist">
@@ -2933,6 +2968,7 @@
             <div class="hint" id="gLastTickHint">no cue · rocket calm</div>
           </div>
         </div>
+        <pre id="gTickDebug" class="tick-debug" data-feature="tick_debug">tick log · waiting for Jupiter</pre>
       </section>
       <div class="game-hero">
         <div class="stat equity" id="gEquityCard">
@@ -2980,7 +3016,7 @@
         <section class="pane">
           <div class="pane-head">
             <h2>Trade</h2>
-            <span class="sub" id="gMarkHint">Live marks · poll 2s</span>
+            <span class="sub" id="gMarkHint">Live marks · poll 1s</span>
             <button type="button" class="dismiss-x" id="gTradeBack" data-dismiss="trade" hidden aria-label="Clear selection" title="Clear selection">✕</button>
           </div>
           <div class="pane-body" id="gTradeBody" data-state="loading">
@@ -3051,7 +3087,7 @@
     </div>
 
     <footer class="app-foot">
-      <div class="foot-live">Paper only · no wallets. <code>?v=83</code></div>
+      <div class="foot-live">Paper only · no wallets. <code>?v=84</code></div>
       <details class="qa-foot">
         <summary>QA fixtures</summary>
         <div>APIs: <code>/api/flagged</code> · <code>/api/update-now</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>. Social Tap is coin, meme, and crypto viral from public sources — nothing invented. Checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: <code>&amp;mode=game</code>. Equity tick proof: <code>?qa_tick=both</code>, <code>?qa_tick=up</code>, <code>?qa_tick=down</code>. Display offset only. Do not combine with <code>?fixture=</code>. 24h end proof: <code>?qa_end=1</code> (one-shot, then Start 24h). Does not auto-start. An ended run opens a paper Review (dismiss, or Start next 24h — same restart as the main button). Mute silences the soft review cue. Max fixture proof: <code>?qa_max=1</code> (one synthetic bonding row, badge QA MAX). Absent query leaves the live feed unchanged. Do not combine with <code>?fixture=</code>. Gold fixture proof: <code>?qa_gold=1</code> (one synthetic rare card in Gold picks, no chime on the seeded load) or <code>?qa_gold=arrive</code> (same card, one ♪ GOLD). Mute silences the gold cue. It is not the Token Flow new-token chime. Absent query leaves Gold empty unless a live row clears the stricter 7-gate stack. Do not combine with <code>?fixture=</code>.</div>
@@ -3112,7 +3148,7 @@
 
   <script>
 
-    const PANEL_V = 83;
+    const PANEL_V = 84;
     const QA_MAX_NOTE = "QA Max fixture — synthetic bonding row QAMAX. Live unknown rows stay Max-empty. Not a real mint.";
     const QA_GOLD_NOTE = "QA Gold fixture — synthetic rare card QAGOLD in Gold picks. Not a live mint. The normal page stays empty unless the 7-gate stack clears.";
     const QA_GOLD_ARRIVE_NOTE = "QA Gold arrive — one ♪ GOLD for the synthetic card. Mute silences it. This cue is not the Token Flow new-token chime. ?qa_gold=1 seeds quietly.";
@@ -3272,7 +3308,11 @@
       pfpPickerGotFile: false,
       pfpPickerSnap: null,
       GAME_POLL_MS: 2000,
-      LIVE_TICK_MS: 2000,
+      LIVE_TICK_MS: 1000,
+      tickQuote: null,
+      tickDebug: [],
+      lastLoggedPx: null,
+      rocketSmooth: null,
       tickSeries: {},
       tickMint: "",
       rocketLift: 0,
@@ -5726,18 +5766,50 @@
       return on;
     }
 
+    function pageQaDown() {
+      try {
+        return (new URLSearchParams(location.search).get("qa_tick") || "").trim().toLowerCase() === "down";
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function withQaDown(url) {
+      if (!pageQaDown()) return url;
+      return url + (url.indexOf("?") >= 0 ? "&" : "?") + "qa_tick=down";
+    }
+
+    function rememberTickAge(tick) {
+      tick = tick || {};
+      const age = Number(tick.quote_age_s);
+      const sla = Number(tick.quote_sla_s);
+      const next = {
+        age: Number.isFinite(age) ? age : null,
+        at: Date.now(),
+        sla: Number.isFinite(sla) ? sla : 5,
+      };
+      const prev = state.tickQuote;
+      if (prev && Number.isFinite(Number(prev.age)) && Number.isFinite(next.age)) {
+        const prevNow = Number(prev.age) + Math.max(0, (Date.now() - (prev.at || Date.now())) / 1000);
+        if (prevNow + 0.05 < next.age) return;
+      }
+      if (next.age == null && prev && Number.isFinite(Number(prev.age))) return;
+      state.tickQuote = next;
+    }
+
     function feedAgeS() {
       if (qaStaleOn()) {
         if (!state.qaStaleSince) state.qaStaleSince = Date.now();
         return Math.max(6, (Date.now() - state.qaStaleSince) / 1000);
       }
-      if (!state.lastGoodTickAt) return null;
-      return (Date.now() - state.lastGoodTickAt) / 1000;
+      const q = state.tickQuote;
+      if (!q || !Number.isFinite(Number(q.age))) return null;
+      return Number(q.age) + Math.max(0, (Date.now() - (q.at || Date.now())) / 1000);
     }
 
     function feedIsStale() {
-      const age = feedAgeS();
-      return age != null && age > 5;
+      if (qaStaleOn()) return true;
+      return feedStale(feedAgeS(), state.tickQuote && state.tickQuote.sla);
     }
 
     function paintTradeLocks() {
@@ -5889,6 +5961,32 @@
       return "stale " + Math.max(1, Math.round(n)) + "s";
     }
 
+    function feedStale(ageS, slaS) {
+      if (ageS == null || ageS === "") return true;
+      const age = Number(ageS);
+      const sla = Number(slaS);
+      const limit = Number.isFinite(sla) ? sla : 5;
+      if (!Number.isFinite(age)) return true;
+      return age > limit;
+    }
+
+    function smoothRocketPct(prev, next) {
+      const n = Number(next);
+      if (!Number.isFinite(n)) return Number.isFinite(Number(prev)) ? Number(prev) : 0;
+      const p = Number(prev);
+      if (!Number.isFinite(p)) return n;
+      return (p * 0.7) + (n * 0.3);
+    }
+
+    function rocketShownPct(prevShown, basis) {
+      const b = Number(basis);
+      if (!Number.isFinite(b)) return Number.isFinite(Number(prevShown)) ? Number(prevShown) : 0;
+      const sm = smoothRocketPct(prevShown, b);
+      if (b > 0 && sm < 0) return 0;
+      if (b < 0 && sm > 0) return 0;
+      return sm;
+    }
+
     function rocketCue(openPnlPct, sessionPnlPct, hasOpen) {
       const bias = hasOpen ? Number(openPnlPct) : Number(sessionPnlPct);
       const pct = Number.isFinite(bias) ? bias : 0;
@@ -5914,7 +6012,7 @@
       const age = Number(staleAge);
       if (Number.isFinite(age) && age > 5) return "stale " + Math.max(1, Math.round(age)) + "s";
       if (status === "active") {
-        return "Live · " + openN + " open · tick 2s · server " + (serverClock || "—");
+        return "Live · " + openN + " open · tick 1s · server " + (serverClock || "—");
       }
       if (status === "ended") return "Session ended · Start 24h ($5) for a fresh run";
       return "Start a run (or just Buy — auto-starts)";
@@ -6481,7 +6579,7 @@
       const positions = g.positions || [];
       const hasOpen = positions.some((p) => p && (p.mint || p.symbol || p.pnl_usd != null));
       const stage = (g.status === "ended") ? "ended" : ((!hasOpen && !pulsing) ? "demo" : "live");
-      rocket.setAttribute("data-mood", mood);
+      rocket.setAttribute("data-mood", feedIsStale() ? "idle" : ((state.rocketCue && state.rocketCue.mood) || mood));
       rocket.setAttribute("data-skin", profile.tint || "nebula");
       rocket.setAttribute("data-stage", stage);
       const sfx = state.mute ? "off" : (mood === "tick" ? "win" : (downPulse ? "loss" : "off"));
@@ -6494,13 +6592,16 @@
         if (el) el.textContent = text;
       };
       const labels = { idle: "Idle / flat", up: "Up", tick: "Tick+", down: "Down / loss" };
-      set("gRocketState", labels[mood] || "Idle / flat");
       set("gRocketSound", rocketSoundBadge(!!state.mute, mood, downPulse));
       set("gRocketSkin", "Skin · " + (profile.equipped_name || "Nebula Frame"));
-      const cue = state.rocketCue || null;
-      const dirMood = feedIsStale() ? "idle" : (cue ? cue.mood : mood);
-      const dirPct = cue ? cue.pct : chipPct(g, mood, floatDelta, pulsing);
-      set("gRocketDir", feedIsStale() ? "— STALE" : pnlChipText(dirMood, dirPct));
+      const cue = state.rocketCue || { mood: "idle", pct: 0, tilt: 0 };
+      const stale = feedIsStale();
+      const dirMood = stale ? "idle" : cue.mood;
+      const dirPct = cue.pct;
+      rocket.setAttribute("data-mood", dirMood);
+      rocket.style.setProperty("--rocket-tilt", stale ? "0deg" : (Number(cue.tilt || 0).toFixed(1) + "deg"));
+      set("gRocketState", stale ? "Stale" : (labels[dirMood] || "Idle / flat"));
+      set("gRocketDir", stale ? "— STALE" : pnlChipText(dirMood, dirPct));
       let sub = "chart stage · dim twin flame";
       if (feedIsStale()) sub = "stale · holding last price";
       else if (mood === "tick") sub = "lift · long twin flame";
@@ -6526,7 +6627,7 @@
         eqEl.className = "val" + (mood === "tick" || mood === "up" ? " good" : (mood === "down" ? " bad" : ""));
       }
       const sessionSigned = g.pnl_usd != null ? fmtSignedTick(g.pnl_usd) : "$0.00";
-      set("gRocketEqHint", mood === "tick" ? "green flash · " + sessionSigned : (mood === "down" ? "session red · " + sessionSigned : "session " + sessionSigned));
+      set("gRocketEqHint", stale ? "stale · last mark" : (mood === "tick" ? "green flash · " + sessionSigned : (dirMood === "down" ? "session red · " + sessionSigned : "session " + sessionSigned)));
       if (pulsing && floatDelta != null && Number.isFinite(Number(floatDelta)) && Number(floatDelta) !== 0) {
         state.lastTickShown = Number(floatDelta);
         state.lastTickSign = mood === "tick" ? "up" : "down";
@@ -6576,12 +6677,30 @@
       badge.textContent = label || "";
     }
 
+    function logTickChange(tick, px) {
+      const prev = state.lastLoggedPx;
+      if (prev != null && prev === px) return;
+      state.lastLoggedPx = px;
+      const rendered = new Date().toISOString();
+      const line = (tick.source || "jup") + " src=" + (tick.price_ts || "—") + " rendered=" + rendered + " px=" + px;
+      state.tickDebug = state.tickDebug || [];
+      state.tickDebug.push({ t: Date.now(), line: line, px: px });
+      if (state.tickDebug.length > 240) state.tickDebug.splice(0, state.tickDebug.length - 240);
+      const cutoff = Date.now() - 60000;
+      const inWin = state.tickDebug.filter((r) => r.t >= cutoff).length;
+      const el = document.getElementById("gTickDebug");
+      if (!el) return;
+      const head = "changes/60s " + inWin + " · " + (tick.source || "jup");
+      el.textContent = head + "\n" + state.tickDebug.slice(-12).map((r) => r.line).join("\n");
+    }
+
     function noteLiveTick(tick) {
       tick = tick || {};
+      rememberTickAge(tick);
       const mint = tick.mint || state.tickMint || "";
       const px = Number(tick.price_usd);
       const serverAge = Number(tick.quote_age_s);
-      const fresh = !!(tick.quote_live && px > 0 && Number.isFinite(serverAge) && serverAge <= 5);
+      const fresh = !feedIsStale() && px > 0 && Number.isFinite(serverAge);
       if (fresh && !qaStaleOn()) {
         state.lastGoodTickAt = Date.now();
         state.lastGoodPx = px;
@@ -6590,6 +6709,7 @@
         paintFeedAge();
         return;
       }
+      logTickChange(tick, px);
       const series = state.tickSeries[mint] || (state.tickSeries[mint] = []);
       series.push(px);
       state.tickPushedAt = Date.now();
@@ -6605,8 +6725,8 @@
       paintFeedAge();
     }
 
-    function applyPoseFromGame(g) {
-      g = g || state.game || {};
+    function rocketBasis(g) {
+      g = g || {};
       let openUsd = 0;
       let stake = 0;
       let hasOpen = false;
@@ -6618,9 +6738,23 @@
         }
         if (p.stake_usd != null && Number.isFinite(Number(p.stake_usd))) stake += Number(p.stake_usd);
       });
+      const sessionPct = g.pnl_pct != null && Number.isFinite(Number(g.pnl_pct)) ? Number(g.pnl_pct) : 0;
       const openPct = hasOpen && stake ? (openUsd / stake) * 100 : null;
-      const sessionPct = g.pnl_pct != null ? Number(g.pnl_pct) : 0;
-      state.rocketCue = rocketCue(openPct, sessionPct, hasOpen);
+      const raw = hasOpen && openPct != null && Number.isFinite(openPct) ? openPct : sessionPct;
+      return { raw: raw, hasOpen: hasOpen };
+    }
+
+    function syncRocketCue(g) {
+      const basis = rocketBasis(g);
+      state.rocketSmooth = rocketShownPct(state.rocketSmooth, basis.raw);
+      const shown = state.rocketSmooth;
+      state.rocketCue = basis.hasOpen ? rocketCue(shown, 0, true) : rocketCue(null, shown, false);
+      return state.rocketCue;
+    }
+
+    function applyPoseFromGame(g) {
+      g = g || state.game || {};
+      syncRocketCue(g);
       const mood = feedIsStale() ? "idle" : state.rocketCue.mood;
       applyRocketPose(mood);
       return mood;
@@ -6642,7 +6776,7 @@
       if (!mint) return;
       const gen = state.liveTickGen || 0;
       try {
-        const res = await fetch("/api/game/tick?mint=" + encodeURIComponent(mint), { cache: "no-store" });
+        const res = await fetch(withQaDown("/api/game/tick?mint=" + encodeURIComponent(mint)), { cache: "no-store", credentials: "same-origin" });
         if (!res.ok) {
           paintFeedAge();
           return;
@@ -6659,7 +6793,7 @@
     function ensureLiveTick() {
       if (!state.feedAgeTimer) state.feedAgeTimer = setInterval(paintFeedAge, 1000);
       if (state.liveTickTimer) return;
-      state.liveTickTimer = setInterval(pollLiveTick, state.LIVE_TICK_MS || 2000);
+      state.liveTickTimer = setInterval(pollLiveTick, state.LIVE_TICK_MS || 1000);
       pollLiveTick();
     }
 
@@ -6750,21 +6884,7 @@
       }
       if (eq != null && Number.isFinite(Number(eq))) state.lastEquity = Number(eq);
       const pulsing = !!(state.rocketPulse && Date.now() < state.rocketPulseUntil);
-      let openPnl = 0;
-      let hasOpen = false;
-      (g.positions || []).forEach((p) => {
-        if (p && p.pnl_usd != null && Number.isFinite(Number(p.pnl_usd))) {
-          hasOpen = true;
-          openPnl += Number(p.pnl_usd);
-        }
-      });
-      const sessionPct = g.pnl_pct != null ? Number(g.pnl_pct) : 0;
-      let stake = 0;
-      (g.positions || []).forEach((p) => {
-        if (p && p.stake_usd != null && Number.isFinite(Number(p.stake_usd))) stake += Number(p.stake_usd);
-      });
-      const openPct = hasOpen && stake ? (openPnl / stake) * 100 : null;
-      state.rocketCue = rocketCue(openPct, sessionPct, hasOpen);
+      syncRocketCue(g);
       const mood = feedIsStale() ? "idle" : state.rocketCue.mood;
       applyRocketPose(mood);
       paintRocket(g, mood, pulsing ? state.rocketFloat : 0);
@@ -6774,15 +6894,17 @@
       const el = document.getElementById("gRocket");
       if (!el) return;
       const cue = state.rocketCue || { pct: 0, tilt: 0, mood: "idle" };
-      if (feedIsStale() || mood === "idle" && feedIsStale()) {
+      if (feedIsStale()) {
         el.setAttribute("data-stale", "1");
+        el.setAttribute("data-mood", "idle");
         el.style.setProperty("--rocket-tilt", "0deg");
         el.style.setProperty("--rocket-lift", "0px");
         return;
       }
       el.removeAttribute("data-stale");
-      const tilt = (mood === "down" || cue.mood === "down") ? Math.max(8, cue.tilt || 8) : cue.tilt;
-      el.style.setProperty("--rocket-tilt", Number(tilt || 0).toFixed(1) + "deg");
+      const dir = cue.mood || mood || "idle";
+      el.setAttribute("data-mood", dir);
+      el.style.setProperty("--rocket-tilt", Number(cue.tilt || 0).toFixed(1) + "deg");
       const lift = Math.max(-28, Math.min(28, -Number(cue.pct || 0) * 0.65));
       el.style.setProperty("--rocket-lift", lift.toFixed(2) + "px");
     }
@@ -6807,11 +6929,37 @@
       return { text: "—", cls: "" };
     }
 
+    function paintEquityFreshness() {
+      const stale = feedIsStale();
+      ["gEquityCard", "gRocketEqCard"].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.setAttribute("data-stale", stale ? "1" : "0");
+      });
+      const streak = document.getElementById("gStreak");
+      const status = (state.game || {}).status;
+      if (streak && status === "active" && stale) {
+        streak.hidden = false;
+        streak.textContent = "STALE";
+      }
+      const hint = document.getElementById("gRocketEqHint");
+      if (hint && stale) hint.textContent = "stale · last mark";
+      const eqHint = document.getElementById("gEqHint");
+      if (eqHint && status === "active") {
+        const cur = eqHint.textContent || "";
+        if (stale && cur.indexOf("STALE") !== 0) eqHint.textContent = "STALE · " + cur;
+        if (!stale && cur.indexOf("STALE · ") === 0) eqHint.textContent = cur.slice(8);
+      }
+      if (streak && status === "active" && !stale && streak.textContent === "STALE") {
+        streak.textContent = "▲ LIVE";
+      }
+    }
+
     function paintFeedAge() {
       const age = feedAgeS();
       const stale = feedIsStale();
       paintStaleBadge(age, !stale);
       paintTradeLocks();
+      paintEquityFreshness();
       const mh = document.getElementById("gMarkHint");
       const g = state.game || {};
       if (mh && !state.qaTickNote && !state.qaEndNote) {
@@ -6837,6 +6985,24 @@
       } else {
         const rocket = document.getElementById("gRocket");
         if (rocket) rocket.removeAttribute("data-stale");
+        const dir = document.getElementById("gRocketDir");
+        if (dir && dir.textContent.indexOf("STALE") >= 0) {
+          applyPoseFromGame(g);
+          const cue = state.rocketCue || { mood: "idle", pct: 0, tilt: 0 };
+          dir.textContent = pnlChipText(cue.mood, cue.pct);
+          rocket.setAttribute("data-mood", cue.mood || "idle");
+          const sub = document.getElementById("gRocketSub");
+          if (sub) {
+            sub.textContent = cue.mood === "down"
+              ? "nose-down · smoke · no win hit"
+              : "chart stage · dim twin flame";
+          }
+          const st = document.getElementById("gRocketState");
+          if (st) {
+            const labels = { idle: "Idle / flat", up: "Up", down: "Down / loss" };
+            st.textContent = labels[cue.mood] || "Idle / flat";
+          }
+        }
       }
     }
 
@@ -7892,7 +8058,7 @@
       const mh = document.getElementById("gMarkHint");
       if (mh) {
         const liveHint = status === "active"
-          ? ("Live · " + openN + " open · tick 2s · server " + ((g.server_time || "").slice(11, 19) || "—"))
+          ? ("Live · " + openN + " open · tick 1s · server " + ((g.server_time || "").slice(11, 19) || "—"))
           : (status === "ended"
             ? "Session ended · Start 24h ($5) for a fresh run"
             : "Start a run (or just Buy — auto-starts)");
@@ -7922,6 +8088,7 @@
       paintRunReview(g);
       paintFollowTab();
       paintTradeLocks();
+      paintEquityFreshness();
 
       // Keep quote-card live price ticking when a quote is on screen
       if (state.lastQuoteMint && status === "active") {
@@ -8642,7 +8809,7 @@
         const body = { mint: requestedMint, stake_usd: stake, client_request_id: requestId };
         if (sl !== "") body.sl_pct = Number(sl);
         if (tp !== "") body.tp_pct = Number(tp);
-        const res = await fetch("/api/game/buy", {
+        const res = await fetch(withQaDown("/api/game/buy"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -8695,10 +8862,11 @@
       setGameBusy(true);
       setGameLine("Selling…", "warn");
       try {
-        const res = await fetch("/api/game/sell", {
+        const res = await fetch(withQaDown("/api/game/sell"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ position_id: pid }),
+          credentials: "same-origin",
         });
         let data = {};
         try { data = await res.json(); } catch (e) { throw new Error("Bad response HTTP " + res.status); }
@@ -8741,22 +8909,31 @@
         return;
       }
       const n = ((state.game || {}).positions || []).length;
-      if (!n) { setGameLine("No open positions", "warn"); return; }
+      if (!n) {
+        beep("fail");
+        setGameLine("Sell all rejected — no open positions", "bad");
+        toast("Sell all rejected — no open positions", true);
+        return;
+      }
       if (!confirm("Sell all " + n + " open position(s)?")) return;
       setGameBusy(true);
       setGameLine("Selling all…", "warn");
       try {
-        const res = await fetch("/api/game/sell", {
+        const res = await fetch(withQaDown("/api/game/sell"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ all: true }),
+          credentials: "same-origin",
         });
-        const data = await res.json();
-        if (!data.ok) {
+        let data = {};
+        try { data = await res.json(); } catch (e) { throw new Error("Bad response HTTP " + res.status); }
+        const soldN = Number(data.sold);
+        if (!data.ok || soldN === 0) {
           playResponseSound(data);
           if (!data.sound) beep("fail");
-          setGameLine(data.error || "Sell all failed", "bad");
-          toast(data.error || "Sell all failed", true);
+          const reason = data.error || (soldN === 0 ? "Sold 0" : "Sell all failed");
+          setGameLine(reason, "bad");
+          toast(reason, true);
           if (data.state) { state.game = data.state; state.gameLoaded = true; renderGame(); }
           return;
         }

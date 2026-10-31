@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import base64
+import contextvars
 import json
 import threading
 import time
@@ -43,28 +44,27 @@ _QUOTE_TTL = 2.0  # seconds — happy-path cache so polls do not refetch every t
 QUOTE_FRESH_SLA_S = 5.0
 QUOTE_BAND = 0.05  # ±5% vs the same-path DexScreener quote, else not a live DEX print
 _DEX_TIMEOUT = 3.5
-# SHIP W — execution price. DexScreener's token priceUsd can sit still for
-# half a minute while the chart moves. Jupiter (then GeckoTerminal) is the
-# lightweight tick. Many clients share one fetch for LIVE_TICK_TTL_S.
+# SHIP W2 — execution price. Jupiter Price API v3 usdPrice is the mid.
+# A SOL→token swap quote is not the tick: impact and fees sit 6–9% above Dex.
+# GeckoTerminal is not a fallback. Browsers never call Jupiter.
+# Many clients share one fetch per mint for LIVE_TICK_TTL_S (single-flight).
 LIVE_TICK_TTL_S = 1.0
 _LIVE_TIMEOUT = 2.0
 SOL_MINT = "So11111111111111111111111111111111111111112"
-# 0.001 SOL keeps price impact small so the quote stays near the pool mid.
-_JUP_QUOTE_LAMPORTS = 1_000_000
 JUP_PRICE_URL = "https://lite-api.jup.ag/price/v3?ids={mint}"
-JUP_QUOTE_URL = (
-    "https://lite-api.jup.ag/swap/v1/quote?inputMint={sol}&outputMint={mint}&amount={amount}"
-)
-GECKO_PRICE_URL = "https://api.geckoterminal.com/api/v2/simple/networks/solana/token_price/{mint}"
-GECKO_POOLS_URL = "https://api.geckoterminal.com/api/v2/networks/solana/tokens/{mint}/pools?page=1"
-GECKO_TRADES_URL = "https://api.geckoterminal.com/api/v2/networks/solana/pools/{pool}/trades"
-_pool_cache: dict[str, tuple[float, str]] = {}
-_POOL_TTL_S = 300.0
+# QA only. ?qa_tick=down walks one browser session's copy of the tick.
+# The shared Jupiter cache is never written with this price.
+QA_WALK_COOKIE = "nunu_qa_walk"
+QA_WALK_DROP = 0.27  # 27% so the print is down 25%+ by the end of the span
+QA_WALK_SPAN_S = 20.0
 _live_cache: dict[str, tuple[float, dict]] = {}
 _live_backoff_until: dict[str, float] = {}
 _live_backoff_s: dict[str, float] = {}
 _live_guard = threading.Lock()
 _live_locks: dict[str, threading.Lock] = {}
+_qa_walks: dict[str, dict[str, dict]] = {}
+_qa_walk_guard = threading.Lock()
+_qa_sid: contextvars.ContextVar[str | None] = contextvars.ContextVar("nunu_qa_sid", default=None)
 _fetch_pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="dexq")
 
 
@@ -582,167 +582,27 @@ def _jup_decimals(raw: dict | None, mint: str) -> int | None:
     return dec
 
 
-def implied_token_usd(sol_usd: float, lamports: int, out_amount: int, decimals: int) -> float | None:
-    """USD per token from a SOL→token quote. None when the quote cannot be priced."""
-    try:
-        sol = float(lamports) / 1_000_000_000.0
-        tokens = float(out_amount) / float(10 ** int(decimals))
-        sol_px = float(sol_usd)
-    except (TypeError, ValueError, OverflowError):
-        return None
-    if sol <= 0 or tokens <= 0 or sol_px <= 0:
-        return None
-    return (sol * sol_px) / tokens
-
-
-def _price_from_jup_quote(raw: dict | None, sol_usd: float | None, decimals: int | None) -> float | None:
-    if not isinstance(raw, dict) or sol_usd is None or decimals is None:
-        return None
-    raw_out = raw.get("outAmount")
-    try:
-        out_amount = int(raw_out)
-    except (TypeError, ValueError):
-        return None
-    return implied_token_usd(sol_usd, _JUP_QUOTE_LAMPORTS, out_amount, decimals)
-
-
-def _parse_gecko_price(raw: dict | None, mint: str) -> float | None:
-    if not isinstance(raw, dict):
-        return None
-    data = raw.get("data")
-    attrs = data.get("attributes") if isinstance(data, dict) else None
-    prices = attrs.get("token_prices") if isinstance(attrs, dict) else None
-    if not isinstance(prices, dict):
-        return None
-    return _f(prices.get(mint))
-
-
-def _sol_pool_address(mint: str, raw: dict | None) -> str | None:
-    """Deepest SOL pool whose base token is this mint. That is the chart pair."""
-    if not isinstance(raw, dict):
-        return None
-    best_id = None
-    best_reserve = -1.0
-    for row in raw.get("data") or []:
-        if not isinstance(row, dict):
-            continue
-        rel = row.get("relationships") or {}
-        base = ((rel.get("base_token") or {}).get("data") or {}).get("id") or ""
-        quote = ((rel.get("quote_token") or {}).get("data") or {}).get("id") or ""
-        if not str(base).endswith(mint):
-            continue
-        if SOL_MINT not in str(quote):
-            continue
-        attrs = row.get("attributes") or {}
-        try:
-            reserve = float(attrs.get("reserve_in_usd") or 0)
-        except (TypeError, ValueError):
-            reserve = 0.0
-        if reserve >= best_reserve:
-            best_reserve = reserve
-            pool_id = str(row.get("id") or "")
-            best_id = pool_id.split("_", 1)[-1] if pool_id else None
-    return best_id or None
-
-
-def _cached_pool(mint: str) -> str | None:
-    hit = _pool_cache.get(mint)
-    if hit and time.time() - hit[0] < _POOL_TTL_S:
-        return hit[1]
-    return None
-
-
-def _trade_price(raw: dict | None, mint: str) -> tuple[float | None, str | None]:
-    """Latest trade's USD price for mint, plus its block time."""
-    if not isinstance(raw, dict):
-        return None, None
-    for row in raw.get("data") or []:
-        if not isinstance(row, dict):
-            continue
-        attrs = row.get("attributes") or {}
-        if attrs.get("from_token_address") == mint:
-            px = _f(attrs.get("price_from_in_usd"))
-        elif attrs.get("to_token_address") == mint:
-            px = _f(attrs.get("price_to_in_usd"))
-        else:
-            continue
-        if px is not None and px > 0:
-            ts = attrs.get("block_timestamp")
-            return px, ts if isinstance(ts, str) else None
-    return None, None
-
-
-def _trade_is_fresh(ts: str | None, max_age_s: float = 8.0) -> bool:
-    parsed = _parse_utc(ts) if ts else None
-    if parsed is None:
-        return False
-    age = (datetime.now(timezone.utc) - parsed).total_seconds()
-    return  -5 <= age <= max_age_s
-
-
 def _jupiter_price(mint: str) -> tuple[float | None, int | None, bool]:
-    """SOL→token quote, then Jupiter usdPrice. (price, block, rate_limited)."""
-    code, raw = _http_json(JUP_PRICE_URL.format(mint=SOL_MINT + "," + mint))
+    """Jupiter Price API mid in USD. One request. (price, block, rate_limited).
+
+    usdPrice is the pool mid. A one-way swap quote is not used: its price
+    impact and fees print 6–9% above Dexscreener.
+    """
+    code, raw = _http_json(JUP_PRICE_URL.format(mint=mint))
     if code == 429:
         return None, None, True
-    sol_px, _ = _parse_jup_price(raw, SOL_MINT)
     px, block = _parse_jup_price(raw, mint)
-    decimals = _jup_decimals(raw, mint)
-    qcode, qraw = _http_json(
-        JUP_QUOTE_URL.format(sol=SOL_MINT, mint=mint, amount=_JUP_QUOTE_LAMPORTS)
-    )
-    if qcode == 429 and (px is None or px <= 0):
-        return None, block, True
-    quoted = _price_from_jup_quote(qraw, sol_px, decimals) if qcode != 429 else None
-    if quoted is not None and quoted > 0:
-        return quoted, block, False
     if px is not None and px > 0:
         return px, block, False
-    return None, block, False
+    return None, block, code == 429
 
 
 def _pull_live_price(mint: str) -> tuple[float | None, str, int | None, bool]:
-    """Return (price, source, block_id, rate_limited).
-
-    Jupiter's SOL→token quote is the tick (it tracks the pool and moves
-    between polls). A fresh GeckoTerminal trade is the fallback, then
-    Gecko's simple price. DexScreener priceUsd is not read.
-    """
-    px, block, jup_limited = _jupiter_price(mint)
+    """Return (price, source, block_id, rate_limited). Jupiter only."""
+    px, block, limited = _jupiter_price(mint)
     if px is not None and px > 0:
         return px, "jup", block, False
-    pool = _cached_pool(mint)
-    limited = jup_limited
-    if not pool and not limited:
-        code, raw = _http_json(GECKO_POOLS_URL.format(mint=mint))
-        if code == 429:
-            limited = True
-        else:
-            pool = _sol_pool_address(mint, raw)
-            if pool:
-                _pool_cache[mint] = (time.time(), pool)
-    if pool and not limited:
-        tcode, traw = _http_json(GECKO_TRADES_URL.format(pool=pool))
-        if tcode == 429:
-            limited = True
-        else:
-            trade_px, trade_ts = _trade_price(traw, mint)
-            if trade_px is not None and trade_px > 0 and _trade_is_fresh(trade_ts):
-                return trade_px, "gecko", None, False
-    if limited:
-        gcode, graw = _http_json(GECKO_PRICE_URL.format(mint=mint))
-        if gcode != 429:
-            gpx = _parse_gecko_price(graw, mint)
-            if gpx is not None and gpx > 0:
-                return gpx, "gecko", None, False
-        return None, "", None, True
-    gcode, graw = _http_json(GECKO_PRICE_URL.format(mint=mint))
-    if gcode == 429:
-        return None, "", None, True
-    gpx = _parse_gecko_price(graw, mint)
-    if gpx is not None and gpx > 0:
-        return gpx, "gecko", None, False
-    return None, "", None, False
+    return None, "", block, limited
 
 
 def _decorate_live(payload: dict, fetched_at: float, now: float) -> dict:
@@ -761,16 +621,72 @@ def _decorate_live(payload: dict, fetched_at: float, now: float) -> dict:
     return out
 
 
+def tick_is_stale(age, sla: float | None = None) -> bool:
+    """True exactly when age > quote SLA. A missing age is not that comparison."""
+    limit = QUOTE_FRESH_SLA_S if sla is None else sla
+    try:
+        age_f = float(age)
+        limit_f = float(limit)
+    except (TypeError, ValueError):
+        return False
+    return age_f > limit_f
+
+
 def fillable_tick(tick: dict | None) -> bool:
     """True when this tick may be a buy, sell, or stop fill."""
     if not isinstance(tick, dict) or not tick.get("quote_live"):
         return False
     px = _f(tick.get("price_usd"))
     age = _f(tick.get("quote_age_s"))
+    if tick_is_stale(age):
+        return False
     return px is not None and px > 0 and age is not None and age <= QUOTE_FRESH_SLA_S
 
 
-def fetch_live_tick(mint: str, bypass_cache: bool = False) -> dict | None:
+def set_qa_walk_sid(sid: str | None) -> None:
+    """Bind the QA price walk to this request. None clears it."""
+    _qa_sid.set(sid or None)
+
+
+def qa_walk_armed(sid: str | None) -> bool:
+    if not sid:
+        return False
+    with _qa_walk_guard:
+        return sid in _qa_walks
+
+
+def _qa_overlay(sid: str | None, tick: dict | None) -> dict | None:
+    """Copy of tick, walked down for this QA session. The shared cache is not written."""
+    if not sid or not isinstance(tick, dict):
+        return tick
+    px = _f(tick.get("price_usd"))
+    mint = str(tick.get("mint") or "")
+    if px is None or px <= 0 or not mint:
+        return tick
+    now = time.time()
+    with _qa_walk_guard:
+        book = _qa_walks.setdefault(sid, {})
+        row = book.get(mint)
+        if row is None:
+            row = {"t0": now, "px0": px}
+            book[mint] = row
+        t0 = float(row["t0"])
+        px0 = float(row["px0"])
+    if px0 <= 0:
+        return tick
+    frac = min(1.0, max(0.0, (now - t0) / QA_WALK_SPAN_S))
+    walked = px0 * (1.0 - QA_WALK_DROP * frac)
+    out = dict(tick)
+    out["price_usd"] = walked
+    out["source"] = "qa_tick"
+    out["qa_tick"] = "down"
+    out["qa_walk_drop"] = round(1.0 - (walked / px0), 6)
+    out["price_ts"] = _utc()
+    out["quoted_at"] = out["price_ts"]
+    return out
+
+
+def fetch_live_tick(mint: str, bypass_cache: bool = False, qa_sid: str | None = None) -> dict | None:
     """Fresh USD price for one mint.
 
     Cache hits younger than LIVE_TICK_TTL_S do not call upstream. A 429 or a
@@ -785,15 +701,15 @@ def fetch_live_tick(mint: str, bypass_cache: bool = False) -> dict | None:
         hit = _live_cache.get(mint)
         if now < _live_backoff_until.get(mint, 0):
             if hit:
-                return _decorate_live(hit[1], hit[0], now)
+                return _qa_overlay(qa_sid or _qa_sid.get(), _decorate_live(hit[1], hit[0], now))
             return None
         if not bypass_cache and hit and now - hit[0] < LIVE_TICK_TTL_S:
-            return _decorate_live(hit[1], hit[0], now)
+            return _qa_overlay(qa_sid or _qa_sid.get(), _decorate_live(hit[1], hit[0], now))
         px, source, block, limited = _pull_live_price(mint)
         if px is None or px <= 0:
             _arm_live_backoff(mint, now)
             if hit:
-                return _decorate_live(hit[1], hit[0], now)
+                return _qa_overlay(qa_sid or _qa_sid.get(), _decorate_live(hit[1], hit[0], now))
             return None
         _clear_live_backoff(mint)
         payload = {
@@ -805,7 +721,8 @@ def fetch_live_tick(mint: str, bypass_cache: bool = False) -> dict | None:
             "rate_limited": limited,
         }
         _live_cache[mint] = (now, payload)
-        return _decorate_live(payload, now, now)
+        fresh = _decorate_live(payload, now, now)
+        return _qa_overlay(qa_sid or _qa_sid.get(), fresh)
 
 
 def _apply_live_tick(quote: dict, tick: dict) -> dict:
@@ -1531,8 +1448,9 @@ def tick_session(st: dict | None = None) -> dict:
 
         mints = list({p.get("mint") for p in (st.get("positions") or []) if p.get("mint")})
         ticks: dict[str, dict] = {}
+        qa_sid = _qa_sid.get()
         if mints:
-            futs = {_fetch_pool.submit(fetch_live_tick, m): m for m in mints}
+            futs = {_fetch_pool.submit(fetch_live_tick, m, False, qa_sid): m for m in mints}
             try:
                 for fut in as_completed(futs, timeout=max(4.0, _LIVE_TIMEOUT + 1)):
                     m = futs[fut]
