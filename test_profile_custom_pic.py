@@ -124,7 +124,7 @@ class ProfileCustomPicTests(unittest.TestCase):
     def test_health_is_v80_with_profile_custom_pic(self):
         data = server.app.test_client().get("/api/health").get_json()
         self.assertTrue(data["ok"])
-        self.assertEqual(data["panel_v"], 87)
+        self.assertEqual(data["panel_v"], 88)
         self.assertIn("profile_custom_pic", data["features"])
         self.assertIn("filter_smart", data["features"])
         self.assertIn("game_follow_tab", data["features"])
@@ -140,7 +140,7 @@ class ProfileCustomPicTests(unittest.TestCase):
 class ProfileCustomPicPanelTests(unittest.TestCase):
     def test_edit_profile_offers_file_picker_preview_and_presets(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
-        self.assertIn("const PANEL_V = 87", html)
+        self.assertIn("const PANEL_V = 88", html)
         self.assertIn("data-panel-v", html)
         self.assertIn("paintPanelVersion", html)
         self.assertIn("paintPanelVersion", html)

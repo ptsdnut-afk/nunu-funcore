@@ -26,9 +26,15 @@ then often pushes nothing. ``wss://solana-rpc.publicnode.com`` does push.
 When ``HELIUS_API_KEY`` is set, the same subscribe runs on Helius.
 
 Jupiter is the fallback when no trade and no decoded mid have landed within
-5 seconds (``source=jupiter_fallback``). For pump coins the 3% outlier check
-is against the decoded pool mid, not Jupiter. A PumpSwap mid more than 2%
-from Jupiter wins. The socket runs on a daemon thread.
+5 seconds (``source=jupiter_fallback``). Pump swap prices are the post-swap
+pool reserves (Buy and Sell events use the same offsets) plus the pool's
+virtual quote, scaled by mint decimals, times the SOL price. That spot is
+what Dexscreener prints. The execution price (quote spent / base received)
+includes the fee and the trade's own slippage and is not the mark. A move
+through 15% publishes. One print beyond 15% is held until the other source,
+or the next paired vault read, agrees. It is not a stop or a take-profit
+until then. A PumpSwap mid more than 2% from Jupiter wins. The socket runs
+on a daemon thread.
 """
 
 from __future__ import annotations
@@ -47,7 +53,9 @@ from urllib.request import Request, urlopen
 # decoded mid for more than this many seconds, which is when the tick falls
 # back to Jupiter.
 STREAM_SILENCE_S = 5.0
-STREAM_OUTLIER = 0.03  # reject when abs(swap - anchor) / anchor is more than this
+STREAM_OUTLIER = 0.03  # kept for callers that still name the old band
+SPIKE_MOVE = 0.15  # one print beyond this waits for a second read
+SPIKE_AGREE = 0.03  # the confirming read must land within this of the held print
 MID_OVER_JUPITER = 0.02  # PumpSwap mid wins when it disagrees with Jupiter by more than this
 MAX_SUBS = 48
 WATCH_TTL_S = 60.0
@@ -113,7 +121,11 @@ _jupiter: dict[str, tuple[float, float]] = {}
 _mids: dict[str, tuple[float, float]] = {}
 _decimals: dict[str, int] = {SOL_MINT: 9, USDC_MINT: 6, USDT_MINT: 6}
 _rejects: list[dict] = []
+_spike_rejects: list[dict] = []
+_pending_spikes: dict[str, dict] = {}
+_native: dict[str, float] = {}
 _pools: dict[str, dict] = {}
+_pair_seq = 0
 _thread: threading.Thread | None = None
 _vault_thread: threading.Thread | None = None
 _stop = threading.Event()
@@ -317,6 +329,12 @@ def recent_rejects() -> list[dict]:
         return list(_rejects)
 
 
+def recent_spikes() -> list[dict]:
+    """Spikes held back from the tick cache. /api/health prints this list."""
+    with _guard:
+        return list(_spike_rejects)
+
+
 def reset_for_tests() -> None:
     with _guard:
         _views.clear()
@@ -328,6 +346,9 @@ def reset_for_tests() -> None:
         _decimals.clear()
         _decimals.update({SOL_MINT: 9, USDC_MINT: 6, USDT_MINT: 6})
         _rejects.clear()
+        _spike_rejects.clear()
+        _pending_spikes.clear()
+        _native.clear()
         _pools.clear()
         _no_pool.clear()
         _ws.update({
@@ -361,6 +382,59 @@ def _remember_reject(row: dict) -> None:
             del _rejects[:-50]
 
 
+def _remember_spike(row: dict) -> None:
+    print(
+        "[trade-stream] spike {source} mint={mint} px={px} baseline={baseline} move={move}".format(
+            source=row.get("source"),
+            mint=row.get("mint"),
+            px=row.get("px"),
+            baseline=row.get("baseline"),
+            move=row.get("move"),
+        ),
+        flush=True,
+    )
+    with _guard:
+        _spike_rejects.append(row)
+        if len(_spike_rejects) > 50:
+            del _spike_rejects[:-50]
+
+
+def _spike_confirmed(mint: str, px: float, source: str, baseline: float) -> bool:
+    """A >15% print publishes only after the other source, or the next vault read, agrees."""
+    with _guard:
+        pend = _pending_spikes.get(mint)
+        if not pend:
+            _pending_spikes[mint] = {"px": px, "source": source, "baseline": baseline}
+            return False
+        same_dir = (px - baseline) * (float(pend["px"]) - float(pend["baseline"])) > 0
+        held = float(pend["px"])
+        close = held > 0 and abs(px - held) / held <= SPIKE_AGREE
+        other = str(pend.get("source") or "") != source
+        next_vault = source == "pool_vault" and pend.get("source") == "pool_vault"
+        if same_dir and close and (other or next_vault):
+            _pending_spikes.pop(mint, None)
+            return True
+        _pending_spikes[mint] = {"px": px, "source": source, "baseline": baseline}
+        return False
+
+
+def _driver_for(mint: str, px: float, sol: float | None) -> str:
+    """sol_usd when the reserve ratio is unchanged and only the SOL price moved."""
+    native = None
+    try:
+        if sol and float(sol) > 0 and px > 0:
+            native = px / float(sol)
+    except (TypeError, ValueError):
+        native = None
+    with _guard:
+        prev = _native.get(mint)
+        if native is not None:
+            _native[mint] = native
+    if native is not None and prev is not None and prev > 0 and abs(native - prev) / prev < 1e-9:
+        return "sol_usd"
+    return "swap"
+
+
 def ingest_swap(
     mint: str,
     price_usd: float,
@@ -371,10 +445,13 @@ def ingest_swap(
     slot: int | None = None,
     seed_ok: bool = False,
     source: str = "pool_swap",
+    sol: float | None = None,
 ) -> str:
     """Publish one real swap or pool mid into the shared tick cache.
 
-    Returns ok, same, outlier, no-anchor, or bad. Outliers are not published.
+    Returns ok, same, spike, no-anchor, or bad. A move through 15% is a real
+    pump trade and is published. One print beyond 15% stays out of the cache
+    until a second read confirms it, so a stop or TP cannot fill on it.
     ``seed_ok`` accepts the first pump print when no decoded mid exists yet,
     so a wrong Jupiter quote cannot block it.
     """
@@ -390,22 +467,36 @@ def ingest_swap(
     anchor_px = anchor
     if anchor_px is None:
         anchor_px = anchor_price(mint)
+    seeded = False
     if anchor_px is None or anchor_px <= 0:
         if not seed_ok:
             _remember_reject({"kind": "no-anchor", "mint": mint, "swap": px, "anchor": None, "gap": None})
             return "no-anchor"
         note_anchor(mint, px, force=True)
         anchor_px = px
-    gap = abs(px - float(anchor_px)) / float(anchor_px)
-    if gap > STREAM_OUTLIER:
-        _remember_reject({
-            "kind": "outlier",
-            "mint": mint,
-            "swap": px,
-            "anchor": float(anchor_px),
-            "gap": round(gap, 6),
-        })
-        return "outlier"
+        seeded = True
+    with _guard:
+        baseline = _last_px.get(mint)
+    if not baseline or baseline <= 0:
+        baseline = None if seeded else float(anchor_px)
+    move = 0.0
+    if baseline and baseline > 0:
+        move = abs(px - float(baseline)) / float(baseline)
+    if move > SPIKE_MOVE:
+        if not _spike_confirmed(mint, px, source, float(baseline)):
+            _remember_spike({
+                "kind": "spike",
+                "mint": mint,
+                "px": px,
+                "baseline": float(baseline),
+                "move": round(move, 6),
+                "source": source,
+                "at": _iso_ms(time.time()),
+            })
+            return "spike"
+    else:
+        with _guard:
+            _pending_spikes.pop(mint, None)
     now = time.time()
     epoch = now if trade_epoch is None else float(trade_epoch)
     with _guard:
@@ -420,6 +511,7 @@ def ingest_swap(
         "fetched_at": _iso_ms(now),
         "source": public_src(source),
         "src": public_src(source),
+        "driver": _driver_for(mint, px, sol),
         "signature": signature or "",
         "slot": slot,
     }
@@ -577,7 +669,12 @@ def pump_trade_reserves(raw: bytes) -> tuple[str, int, int] | None:
 
 
 def price_from_program_logs(logs: list, pool: dict, sol_usd: float) -> float | None:
-    """Per-trade USD from Program data lines. Ignores every other log line."""
+    """Per-trade USD from Program data lines. Ignores every other log line.
+
+    BuyEvent and SellEvent both store post-swap pool reserves at the same
+    offsets. The mark is that spot plus virtual quote, not the execution
+    price, so the fee and the trade's own slippage stay out of the print.
+    """
     if not isinstance(logs, list) or not pool or not sol_usd or sol_usd <= 0:
         return None
     kind = pool.get("kind")
@@ -744,6 +841,7 @@ def stream_health() -> dict:
             "watched": [],
             "watch_ttl_s": WATCH_TTL_S,
             "why": _ws.get("why") or "not started",
+            "spike_rejects": list(_spike_rejects),
         }
     snap["watched"] = watched_mints()
     return snap
@@ -808,7 +906,7 @@ def cold_vault_price(mint: str) -> bool:
         px = pump_curve_swap_usd(raw, sol)
     if px is None or px <= 0:
         return False
-    _publish(mint, px, compare_mid=False, source="pool_swap")
+    _publish(mint, px, compare_mid=False, source="pool_swap", sol=sol)
     return True
 
 
@@ -879,7 +977,7 @@ def _refresh_account_mids(http: str, mints: list[str]) -> None:
         else:
             px = pump_curve_swap_usd(raw, sol)
         if px and px > 0:
-            _publish(mint, px, compare_mid=False, source="pool_swap")
+            _publish(mint, px, compare_mid=False, source="pool_swap", sol=sol)
 
 
 def _run() -> None:
@@ -1093,7 +1191,7 @@ def _on_account(msg: dict, meta: dict[int, dict]) -> None:
         compare_mid = True
     if px is None or px <= 0:
         return
-    _publish(mint, px, compare_mid=compare_mid, slot=slot)
+    _publish(mint, px, compare_mid=compare_mid, slot=slot, sol=sol)
 
 
 def _on_logs(msg: dict, meta: dict[int, dict]) -> None:
@@ -1118,7 +1216,7 @@ def _on_logs(msg: dict, meta: dict[int, dict]) -> None:
     if px is None or px <= 0:
         return
     sig = str(value.get("signature") or "")
-    _publish(mint, px, compare_mid=True, slot=_slot_of(result), signature=sig)
+    _publish(mint, px, compare_mid=True, slot=_slot_of(result), signature=sig, sol=sol)
 
 
 def _slot_of(result: dict) -> int | None:
@@ -1137,18 +1235,23 @@ def _publish(
     slot: int | None = None,
     signature: str = "",
     source: str = "pool_swap",
+    sol: float | None = None,
 ) -> str:
-    """Vault mids set the anchor. Swap events are checked against it."""
-    if compare_mid:
-        had = mid_price(mint, max_age=120.0)
-        status = ingest_swap(
-            mint, px, anchor=had, seed_ok=True, slot=slot, signature=signature, source=source,
-        )
-        if status in ("ok", "same") and had is None:
-            note_mid(mint, px)
-        return status
-    note_mid(mint, px)
-    return ingest_swap(mint, px, anchor=px, slot=slot, signature=signature, source=source)
+    """Publish against the previous mid. A spike does not move that mid."""
+    had = mid_price(mint, max_age=120.0)
+    status = ingest_swap(
+        mint,
+        px,
+        anchor=had,
+        seed_ok=True,
+        slot=slot,
+        signature=signature,
+        source=source,
+        sol=sol,
+    )
+    if status in ("ok", "same"):
+        note_mid(mint, px)
+    return status
 
 
 def _apply_vault_amount(pool: dict, vault: str, amount: int, sol: float, slot: int | None) -> None:
@@ -1161,14 +1264,20 @@ def _apply_vault_amount(pool: dict, vault: str, amount: int, sol: float, slot: i
             return
         if vault == live.get("base_vault"):
             live["base_raw"] = int(amount)
+            live["base_slot"] = slot
         elif vault == live.get("quote_vault"):
             live["quote_raw"] = int(amount)
+            live["quote_slot"] = slot
         else:
             return
         base_raw = live.get("base_raw")
         quote_raw = live.get("quote_raw")
+        paired = live.get("base_slot") is not None and live.get("base_slot") == live.get("quote_slot")
         snap = dict(live)
-    if base_raw is None or quote_raw is None:
+    # One vault notification is mid-trade. Wait until both sides share a slot,
+    # or until the paired HTTP read replaces them. A hot coin's one-sided
+    # update is several percent off Dex; a thin coin's is not.
+    if base_raw is None or quote_raw is None or not paired:
         return
     px = pumpswap_mid_usd(
         int(base_raw),
@@ -1182,7 +1291,7 @@ def _apply_vault_amount(pool: dict, vault: str, amount: int, sol: float, slot: i
         int(snap.get("virtual_quote") or 0),
     )
     if px and px > 0:
-        _publish(mint, px, compare_mid=False, slot=slot, source="pool_vault")
+        _publish(mint, px, compare_mid=False, slot=slot, source="pool_vault", sol=sol)
 
 
 def _pool_for(mint: str, http: str) -> dict | None:
@@ -1320,6 +1429,7 @@ def _refresh_pump_mids(http: str) -> None:
 
 
 def _read_vault_mid(http: str, pool: dict) -> float | None:
+    global _pair_seq
     base_vault = str(pool.get("base_vault") or "")
     quote_vault = str(pool.get("quote_vault") or "")
     if not base_vault or not quote_vault:
@@ -1348,10 +1458,13 @@ def _read_vault_mid(http: str, pool: dict) -> float | None:
     with _guard:
         live = _pools.get(mint)
         if live:
+            _pair_seq -= 1
             live["base_raw"] = base_raw
             live["quote_raw"] = quote_raw
             live["base_dec"] = base_dec
             live["quote_dec"] = quote_dec
+            live["base_slot"] = _pair_seq
+            live["quote_slot"] = _pair_seq
             _decimals[str(live.get("base_mint") or "")] = base_dec
             _decimals[str(live.get("quote_mint") or "")] = quote_dec
             snap = dict(live)
@@ -1374,7 +1487,7 @@ def _read_vault_mid(http: str, pool: dict) -> float | None:
         int(snap.get("virtual_quote") or 0),
     )
     if px and px > 0:
-        _publish(mint, px, compare_mid=False, source="pool_vault")
+        _publish(mint, px, compare_mid=False, source="pool_vault", sol=sol)
     return px
 
 
