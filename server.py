@@ -267,6 +267,19 @@ def api_health():
                 "Narrow widths keep that chip and Token Flow in frame. "
                 "A rejected profile file cannot flip the avatar to Star."
             ),
+            "game_receipts": (
+                "A paper buy stores a receipt in game_state.json: last 60 prices plus the fill, "
+                "entry in USD and SOL, size, ET time, quote age from that fill, stop and take-profit, "
+                "and the filter verdict (SKIP, PLAY, GOLD, or unknown). The picture is drawn in the "
+                "browser. Partial sells add a row each and the receipt closes at a zero remaining size. "
+                "Receipts stay across a server restart and a 24h reset. SKIP is still a paper buy after "
+                "a second confirm. The post-game review cites this run's receipts."
+            ),
+            "qa_receipt": (
+                "Page ?qa_receipt=1 opens a sample receipt in this browser only so the chart, "
+                "entry dot, STALE age, and Save/Copy controls can be seen. It does not place a trade "
+                "or change the server."
+            ),
             "live_tick": (
                 "Game price and the rocket chart share one Jupiter Price API mid (usdPrice). "
                 "No swap quote and no GeckoTerminal fallback. DexScreener priceUsd is not the fill. "
@@ -288,7 +301,7 @@ def api_health():
                 "Absent the query, ticks behave normally."
             ),
             "live_tick_ttl_s": game_mod.LIVE_TICK_TTL_S,
-            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture", "game_ai_review", "gold_scar", "game_follow_tab", "filter_smart", "profile_custom_pic", "final_polish", "live_tick"],
+            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture", "game_ai_review", "gold_scar", "game_follow_tab", "filter_smart", "profile_custom_pic", "final_polish", "live_tick", "game_receipts"],
             "sitting_drop_min": 5.0,
             "sitting_aged_min": 180.0,
             "sitting_keep": True,
@@ -731,7 +744,14 @@ def api_game_buy():
     sl = body.get("sl_pct", body.get("stop_loss_pct"))
     tp = body.get("tp_pct", body.get("take_profit_pct"))
     rid = body.get("client_request_id") or body.get("request_id")
-    result = game_mod.buy(mint, stake, sl_pct=sl, tp_pct=tp, client_request_id=rid)
+    result = game_mod.buy(
+        mint,
+        stake,
+        sl_pct=sl,
+        tp_pct=tp,
+        client_request_id=rid,
+        points=body.get("points"),
+    )
     code = 200 if result.get("ok") else 400
     if result.get("state") is not None:
         result["state"] = game_mod.public_state(result.get("state"))
@@ -749,7 +769,13 @@ def api_game_sell():
     pid = (body.get("position_id") or body.get("id") or "").strip()
     if not pid:
         return jsonify({"ok": False, "error": "position_id required", "sound": "fail"}), 400
-    result = game_mod.sell(pid)
+    fraction = body.get("fraction")
+    if fraction is None and body.get("pct") is not None:
+        try:
+            fraction = float(body.get("pct")) / 100.0
+        except (TypeError, ValueError):
+            fraction = None
+    result = game_mod.sell(pid, fraction=fraction)
     code = 200 if result.get("ok") else 400
     result["state"] = game_mod.public_state(result.get("state"))
     return jsonify(result), code

@@ -928,6 +928,50 @@
     @media (max-width: 800px) {
       .review-sheet { position: relative; top: auto; right: auto; width: auto; margin: 0 0 10px; }
     }
+    .skip-warn {
+      display: flex; gap: 8px; align-items: baseline; margin: 0 0 8px;
+      padding: 8px 10px; border: 1px solid #6a2a32; background: #2a1216;
+      color: #ffc9ce; border-radius: 10px; font-size: 0.82rem;
+    }
+    .skip-warn[hidden] { display: none !important; }
+    .skip-warn b { color: var(--bad); letter-spacing: .06em; }
+    .receipt-sheet {
+      position: relative; z-index: 9; margin: 0 0 12px;
+      background: #12151c; border: 1px solid #3a4a6a; border-radius: 14px;
+      padding: 14px 36px 12px 14px;
+    }
+    .receipt-sheet[hidden] { display: none !important; }
+    .receipt-sheet .dismiss-x { position: absolute; top: 10px; right: 10px; }
+    .receipt-kicker {
+      font-size: 0.62rem; font-weight: 800; letter-spacing: .08em;
+      text-transform: uppercase; color: var(--muted); margin: 0 0 4px;
+    }
+    .receipt-sheet h3 { margin: 0 0 8px; font-size: 1.02rem; }
+    .receipt-chart {
+      display: block; width: 100%; height: auto; background: #0e1218;
+      border: 1px solid #2a3344; border-radius: 8px; margin: 0 0 8px;
+    }
+    .receipt-fields {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 6px 12px; margin: 0 0 8px;
+    }
+    .receipt-field { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .receipt-field span { font-size: 0.62rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+    .receipt-field b { font-size: 0.84rem; font-weight: 750; word-break: break-word; }
+    .receipt-age.is-stale, .receipt-age.is-stale .stale-flag, .stale-flag, .receipt-stale { color: var(--amber); }
+    .receipt-sell {
+      display: flex; flex-wrap: wrap; gap: 8px 12px; font-size: 0.78rem;
+      padding: 6px 0; border-top: 1px solid #2a2a2a;
+    }
+    .receipt-remain, .receipt-empty { margin: 6px 0; font-size: 0.78rem; color: var(--muted); }
+    .receipt-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .hist-tabs { display: flex; gap: 14px; align-items: center; }
+    .hist-tabs button {
+      background: transparent; border: 0; color: var(--muted); cursor: pointer;
+      font: inherit; font-weight: 800; padding: 0;
+    }
+    .hist-tabs button[aria-selected="true"] { color: var(--text); }
+    .receipt-row { width: 100%; text-align: left; cursor: pointer; color: inherit; }
     #gTradeBody[data-state="error"] .err { margin: 8px 0; }
     .quote-card, .pos-card, .score-row {
       background: var(--panel2); border: 1px solid var(--border);
@@ -2871,6 +2915,18 @@
           <button type="button" class="gbtn" id="gReviewDismiss">Dismiss</button>
         </div>
       </div>
+      <div id="gReceiptSheet" class="receipt-sheet" hidden data-feature="game_receipts" data-status="" data-verdict="" role="dialog" aria-modal="false" aria-labelledby="gReceiptTitle">
+        <button type="button" class="dismiss-x" id="gReceiptClose" aria-label="Close receipt" title="Close receipt">✕</button>
+        <div class="receipt-kicker">Buy receipt · paper · where you bought</div>
+        <h3 id="gReceiptTitle">Receipt</h3>
+        <canvas id="gReceiptChart" class="receipt-chart" width="640" height="180" aria-label="Frozen entry chart"></canvas>
+        <div id="gReceiptFields" class="receipt-fields"></div>
+        <div id="gReceiptSells"></div>
+        <div class="receipt-actions">
+          <button type="button" class="gbtn" id="gReceiptSave">Save image</button>
+          <button type="button" class="gbtn" id="gReceiptCopy">Copy text</button>
+        </div>
+      </div>
       <section class="rocket-live" id="gRocket" data-mood="idle" data-skin="nebula" data-stage="demo" data-sfx="off" data-stage-hook="chart-v1" data-sfx-hook="casino-cues" data-feature="live_tick" aria-label="Rocket">
         <div class="rocket-head">
           <span class="state" id="gRocketState">Idle / flat</span>
@@ -3007,6 +3063,10 @@
         <button type="button" class="gbtn buy" id="gBuy">▲ BUY</button>
         <button type="button" class="gbtn sell" id="gSellAll" title="Sell every open position">▼ SELL ALL</button>
       </div>
+      <div id="gSkipWarn" class="skip-warn" hidden role="alert" data-feature="game_receipts" data-verdict="">
+        <b>SKIP</b>
+        <span>Filter says skip. Paper only — not a call. Tap Buy again to confirm.</span>
+      </div>
       <div class="game-status-row">
         <div class="game-status" id="gLine">Loading game…</div>
         <span id="gSoundChip" class="sound-chip" data-sound="" data-audio="idle" hidden>Sound</span>
@@ -3025,8 +3085,12 @@
             <p class="unit-legend">MCAP is market cap. Stake, mark, and P&amp;L are paper position dollars. Entry, last, and live USD are the token price.</p>
             <div class="sec-label">Open positions</div>
             <div id="gPositions"><div class="empty">Loading game…</div></div>
-            <div class="sec-label">Closed this run · paper $</div>
+            <div class="sec-label hist-tabs" data-feature="game_receipts">
+              <button type="button" id="gHistClosed" data-hist="closed" aria-selected="true">Closed this run</button>
+              <button type="button" id="gHistReceipts" data-hist="receipts" aria-selected="false">Receipts</button>
+            </div>
             <div id="gClosed"><div class="empty">Loading closed trades…</div></div>
+            <div id="gReceipts" hidden><div class="empty">No buy receipts yet</div></div>
           </div>
         </section>
         <div class="game-side-col">
@@ -5834,6 +5898,10 @@
         el.disabled = lock;
         el.textContent = tradeButtonLabel("sell", stale);
       });
+      document.querySelectorAll(".g-sell-half").forEach((el) => {
+        el.disabled = lock;
+        el.textContent = stale ? tradeButtonLabel("sell", true) : "Sell half";
+      });
     }
 
     function setGameBusy(busy) {
@@ -6018,6 +6086,132 @@
       return "Start a run (or just Buy — auto-starts)";
     }
     /* ship-w-pure-end */
+
+    /* ship-z-pure-start */
+    function coinVerdict(row) {
+      if (!row || typeof row !== "object") return "unknown";
+      if (row.gold_scar && row.gold_scar.gold === true) return "GOLD";
+      let s12 = null;
+      if (row.score_12 != null && row.score_12 !== "") s12 = Number(row.score_12);
+      else if (row.score != null && row.score !== "") s12 = Math.round((Number(row.score) / 100) * 12 * 10) / 10;
+      if (s12 == null || !Number.isFinite(s12)) return "unknown";
+      if (row.trench_band === false || s12 < 10) return "SKIP";
+      return "PLAY";
+    }
+
+    function skipBuyDecision(verdict, confirmed) {
+      const v = String(verdict || "unknown");
+      if (v !== "SKIP") return { warn: false, proceed: true, needConfirm: false, verdict: v };
+      if (confirmed) return { warn: true, proceed: true, needConfirm: false, verdict: "SKIP" };
+      return { warn: true, proceed: false, needConfirm: true, verdict: "SKIP" };
+    }
+
+    function receiptIsStale(ageS) {
+      const n = Number(ageS);
+      return Number.isFinite(n) && n > 5;
+    }
+
+    function receiptNum(n) {
+      if (n == null || n === "") return "—";
+      const x = Number(n);
+      if (!Number.isFinite(x)) return "—";
+      const abs = Math.abs(x);
+      if (abs !== 0 && (abs < 0.0001 || abs >= 1e7)) {
+        return x.toFixed(12).replace(/0+$/, "").replace(/\.$/, "");
+      }
+      const text = String(x);
+      if (text.indexOf("e") === -1 && text.indexOf("E") === -1) return text;
+      return x.toFixed(12).replace(/0+$/, "").replace(/\.$/, "");
+    }
+
+    function receiptCopyText(receipt) {
+      const r = receipt || {};
+      const age = Number(r.quote_age_s);
+      const ageKnown = Number.isFinite(age);
+      const stale = ageKnown && age > 5;
+      const lines = [
+        "Nunu paper receipt",
+        "Symbol: " + (r.symbol || "?"),
+        "Entry USD: " + receiptNum(r.entry_price_usd),
+        "Entry SOL: " + receiptNum(r.entry_price_sol),
+        "Size: " + receiptNum(r.size_usd),
+        "Remaining: " + receiptNum(r.remaining_usd),
+        "Time ET: " + (r.time_et || "—"),
+        "Quote age: " + (ageKnown ? (age + "s") : "—") + (stale ? " STALE" : ""),
+        "Stop: " + (r.stop_price_usd != null ? receiptNum(r.stop_price_usd) : (r.sl_pct != null ? (r.sl_pct + "%") : "—")),
+        "Take profit: " + (r.tp_price_usd != null ? receiptNum(r.tp_price_usd) : (r.tp_pct != null ? (r.tp_pct + "%") : "—")),
+        "Verdict: " + (r.verdict || "unknown"),
+        "Status: " + (r.status || "open"),
+      ];
+      (r.sells || []).forEach((s, i) => {
+        s = s || {};
+        lines.push(
+          "Sell " + (i + 1) + ": size " + receiptNum(s.size_usd) +
+          " exit " + receiptNum(s.exit_price_usd) +
+          " P/L " + receiptNum(s.pnl_usd) +
+          " held " + (s.held || (s.held_s != null ? (s.held_s + "s") : "—")) +
+          " reason " + (s.exit_reason || s.reason || "—")
+        );
+      });
+      return lines.join("\n");
+    }
+
+    function receiptChartGeometry(receipt, width, height) {
+      const w = width || 640;
+      const h = height || 180;
+      const padL = 12;
+      const padR = 12;
+      const padT = 16;
+      const padB = 16;
+      const nums = [];
+      ((receipt && receipt.points) || []).forEach((item) => {
+        const n = typeof item === "number" ? item : Number(item && (item.p != null ? item.p : item.price));
+        if (n > 0 && Number.isFinite(n)) nums.push(n);
+      });
+      const fillRaw = receipt && receipt.fill_point;
+      let fill = typeof fillRaw === "number" ? fillRaw : Number(fillRaw && (fillRaw.p != null ? fillRaw.p : fillRaw.price));
+      if (!(fill > 0)) fill = Number(receipt && receipt.entry_price_usd);
+      const series = nums.slice();
+      if (fill > 0) series.push(fill);
+      const stop = Number(receipt && receipt.stop_price_usd);
+      const tp = Number(receipt && receipt.tp_price_usd);
+      const scale = series.slice();
+      if (stop > 0) scale.push(stop);
+      if (tp > 0) scale.push(tp);
+      if (!series.length) return { width: w, height: h, line: [], entry: null, stop: null, tp: null };
+      let lo = scale[0];
+      let hi = scale[0];
+      scale.forEach((n) => {
+        if (n < lo) lo = n;
+        if (n > hi) hi = n;
+      });
+      const span = hi - lo;
+      const pad = span > 0 ? span * 0.12 : (hi * 0.02 || 1);
+      lo -= pad;
+      hi += pad;
+      const heightPx = hi - lo || 1;
+      const innerW = Math.max(1, w - padL - padR);
+      const innerH = Math.max(1, h - padT - padB);
+      const yOf = (n) => padT + (1 - (n - lo) / heightPx) * innerH;
+      const line = series.map((n, i) => {
+        const x = padL + (series.length === 1 ? innerW / 2 : (i / (series.length - 1)) * innerW);
+        return { x: x, y: yOf(n) };
+      });
+      return {
+        width: w,
+        height: h,
+        line: line,
+        entry: line[line.length - 1],
+        stop: stop > 0 ? yOf(stop) : null,
+        tp: tp > 0 ? yOf(tp) : null,
+      };
+    }
+
+    function receiptFileName(receipt) {
+      const sym = String((receipt && receipt.symbol) || "receipt").replace(/[^A-Za-z0-9._-]+/g, "");
+      return (sym || "receipt") + "-receipt.png";
+    }
+    /* ship-z-pure-end */
 
     // QA force-tick. DexScreener marks often sit inside TICK_EPS for minutes,
     // so a Game poll never crosses tick+ / nose-down. ?qa_tick=both|up|down
@@ -8008,6 +8202,7 @@
             (p.tp_pct != null ? '<div class="stat-cell"><span class="k">TP</span><span class="v">' + p.tp_pct + "%</span></div>" : "") +
             "</div>" +
             '<div class="actions"><button type="button" class="gbtn sell g-sell" data-id="' + esc(p.id) + '">Sell this</button>' +
+            ' <button type="button" class="gbtn sell g-sell-half" data-id="' + esc(p.id) + '" data-fraction="0.5">Sell half</button>' +
             (p.pair_url ? ' <a class="dex" href="' + esc(p.pair_url) + '" target="_blank" rel="noopener" style="font-size:0.78rem;color:var(--accent2)">DEX</a>' : "") +
             "</div></div>";
         }).join("");
@@ -8089,6 +8284,8 @@
       paintFollowTab();
       paintTradeLocks();
       paintEquityFreshness();
+      paintReceiptList(g);
+      paintReceiptSheet();
 
       // Keep quote-card live price ticking when a quote is on screen
       if (state.lastQuoteMint && status === "active") {
@@ -8780,6 +8977,291 @@
       return "b" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     }
 
+    function flaggedRowForBuy(mintOrName) {
+      const q = String(mintOrName || "").trim();
+      if (!q) return null;
+      if (looksLikeMint(q)) return rowForMint(q);
+      const rows = Array.isArray(state.flagged) ? state.flagged : [];
+      const low = q.toLowerCase();
+      const hits = rows.filter((r) => r && (
+        String(r.ticker || r.symbol || "").toLowerCase() === low ||
+        String(r.name || "").toLowerCase() === low ||
+        String(r.mint || "") === q
+      ));
+      return hits.length === 1 ? hits[0] : null;
+    }
+
+    function paintSkipWarn(decision) {
+      const el = document.getElementById("gSkipWarn");
+      if (!el) return;
+      const show = !!(decision && decision.warn && decision.verdict === "SKIP");
+      el.hidden = !show;
+      el.setAttribute("data-verdict", show ? "SKIP" : "");
+    }
+
+    function receiptFieldsHtml(r) {
+      r = r || {};
+      const ageN = Number(r.quote_age_s);
+      const stale = receiptIsStale(r.quote_age_s);
+      const ageTxt = Number.isFinite(ageN) ? (String(r.quote_age_s) + "s") : "—";
+      const cell = (key, label, value) =>
+        '<div class="receipt-field" data-field="' + key + '"><span>' + esc(label) + "</span><b>" + value + "</b></div>";
+      return cell("symbol", "Symbol", esc(r.symbol || "?")) +
+        cell("entry_usd", "Entry USD", esc(fmtPx(r.entry_price_usd))) +
+        cell("entry_sol", "Entry SOL", esc(r.entry_price_sol != null ? String(r.entry_price_sol) : "—")) +
+        cell("size", "Size", esc(fmtGameUsd(r.size_usd))) +
+        cell("remaining", "Remaining", esc(fmtGameUsd(r.remaining_usd))) +
+        cell("time_et", "Time ET", esc(r.time_et || "—")) +
+        '<div class="receipt-field" data-field="quote_age"><span>Quote age</span><b class="receipt-age' +
+        (stale ? " is-stale" : "") + '" data-stale="' + (stale ? "1" : "0") + '" data-age="' +
+        esc(r.quote_age_s != null ? String(r.quote_age_s) : "") + '">' + esc(ageTxt) +
+        (stale ? ' <span class="stale-flag">STALE</span>' : "") + "</b></div>" +
+        cell("stop", "Stop", esc(r.stop_price_usd != null ? fmtPx(r.stop_price_usd) : (r.sl_pct != null ? (r.sl_pct + "%") : "—"))) +
+        cell("tp", "Take profit", esc(r.tp_price_usd != null ? fmtPx(r.tp_price_usd) : (r.tp_pct != null ? (r.tp_pct + "%") : "—"))) +
+        cell("verdict", "Verdict", esc(r.verdict || "unknown")) +
+        cell("status", "Status", esc(r.status === "closed" ? "closed" : "open"));
+    }
+
+    function receiptSellsHtml(r) {
+      r = r || {};
+      const sells = Array.isArray(r.sells) ? r.sells : [];
+      const remain = '<p class="receipt-remain">Remaining ' + esc(fmtGameUsd(r.remaining_usd)) +
+        (r.status === "closed" ? " · closed" : " · open") + "</p>";
+      if (!sells.length) return '<p class="receipt-empty">No sells yet.</p>' + remain;
+      return sells.map((s, i) => {
+        const pnl = Number(s && s.pnl_usd);
+        const cls = Number.isFinite(pnl) && pnl >= 0 ? "chg-up" : "chg-dn";
+        return '<div class="receipt-sell" data-sell="' + i + '">' +
+          "<span>Sell " + (i + 1) + " · " + esc((s && (s.exit_reason || s.reason)) || "") + "</span>" +
+          "<span>size " + esc(fmtGameUsd(s && s.size_usd)) + "</span>" +
+          "<span>exit " + esc(fmtPx(s && s.exit_price_usd)) + "</span>" +
+          '<span class="' + cls + '">P/L ' + esc(fmtGameUsd(s && s.pnl_usd)) + "</span>" +
+          "<span>held " + esc((s && s.held) || "") + "</span></div>";
+      }).join("") + remain;
+    }
+
+    function receiptRowHtml(r) {
+      const sells = (r.sells || []).length;
+      const stale = receiptIsStale(r.quote_age_s);
+      return '<button type="button" class="score-row receipt-row" data-receipt="' + esc(r.id) + '"><span>' +
+        esc(r.symbol || "?") + " · " + esc(r.verdict || "unknown") + " · " + esc(r.status || "open") +
+        (sells ? (" · " + sells + (sells === 1 ? " sell" : " sells")) : "") +
+        (stale ? ' · <b class="receipt-stale">STALE</b>' : "") +
+        "</span><span>" + esc(r.time_et || "") + "</span></button>";
+    }
+
+    function paintHistoryTabs() {
+      const tab = state.histTab === "receipts" ? "receipts" : "closed";
+      const closedBtn = document.getElementById("gHistClosed");
+      const recBtn = document.getElementById("gHistReceipts");
+      const cbox = document.getElementById("gClosed");
+      const rbox = document.getElementById("gReceipts");
+      if (closedBtn) closedBtn.setAttribute("aria-selected", tab === "closed" ? "true" : "false");
+      if (recBtn) recBtn.setAttribute("aria-selected", tab === "receipts" ? "true" : "false");
+      if (cbox) cbox.hidden = tab !== "closed";
+      if (rbox) rbox.hidden = tab !== "receipts";
+    }
+
+    function paintReceiptList(g) {
+      const rbox = document.getElementById("gReceipts");
+      if (!rbox) return;
+      const receipts = (g && g.receipts) || [];
+      rbox.innerHTML = receipts.length
+        ? receipts.map(receiptRowHtml).join("")
+        : '<div class="empty">No buy receipts yet</div>';
+      paintHistoryTabs();
+    }
+
+    function drawReceiptChart(ctx, receipt, width, height) {
+      const geo = receiptChartGeometry(receipt, width, height);
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = "#0e1218";
+      ctx.fillRect(0, 0, width, height);
+      ctx.strokeStyle = "#2a3344";
+      ctx.strokeRect(0.5, 0.5, width - 1, height - 1);
+      ctx.font = "12px sans-serif";
+      if (geo.stop != null) {
+        ctx.save();
+        ctx.strokeStyle = "#f07178";
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(8, geo.stop);
+        ctx.lineTo(width - 8, geo.stop);
+        ctx.stroke();
+        ctx.restore();
+        ctx.fillStyle = "#f07178";
+        ctx.fillText("stop", 10, Math.max(14, geo.stop - 4));
+      }
+      if (geo.tp != null) {
+        ctx.save();
+        ctx.strokeStyle = "#3ecf8e";
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(8, geo.tp);
+        ctx.lineTo(width - 8, geo.tp);
+        ctx.stroke();
+        ctx.restore();
+        ctx.fillStyle = "#3ecf8e";
+        ctx.fillText("TP", 10, Math.max(14, geo.tp - 4));
+      }
+      if (geo.line.length >= 2) {
+        ctx.beginPath();
+        ctx.strokeStyle = "#3ecf8e";
+        ctx.lineWidth = 2;
+        geo.line.forEach((p, i) => {
+          if (i === 0) ctx.moveTo(p.x, p.y);
+          else ctx.lineTo(p.x, p.y);
+        });
+        ctx.stroke();
+      }
+      if (geo.entry) {
+        ctx.beginPath();
+        ctx.fillStyle = "#f0a33a";
+        ctx.arc(geo.entry.x, geo.entry.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "#ffffff";
+        ctx.stroke();
+      }
+      return geo;
+    }
+
+    function paintReceiptChart(canvas, receipt) {
+      if (!canvas || !canvas.getContext) return null;
+      const geo = drawReceiptChart(canvas.getContext("2d"), receipt, canvas.width, canvas.height);
+      if (geo && geo.entry) {
+        canvas.setAttribute("data-drew", "1");
+        canvas.setAttribute("data-entry-x", geo.entry.x.toFixed(1));
+        canvas.setAttribute("data-entry-y", geo.entry.y.toFixed(1));
+      } else {
+        canvas.setAttribute("data-drew", "0");
+      }
+      return geo;
+    }
+
+    function paintReceiptSheet() {
+      const sheet = document.getElementById("gReceiptSheet");
+      if (!sheet) return;
+      let rec = state.openReceipt;
+      if (rec && rec.id && rec.id !== "sample") {
+        const live = ((state.game && state.game.receipts) || []).find((row) => row && row.id === rec.id);
+        if (live) rec = live;
+        state.openReceipt = rec;
+      }
+      if (!rec) {
+        sheet.hidden = true;
+        return;
+      }
+      sheet.hidden = false;
+      sheet.setAttribute("data-status", rec.status || "open");
+      sheet.setAttribute("data-verdict", rec.verdict || "unknown");
+      const title = document.getElementById("gReceiptTitle");
+      if (title) title.textContent = (rec.symbol || "?") + " receipt";
+      const fields = document.getElementById("gReceiptFields");
+      if (fields) fields.innerHTML = receiptFieldsHtml(rec);
+      const sells = document.getElementById("gReceiptSells");
+      if (sells) sells.innerHTML = receiptSellsHtml(rec);
+      paintReceiptChart(document.getElementById("gReceiptChart"), rec);
+    }
+
+    function openReceipt(receipt) {
+      state.openReceipt = receipt || null;
+      paintReceiptSheet();
+    }
+
+    function closeReceipt() {
+      state.openReceipt = null;
+      paintReceiptSheet();
+    }
+
+    function fallbackCopy(text) {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); } catch (e) {}
+      ta.remove();
+    }
+
+    function copyReceiptText(receipt) {
+      const text = receiptCopyText(receipt || state.openReceipt || {});
+      try { fallbackCopy(text); } catch (e) {}
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          const pending = navigator.clipboard.writeText(text);
+          if (pending && pending.catch) pending.catch(() => {});
+        }
+      } catch (e) {}
+      toast("Receipt copied");
+      return text;
+    }
+
+    function saveReceiptImage(receipt) {
+      receipt = receipt || state.openReceipt;
+      if (!receipt) return;
+      const canvas = document.createElement("canvas");
+      canvas.width = 720;
+      canvas.height = 680;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#12151c";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#e7e9ea";
+      ctx.font = "700 18px sans-serif";
+      ctx.fillText((receipt.symbol || "Receipt") + " · paper receipt", 24, 32);
+      const chart = document.createElement("canvas");
+      chart.width = 672;
+      chart.height = 200;
+      drawReceiptChart(chart.getContext("2d"), receipt, chart.width, chart.height);
+      ctx.drawImage(chart, 24, 48);
+      ctx.font = "14px sans-serif";
+      ctx.fillStyle = "#d5dbe3";
+      receiptCopyText(receipt).split("\n").forEach((line, i) => {
+        ctx.fillText(line, 24, 276 + i * 20);
+      });
+      const name = receiptFileName(receipt);
+      const finish = (blob) => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1500);
+        toast("Saved " + name);
+      };
+      if (canvas.toBlob) canvas.toBlob(finish, "image/png");
+      else finish(null);
+    }
+
+    function sampleReceipt() {
+      return {
+        id: "sample",
+        symbol: "SAMPLE",
+        status: "open",
+        entry_price_usd: 0.0000785,
+        entry_price_sol: 5.233e-7,
+        size_usd: 1,
+        remaining_usd: 1,
+        time_et: "Oct 31, 2026 2:20 AM ET",
+        quote_age_s: 6.2,
+        sl_pct: 20,
+        tp_pct: 100,
+        stop_price_usd: 0.0000628,
+        tp_price_usd: 0.000157,
+        verdict: "SKIP",
+        points: [0.00007, 0.000074, 0.000076, 0.000073],
+        fill_point: { p: 0.0000785 },
+        sells: [],
+      };
+    }
+
+    function qaReceiptOn() {
+      try { return new URLSearchParams(location.search).get("qa_receipt") === "1"; }
+      catch (e) { return false; }
+    }
+
     async function gameBuy(mint) {
       if (state.buyInFlight || state.gameBusy) return;
       if (feedIsStale()) {
@@ -8799,6 +9281,17 @@
         toast("Need mint/ticker + stake", true);
         return;
       }
+      const buyRow = flaggedRowForBuy(mint);
+      const armed = !!(state.skipArm && state.skipArm.mint === mint && (Date.now() - state.skipArm.at) < 30000);
+      const skipDecision = skipBuyDecision(coinVerdict(buyRow), armed);
+      paintSkipWarn(skipDecision);
+      if (!skipDecision.proceed) {
+        state.skipArm = { mint: mint, at: Date.now() };
+        beep("fail");
+        setGameLine("SKIP — tap Buy again to confirm this paper buy", "bad");
+        toast("SKIP — tap Buy again to confirm", true);
+        return;
+      }
       state.buyInFlight = true;
       const requestId = newBuyRequestId();
       const requestedMint = mint;
@@ -8809,6 +9302,9 @@
         const body = { mint: requestedMint, stake_usd: stake, client_request_id: requestId };
         if (sl !== "") body.sl_pct = Number(sl);
         if (tp !== "") body.tp_pct = Number(tp);
+        const seriesMint = (buyRow && buyRow.mint) || (looksLikeMint(requestedMint) ? requestedMint : "");
+        const series = seriesMint && state.tickSeries ? state.tickSeries[seriesMint] : null;
+        if (series && series.length) body.points = series.slice(-60);
         const res = await fetch(withQaDown("/api/game/buy"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -8827,8 +9323,11 @@
         const filled = data.position && data.position.mint ? data.position.mint : "";
         const mintMismatch = !!(looksLikeMint(requestedMint) && filled && filled !== requestedMint);
         if (filled && !mintMismatch) document.getElementById("gMint").value = filled;
+        state.skipArm = null;
+        paintSkipWarn({ warn: false });
         state.game = data.state;
         state.gameLoaded = true;
+        if (data.receipt) state.openReceipt = data.receipt;
         renderGame();
         playResponseSound(data);
         const sym = (data.position && data.position.symbol) || "?";
@@ -8850,7 +9349,7 @@
       }
     }
 
-    async function gameSell(pid) {
+    async function gameSell(pid, fraction) {
       if (state.gameBusy || state.buyInFlight) return;
       if (feedIsStale()) {
         beep("fail");
@@ -8862,10 +9361,13 @@
       setGameBusy(true);
       setGameLine("Selling…", "warn");
       try {
+        const body = { position_id: pid };
+        const frac = Number(fraction);
+        if (Number.isFinite(frac) && frac > 0 && frac < 0.999) body.fraction = frac;
         const res = await fetch(withQaDown("/api/game/sell"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ position_id: pid }),
+          body: JSON.stringify(body),
           credentials: "same-origin",
         });
         let data = {};
@@ -8885,11 +9387,15 @@
         }
         state.game = data.state;
         state.gameLoaded = true;
+        if (data.receipt) state.openReceipt = data.receipt;
         if (state.mode === "game") renderGame();
         else paintFollowTab();
         playResponseSound(data);
-        setGameLine("Sold", "ok");
-        toast("Sold");
+        const left = data.receipt && data.receipt.status !== "closed"
+          ? (" · remaining " + fmtGameUsd(data.receipt.remaining_usd))
+          : "";
+        setGameLine("Sold" + left, "ok");
+        toast("Sold" + left);
       } catch (e) {
         beep("fail");
         setGameLine("Sell failed: " + (e.message || e), "bad");
@@ -9134,6 +9640,10 @@
       } else if ((sp.get("mode") || "").toLowerCase() === "game" || (state.fixture || "").indexOf("game-") === 0) {
         setMode("game");
       }
+      if (Number.isFinite(vNum) && vNum >= PANEL_V && sp.get("qa_receipt") === "1") {
+        setMode("game");
+        openReceipt(sampleReceipt());
+      }
     } catch (e) {}
     /* ship-l-update-start */
     function setUpdateButton(mode, label) {
@@ -9316,6 +9826,30 @@
       gameQuote();
     });
     document.getElementById("gBuy").addEventListener("click", () => gameBuy());
+    const gReceiptClose = document.getElementById("gReceiptClose");
+    if (gReceiptClose) gReceiptClose.addEventListener("click", () => closeReceipt());
+    const gReceiptSave = document.getElementById("gReceiptSave");
+    if (gReceiptSave) gReceiptSave.addEventListener("click", () => saveReceiptImage(state.openReceipt));
+    const gReceiptCopy = document.getElementById("gReceiptCopy");
+    if (gReceiptCopy) gReceiptCopy.addEventListener("click", () => copyReceiptText(state.openReceipt));
+    const gHistClosed = document.getElementById("gHistClosed");
+    const gHistReceipts = document.getElementById("gHistReceipts");
+    if (gHistClosed) gHistClosed.addEventListener("click", () => {
+      state.histTab = "closed";
+      paintHistoryTabs();
+    });
+    if (gHistReceipts) gHistReceipts.addEventListener("click", () => {
+      state.histTab = "receipts";
+      paintHistoryTabs();
+    });
+    const gReceipts = document.getElementById("gReceipts");
+    if (gReceipts) gReceipts.addEventListener("click", (ev) => {
+      const btn = ev.target.closest("[data-receipt]");
+      if (!btn) return;
+      const id = btn.getAttribute("data-receipt");
+      const rec = ((state.game && state.game.receipts) || []).find((row) => row && row.id === id);
+      if (rec) openReceipt(rec);
+    });
     document.getElementById("gSellAll").addEventListener("click", () => gameSellAll());
     document.getElementById("gMint").addEventListener("keydown", (ev) => {
       if (ev.key === "Enter") { ev.preventDefault(); gameQuote(); }
@@ -9419,6 +9953,11 @@
     });
     wireFollowTab();
     document.getElementById("gPositions").addEventListener("click", (ev) => {
+      const half = ev.target.closest(".g-sell-half");
+      if (half) {
+        gameSell(half.getAttribute("data-id"), 0.5);
+        return;
+      }
       const btn = ev.target.closest(".g-sell");
       if (btn) {
         gameSell(btn.getAttribute("data-id"));
