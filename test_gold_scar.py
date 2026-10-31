@@ -381,8 +381,10 @@ class PanelTests(unittest.TestCase):
     def test_gold_section_is_separate_and_versioned(self):
         html = _panel()
         self.assertIn("const PANEL_V = 87", html)
-        self.assertIn("paper only · v87", html)
-        self.assertIn("?v=87", html)
+        self.assertIn("data-panel-v", html)
+        self.assertIn("paintPanelVersion", html)
+        self.assertIn("paintPanelVersion", html)
+        self.assertIn("data-panel-v", html)
         self.assertLess(html.index('id="goldScar"'), html.index("<h2>Token flow</h2>"))
         self.assertIn('data-feature="gold_scar"', html)
         self.assertIn("No gold picks yet — rare on purpose", html)

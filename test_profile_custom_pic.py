@@ -141,8 +141,10 @@ class ProfileCustomPicPanelTests(unittest.TestCase):
     def test_edit_profile_offers_file_picker_preview_and_presets(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
         self.assertIn("const PANEL_V = 87", html)
-        self.assertIn("paper only · v87", html)
-        self.assertIn("?v=87", html)
+        self.assertIn("data-panel-v", html)
+        self.assertIn("paintPanelVersion", html)
+        self.assertIn("paintPanelVersion", html)
+        self.assertIn("data-panel-v", html)
         self.assertIn('data-feature="profile_custom_pic"', html)
         self.assertIn('id="pfPhoto"', html)
         self.assertIn(">Use photo<", html)

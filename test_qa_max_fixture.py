@@ -86,9 +86,11 @@ class HealthTests(unittest.TestCase):
     def test_panel_wires_the_opt_in_query(self):
         html = _panel()
         self.assertIn("const PANEL_V = 87", html)
-        self.assertIn("paper only · v87", html)
+        self.assertIn("data-panel-v", html)
+        self.assertIn("paintPanelVersion", html)
         self.assertNotIn("?v=76", html)
-        self.assertIn("?v=87", html)
+        self.assertIn("paintPanelVersion", html)
+        self.assertIn("data-panel-v", html)
         self.assertIn('data-feature="hide_max_unknown"', html)
         self.assertIn('data-qa-max-fixture="opt-in"', html)
         self.assertIn("function wantsQaMax()", html)

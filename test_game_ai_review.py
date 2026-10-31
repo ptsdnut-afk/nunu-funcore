@@ -325,9 +325,11 @@ class ShipPPanelTests(unittest.TestCase):
     def test_panel_offers_review_without_trapping_restart(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
         self.assertIn("const PANEL_V = 87", html)
-        self.assertIn("paper only · v87", html)
+        self.assertIn("data-panel-v", html)
+        self.assertIn("paintPanelVersion", html)
         self.assertNotIn("?v=76", html)
-        self.assertIn("?v=87", html)
+        self.assertIn("paintPanelVersion", html)
+        self.assertIn("data-panel-v", html)
         self.assertIn('id="gReview"', html)
         self.assertIn('id="gReviewSheet"', html)
         self.assertIn('data-feature="game_ai_review"', html)

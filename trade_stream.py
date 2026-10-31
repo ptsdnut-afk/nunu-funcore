@@ -50,7 +50,7 @@ STREAM_SILENCE_S = 5.0
 STREAM_OUTLIER = 0.03  # reject when abs(swap - anchor) / anchor is more than this
 MID_OVER_JUPITER = 0.02  # PumpSwap mid wins when it disagrees with Jupiter by more than this
 MAX_SUBS = 48
-WATCH_TTL_S = 20.0
+WATCH_TTL_S = 60.0
 _BACKOFF_CAP_S = 20.0
 
 SOURCE_WHY = (
@@ -115,7 +115,22 @@ _decimals: dict[str, int] = {SOL_MINT: 9, USDC_MINT: 6, USDT_MINT: 6}
 _rejects: list[dict] = []
 _pools: dict[str, dict] = {}
 _thread: threading.Thread | None = None
+_vault_thread: threading.Thread | None = None
 _stop = threading.Event()
+_no_pool: dict[str, float] = {}
+_ws: dict = {
+    "state": "down",
+    "error": "",
+    "errors": [],
+    "connected_at": None,
+    "subscriptions": {},
+    "last_event": {},
+    "vault_poll_at": None,
+    "vault_poll_ok": None,
+    "transport": "down",
+    "why": "not started",
+}
+POOL_SOURCES = {"stream", "pool_swap", "pool_vault"}
 
 
 def b58decode(text: str) -> bytes:
@@ -270,6 +285,23 @@ def jupiter_price(mint: str, max_age: float = 30.0) -> float | None:
     return row[1]
 
 
+def is_pool_source(src: str | None) -> bool:
+    return str(src or "") in POOL_SOURCES
+
+
+def public_src(src: str | None) -> str:
+    raw = str(src or "")
+    if raw in ("stream", "pool_swap"):
+        return "pool_swap"
+    if raw == "pool_vault":
+        return "pool_vault"
+    if raw == "jupiter_fallback":
+        return "jupiter_fallback"
+    if raw == "qa_tick":
+        return "qa_tick"
+    return "jupiter"
+
+
 def stream_is_fresh(mint: str, now: float | None = None) -> bool:
     """True when an accepted swap or mid landed within STREAM_SILENCE_S."""
     stamped = time.time() if now is None else now
@@ -297,6 +329,19 @@ def reset_for_tests() -> None:
         _decimals.update({SOL_MINT: 9, USDC_MINT: 6, USDT_MINT: 6})
         _rejects.clear()
         _pools.clear()
+        _no_pool.clear()
+        _ws.update({
+            "state": "down",
+            "error": "",
+            "errors": [],
+            "connected_at": None,
+            "subscriptions": {},
+            "last_event": {},
+            "vault_poll_at": None,
+            "vault_poll_ok": None,
+            "transport": "down",
+            "why": "not started",
+        })
 
 
 def _remember_reject(row: dict) -> None:
@@ -325,6 +370,7 @@ def ingest_swap(
     signature: str = "",
     slot: int | None = None,
     seed_ok: bool = False,
+    source: str = "pool_swap",
 ) -> str:
     """Publish one real swap or pool mid into the shared tick cache.
 
@@ -371,7 +417,9 @@ def ingest_swap(
         "price_ts": game._utc(),
         "trade_ts": _iso_ms(epoch),
         "trade_epoch": epoch,
-        "source": "stream",
+        "fetched_at": _iso_ms(now),
+        "source": public_src(source),
+        "src": public_src(source),
         "signature": signature or "",
         "slot": slot,
     }
@@ -381,6 +429,7 @@ def ingest_swap(
     with _guard:
         _seen[mint] = now
         _last_px[mint] = px
+        _ws["last_event"][mint] = _iso_ms(now)
     return "same" if same else "ok"
 
 
@@ -613,6 +662,13 @@ def _position_mints() -> list[str]:
     return out
 
 
+def view_mints(now: float | None = None) -> list[str]:
+    """Open views only. Does not load the game book (that lock may already be held)."""
+    stamped = time.monotonic() if now is None else now
+    with _guard:
+        return [mint for mint, seen in _views.items() if stamped - seen <= WATCH_TTL_S]
+
+
 def watched_mints(now: float | None = None) -> list[str]:
     stamped = time.monotonic() if now is None else now
     with _guard:
@@ -638,18 +694,214 @@ def ensure_started() -> None:
         _thread.start()
 
 
+def _record_ws(state: str, error: str = "") -> None:
+    """Remember why the websocket is or isn't attached. Also printed."""
+    line = f"[trade-stream] ws {state}" + (f" ({error})" if error else "")
+    print(line, flush=True)
+    with _guard:
+        _ws["state"] = state
+        _ws["error"] = error or ""
+        if state == "open":
+            _ws["connected_at"] = _iso_ms(time.time())
+            _ws["transport"] = "ws+http_vault"
+        elif state == "down":
+            if _ws.get("transport") != "http_vault":
+                _ws["transport"] = "http_vault" if _ws.get("vault_poll_ok") else "down"
+        if error:
+            errs = list(_ws.get("errors") or [])
+            errs.append(error)
+            _ws["errors"] = errs[-8:]
+        _ws["why"] = _why_text()
+
+
+def _why_text() -> str:
+    state = _ws.get("state") or "down"
+    err = _ws.get("error") or ""
+    nsub = len(_ws.get("subscriptions") or {})
+    if state == "open":
+        return f"websocket open, {nsub} subscriptions, vault poll every 1s"
+    if _ws.get("vault_poll_ok"):
+        extra = f" Last ws error: {err}." if err else ""
+        return "websocket down; HTTP getMultipleAccounts vault poll every 1s." + extra
+    if err:
+        return f"websocket down ({err}); vault poll has not succeeded"
+    return "stream not started"
+
+
+def stream_health() -> dict:
+    """Snapshot for /api/health. Watched mints, socket errors, subs, last event."""
+    with _guard:
+        snap = {
+            "attached": _ws.get("state") == "open" or bool(_ws.get("vault_poll_ok")),
+            "transport": _ws.get("transport") or "down",
+            "ws_state": _ws.get("state") or "down",
+            "ws_error": _ws.get("error") or "",
+            "ws_errors": list(_ws.get("errors") or []),
+            "ws_connected_at": _ws.get("connected_at"),
+            "subscriptions": dict(_ws.get("subscriptions") or {}),
+            "last_event": dict(_ws.get("last_event") or {}),
+            "vault_poll_at": _ws.get("vault_poll_at"),
+            "watched": [],
+            "watch_ttl_s": WATCH_TTL_S,
+            "why": _ws.get("why") or "not started",
+        }
+    snap["watched"] = watched_mints()
+    return snap
+
+
+def _remember_subs(subs: dict) -> None:
+    with _guard:
+        _ws["subscriptions"] = {str(k): int(v) for k, v in subs.items() if v is not None}
+
+
+def _under_test() -> bool:
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return True
+    if os.environ.get("NUNU_COLD_VAULT") == "1":
+        return False
+    argv = " ".join(__import__("sys").argv)
+    return "unittest" in argv or "pytest" in argv
+
+
+def cold_vault_price(mint: str) -> bool:
+    """Resolve the pool and read it now. Registers the mint for the 1s poll.
+
+    Returns True when a pool price was published. Under pytest this is a no-op
+    unless NUNU_COLD_VAULT=1, so the suite does not hit RPC. No pool means the
+    caller uses Jupiter.
+    """
+    if _under_test() and os.environ.get("NUNU_COLD_VAULT") != "1":
+        return False
+    mint = (mint or "").strip()
+    if len(mint) < 32:
+        return False
+    note_view(mint)
+    ensure_started()
+    if stream_is_fresh(mint):
+        return True
+    now = time.time()
+    with _guard:
+        missed = _no_pool.get(mint)
+    if missed and now - missed < 30.0:
+        return False
+    http = endpoints()[1]
+    _refresh_anchors([mint])
+    pool = _pool_for(mint, http)
+    if not pool:
+        with _guard:
+            _no_pool[mint] = time.time()
+        return False
+    kind = pool.get("kind")
+    if kind == "pumpswap":
+        return _read_vault_mid(http, pool) is not None
+    info = _account_info(http, str(pool.get("address") or ""))
+    raw = _account_bytes(info) if info else None
+    sol = anchor_price(SOL_MINT, max_age=60.0)
+    if not raw or sol is None or sol <= 0:
+        return False
+    px = None
+    if kind == "whirlpool":
+        with _guard:
+            decs = dict(_decimals)
+        px = whirlpool_swap_usd(raw, mint, sol, decs)
+    elif kind == "pump":
+        px = pump_curve_swap_usd(raw, sol)
+    if px is None or px <= 0:
+        return False
+    _publish(mint, px, compare_mid=False, source="pool_swap")
+    return True
+
+
+def _http_vault_loop() -> None:
+    """Poll pool vaults over HTTP every 1s. Runs even when the websocket is down."""
+    last_log = 0.0
+    while not _stop.is_set():
+        mints = watched_mints()
+        if not mints:
+            with _guard:
+                _ws["why"] = "idle: no watched mints"
+            time.sleep(0.5)
+            continue
+        http = endpoints()[1]
+        try:
+            _refresh_anchors(mints)
+            _refresh_pump_mids(http)
+            _refresh_account_mids(http, mints)
+            with _guard:
+                _ws["vault_poll_at"] = _iso_ms(time.time())
+                _ws["vault_poll_ok"] = True
+                if _ws.get("state") != "open":
+                    _ws["transport"] = "http_vault"
+                _ws["why"] = _why_text()
+            now = time.time()
+            if now - last_log >= 30.0:
+                last_log = now
+                with _guard:
+                    state = _ws.get("state")
+                    err = _ws.get("error") or ""
+                print(
+                    f"[trade-stream] vault poll n={len(mints)} ws={state} err={err or '-'}",
+                    flush=True,
+                )
+        except Exception as exc:
+            print(f"[trade-stream] vault poll failed ({exc})", flush=True)
+            with _guard:
+                _ws["vault_poll_ok"] = False
+                errs = list(_ws.get("errors") or [])
+                errs.append(f"vault poll {exc}")
+                _ws["errors"] = errs[-8:]
+                _ws["why"] = _why_text()
+        time.sleep(1.0)
+
+
+def _refresh_account_mids(http: str, mints: list[str]) -> None:
+    """HTTP read of whirlpool and bonding-curve accounts when the socket is quiet."""
+    sol = anchor_price(SOL_MINT, max_age=60.0)
+    if sol is None or sol <= 0:
+        return
+    for mint in mints:
+        with _guard:
+            pool = _pools.get(mint)
+            snap = dict(pool) if pool else None
+            seen = _seen.get(mint)
+        if not snap or snap.get("kind") not in ("whirlpool", "pump"):
+            continue
+        if seen and time.time() - seen < 1.0:
+            continue
+        info = _account_info(http, str(snap.get("address") or ""))
+        raw = _account_bytes(info) if info else None
+        if not raw:
+            continue
+        if snap.get("kind") == "whirlpool":
+            with _guard:
+                decs = dict(_decimals)
+            px = whirlpool_swap_usd(raw, mint, sol, decs)
+        else:
+            px = pump_curve_swap_usd(raw, sol)
+        if px and px > 0:
+            _publish(mint, px, compare_mid=False, source="pool_swap")
+
+
 def _run() -> None:
+    global _vault_thread
+    with _guard:
+        start_vault = _vault_thread is None or not _vault_thread.is_alive()
+        if start_vault:
+            _vault_thread = threading.Thread(target=_http_vault_loop, name="trade-vault", daemon=True)
+            _vault_thread.start()
     backoff = 0.0
     while not _stop.is_set():
         try:
             if not watched_mints():
                 time.sleep(0.5)
                 continue
+            _record_ws("connecting", "")
             _serve_socket()
             backoff = 0.0
+            _record_ws("down", "socket closed")
         except Exception as exc:
             backoff = next_backoff(backoff)
-            print(f"[trade-stream] reconnect in {backoff:.0f}s ({exc})", flush=True)
+            _record_ws("down", f"{exc.__class__.__name__}: {exc}")
             time.sleep(backoff)
 
 
@@ -660,6 +912,7 @@ def _serve_socket() -> None:
     ws = websocket.WebSocket()
     ws.settimeout(5)
     ws.connect(wss, timeout=8)
+    _record_ws("open", "")
     print(f"[trade-stream] connected via {name}", flush=True)
     subs: dict[str, int] = {}
     meta: dict[int, dict] = {}
@@ -670,6 +923,7 @@ def _serve_socket() -> None:
             _refresh_anchors(watched_mints())
             _refresh_pump_mids(http)
             subs, meta, pending, rpc_id = _sync_subs(ws, subs, meta, pending, rpc_id, http)
+            _remember_subs(subs)
             try:
                 raw = ws.recv()
             except Exception as exc:
@@ -875,16 +1129,26 @@ def _slot_of(result: dict) -> int | None:
         return None
 
 
-def _publish(mint: str, px: float, *, compare_mid: bool, slot: int | None = None, signature: str = "") -> str:
-    """Vault and curve mids set the anchor. Swap events are checked against it."""
+def _publish(
+    mint: str,
+    px: float,
+    *,
+    compare_mid: bool,
+    slot: int | None = None,
+    signature: str = "",
+    source: str = "pool_swap",
+) -> str:
+    """Vault mids set the anchor. Swap events are checked against it."""
     if compare_mid:
         had = mid_price(mint, max_age=120.0)
-        status = ingest_swap(mint, px, anchor=had, seed_ok=True, slot=slot, signature=signature)
+        status = ingest_swap(
+            mint, px, anchor=had, seed_ok=True, slot=slot, signature=signature, source=source,
+        )
         if status in ("ok", "same") and had is None:
             note_mid(mint, px)
         return status
     note_mid(mint, px)
-    return ingest_swap(mint, px, anchor=px, slot=slot, signature=signature)
+    return ingest_swap(mint, px, anchor=px, slot=slot, signature=signature, source=source)
 
 
 def _apply_vault_amount(pool: dict, vault: str, amount: int, sol: float, slot: int | None) -> None:
@@ -918,7 +1182,7 @@ def _apply_vault_amount(pool: dict, vault: str, amount: int, sol: float, slot: i
         int(snap.get("virtual_quote") or 0),
     )
     if px and px > 0:
-        _publish(mint, px, compare_mid=False, slot=slot)
+        _publish(mint, px, compare_mid=False, slot=slot, source="pool_vault")
 
 
 def _pool_for(mint: str, http: str) -> dict | None:
@@ -1110,7 +1374,7 @@ def _read_vault_mid(http: str, pool: dict) -> float | None:
         int(snap.get("virtual_quote") or 0),
     )
     if px and px > 0:
-        _publish(mint, px, compare_mid=False)
+        _publish(mint, px, compare_mid=False, source="pool_vault")
     return px
 
 

@@ -233,9 +233,11 @@ class ShipKPanelTests(unittest.TestCase):
     def test_panel_resets_rocket_and_hides_ghost_open(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
         self.assertIn("const PANEL_V = 87", html)
-        self.assertIn("paper only · v87", html)
+        self.assertIn("data-panel-v", html)
+        self.assertIn("paintPanelVersion", html)
         self.assertNotIn("?v=76", html)
-        self.assertIn("?v=87", html)
+        self.assertIn("paintPanelVersion", html)
+        self.assertIn("data-panel-v", html)
         self.assertIn("function sessionEndView(", html)
         self.assertIn("function freshRunBaseline(", html)
         self.assertIn("function rocketResetDecision(", html)

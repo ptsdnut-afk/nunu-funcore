@@ -28,7 +28,8 @@ class PanelChromeTests(unittest.TestCase):
     def test_filter_shows_shared_mute_and_arrival_chrome(self):
         html = _panel()
         self.assertIn("const PANEL_V = 87", html)
-        self.assertIn("paper only · v87", html)
+        self.assertIn("data-panel-v", html)
+        self.assertIn("paintPanelVersion", html)
         self.assertIn('data-flow-hook="new-token"', html)
         self.assertIn('id="flowChime"', html)
         self.assertIn("♪ NEW TOKEN", html)

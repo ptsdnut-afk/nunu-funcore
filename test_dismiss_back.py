@@ -28,7 +28,8 @@ class ChromeTests(unittest.TestCase):
     def test_score_coin_and_trade_have_a_top_right_x(self):
         html = _panel()
         self.assertIn("const PANEL_V = 87", html)
-        self.assertIn("paper only · v87", html)
+        self.assertIn("data-panel-v", html)
+        self.assertIn("paintPanelVersion", html)
         self.assertIn('class="dismiss-x"', html)
         self.assertIn('data-dismiss="score"', html)
         self.assertIn('data-dismiss="coin"', html)

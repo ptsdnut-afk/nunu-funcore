@@ -1743,6 +1743,31 @@
       border-color: #3ecf8e;
       box-shadow: 0 0 22px rgba(62,207,142,.5), 0 0 0 2px rgba(62,207,142,.28);
     }
+    /* w31-score-cell: score pill is its own column at every width, never on the name */
+    #modeFilter .tok > .coin {
+      grid-column: 1;
+      grid-row: 1;
+      min-width: 0;
+      overflow: hidden;
+      position: relative;
+      z-index: 1;
+    }
+    #modeFilter .tok > .score-btn {
+      grid-column: 2;
+      grid-row: 1;
+      justify-self: start;
+      align-self: center;
+      position: relative;
+      z-index: 2;
+    }
+    #modeFilter .coin .ticker,
+    #modeFilter .coin .name {
+      display: block;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     #modeFilter #sideTabTraders[aria-selected="true"] {
       background: #050505;
       color: #f0a33a;
@@ -2711,7 +2736,7 @@
         <div class="logo">N</div>
         <div>
           <h1>Nunu Filter</h1>
-          <p class="sub">Solana Research Panel · paper only · v87</p>
+          <p class="sub">Solana Research Panel · paper only · v<span data-panel-v></span></p>
         </div>
       </div>
       <div class="mode-tabs" role="tablist">
@@ -3130,7 +3155,7 @@
     </div>
 
     <footer class="app-foot">
-      <div class="foot-live">Paper only · no wallets. <code>?v=87</code></div>
+      <div class="foot-live">Paper only · no wallets. <code>?v=<span data-panel-v></span></code></div>
       <details class="qa-foot">
         <summary>QA fixtures</summary>
         <div>APIs: <code>/api/flagged</code> · <code>/api/update-now</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>. Social Tap is coin, meme, and crypto viral from public sources — nothing invented. Checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: <code>&amp;mode=game</code>. Equity tick proof: <code>?qa_tick=both</code>, <code>?qa_tick=up</code>, <code>?qa_tick=down</code>. Display offset only. Do not combine with <code>?fixture=</code>. 24h end proof: <code>?qa_end=1</code> (one-shot, then Start 24h). Does not auto-start. An ended run opens a paper Review (dismiss, or Start next 24h — same restart as the main button). Mute silences the soft review cue. Max fixture proof: <code>?qa_max=1</code> (one synthetic bonding row, badge QA MAX). Absent query leaves the live feed unchanged. Do not combine with <code>?fixture=</code>. Gold fixture proof: <code>?qa_gold=1</code> (one synthetic rare card in Gold picks, no chime on the seeded load) or <code>?qa_gold=arrive</code> (same card, one ♪ GOLD). Mute silences the gold cue. It is not the Token Flow new-token chime. Absent query leaves Gold empty unless a live row clears the stricter 7-gate stack. Do not combine with <code>?fixture=</code>.</div>
@@ -3192,6 +3217,13 @@
   <script>
 
     const PANEL_V = 87;
+    function paintPanelVersion() {
+      const label = String(PANEL_V);
+      document.querySelectorAll("[data-panel-v]").forEach((el) => {
+        el.textContent = label;
+      });
+    }
+    paintPanelVersion();
     const QA_MAX_NOTE = "QA Max fixture — synthetic bonding row QAMAX. Live unknown rows stay Max-empty. Not a real mint.";
     const QA_GOLD_NOTE = "QA Gold fixture — synthetic rare card QAGOLD in Gold picks. Not a live mint. The normal page stays empty unless the 7-gate stack clears.";
     const QA_GOLD_ARRIVE_NOTE = "QA Gold arrive — one ♪ GOLD for the synthetic card. Mute silences it. This cue is not the Token Flow new-token chime. ?qa_gold=1 seeds quietly.";
@@ -5858,27 +5890,96 @@
     }
 
     function feedIsStale() {
-      return sharedFeedStale(
-        feedAgeS(),
-        state.tickQuote && state.tickQuote.sla,
-        qaStaleOn(),
-        watchedCoinOpen()
-      );
+      if (qaStaleOn()) return true;
+      if (!watchedCoinOpen()) return false;
+      const t = state.lastTickResponse;
+      if (!t) return true;
+      if (t.stale === true || t.stale === false) return !!t.stale;
+      return sharedFeedStale(feedAgeS(), t.quote_sla_s, false, true);
     }
 
     function currentChrome() {
       const g = state.game || {};
       const openN = Array.isArray(g.positions) ? g.positions.length : 0;
       const clock = ((g.server_time || "").slice(11, 19)) || "—";
+      const tick = state.lastTickResponse;
+      const sla = (tick && Number(tick.quote_sla_s)) || (state.tickQuote && state.tickQuote.sla) || 5;
+      // One flag from one tick. A local clock must not mark the header LIVE while the trade pane is STALE.
+      let age = feedAgeS();
+      if (!qaStaleOn() && watchedCoinOpen()) {
+        if (!tick || (tick.stale !== true && tick.stale !== false)) age = Number(sla) + 1;
+        else if (tick.stale) {
+          const reported = Number(tick.quote_age_s);
+          age = Number.isFinite(reported) && reported > sla ? reported : (Number(sla) + 1);
+        } else {
+          const reported = Number(tick.quote_age_s);
+          age = Number.isFinite(reported) && reported <= sla ? reported : 0;
+        }
+      }
       return surfaceChrome(
-        feedAgeS(),
-        state.tickQuote && state.tickQuote.sla,
+        age,
+        sla,
         qaStaleOn(),
         watchedCoinOpen(),
         g.status || "idle",
         openN,
         clock
       );
+    }
+
+    function applyTickFlagToQuote() {
+      const tick = state.lastTickResponse;
+      if (!tick || !tick.mint) return;
+      const live = !feedIsStale();
+      const card = document.querySelector("#gQuoteBox .quote-card");
+      if (card && card.getAttribute("data-mint") === tick.mint) {
+        card.setAttribute("data-quote-live", live ? "1" : "0");
+        const el = card.querySelector(".live-px");
+        if (el) {
+          el.setAttribute("data-quote-live", live ? "1" : "0");
+          el.classList.toggle("is-unknown", !live);
+          const lab = el.querySelector(".live-lab");
+          if (lab) lab.textContent = live ? "Live USD" : "STALE";
+        }
+        const note = card.querySelector(".resolve-note");
+        if (note && !live) note.textContent = "STALE — waiting for a live price. Buy stays off until the tick is inside 5s.";
+        if (note && live && note.textContent.indexOf("STALE") === 0) note.textContent = "Live tick";
+      }
+      document.querySelectorAll("#gPositions .pos-card").forEach((pos) => {
+        if (pos.getAttribute("data-mint") !== tick.mint) return;
+        const el = pos.querySelector("[data-role=live-px]");
+        if (!el) return;
+        el.setAttribute("data-quote-live", live ? "1" : "0");
+        el.classList.toggle("is-unknown", !live);
+        const lab = el.querySelector(".live-lab");
+        if (lab) lab.textContent = live ? "Live USD" : "Last";
+        let stale = el.querySelector("[data-role=stale]");
+        if (live && stale) stale.remove();
+        if (!live && !stale) {
+          stale = document.createElement("span");
+          stale.className = "tick-stale";
+          stale.setAttribute("data-role", "stale");
+          stale.textContent = "stale";
+          el.appendChild(stale);
+        }
+      });
+    }
+
+    function paintSharedPct() {
+      const g = state.game || {};
+      const basis = sharedTickPct(g);
+      const eqEl = document.getElementById("gEquity");
+      if (eqEl) {
+        const delta = eqEl.querySelector(".delta");
+        if (delta) delta.textContent = fmtPct(basis.pct);
+      }
+      syncRocketCue(g);
+      const dir = document.getElementById("gRocketDir");
+      if (dir && !feedIsStale()) {
+        const cue = state.rocketCue || { mood: "idle" };
+        dir.textContent = pnlChipText(cue.mood, basis.pct);
+      }
+      return basis;
     }
 
     function paintTradeLocks() {
@@ -6051,10 +6152,7 @@
     function rocketShownPct(prevShown, basis) {
       const b = Number(basis);
       if (!Number.isFinite(b)) return Number.isFinite(Number(prevShown)) ? Number(prevShown) : 0;
-      const sm = smoothRocketPct(prevShown, b);
-      if (b > 0 && sm < 0) return 0;
-      if (b < 0 && sm > 0) return 0;
-      return sm;
+      return b;
     }
 
     function rocketCue(openPnlPct, sessionPnlPct, hasOpen) {
@@ -6143,24 +6241,44 @@
         sessionPct = ((eq / start) - 1) * 100;
       }
       if (hasOpen && stake > 0) {
-        return { pct: (openUsd / stake) * 100, hasOpen: true, baseline: "entry" };
+        return { pct: (openUsd / stake) * 100, hasOpen: true, baseline: "entry", raw: (openUsd / stake) * 100 };
       }
-      return { pct: sessionPct, hasOpen: false, baseline: "start" };
+      return { pct: sessionPct, hasOpen: false, baseline: "start", raw: sessionPct };
+    }
+
+    function sharedTickPct(g) {
+      g = g || state.game || {};
+      const tick = state.lastTickResponse;
+      const px = tick ? Number(tick.price_usd) : NaN;
+      const positions = (g.positions || []).filter((p) => p && p.mint);
+      if (px > 0 && positions.length === 1 && positions[0].mint === tick.mint) {
+        const entry = Number(positions[0].entry_price_usd);
+        if (entry > 0) {
+          const pct = ((px / entry) - 1) * 100;
+          return { pct: pct, hasOpen: true, baseline: "entry", raw: pct };
+        }
+      }
+      return sharedPnlBasis(g);
+    }
+
+    function tickSrcName(tick) {
+      tick = tick || {};
+      const raw = String(tick.src || tick.source || "");
+      if (raw === "stream" || raw === "pool_swap") return "pool_swap";
+      if (raw === "pool_vault") return "pool_vault";
+      if (raw === "jupiter_fallback") return "jupiter_fallback";
+      if (raw === "qa_tick") return "qa_tick";
+      if (raw === "jup" || raw === "jupiter" || !raw) return "jupiter";
+      return raw;
     }
 
     function tickSourceLabel(src) {
-      if (src === "stream" || src === "qa_tick") return src;
-      if (src === "jupiter_fallback") return "jupiter_fallback";
-      if (src === "jup" || src === "jupiter" || !src) return "jupiter";
-      return String(src);
+      return tickSrcName({ source: src });
     }
 
     function tickDebugLine(tick, px, renderTs) {
       tick = tick || {};
-      const srcField = tick.source === "jupiter_fallback"
-        ? "src=jupiter_fallback"
-        : ("source=" + tickSourceLabel(tick.source));
-      return srcField
+      return "src=" + tickSrcName(tick)
         + " trade_ts=" + (tick.trade_ts || tick.price_ts || "—")
         + " render_ts=" + (renderTs || "—")
         + " px=" + px
@@ -6783,7 +6901,7 @@
       const cue = state.rocketCue || { mood: "idle", pct: 0, tilt: 0 };
       const stale = feedIsStale();
       const dirMood = stale ? "idle" : cue.mood;
-      const dirPct = cue.pct;
+      const dirPct = sharedTickPct(g).pct;
       rocket.setAttribute("data-mood", dirMood);
       rocket.style.setProperty("--rocket-tilt", stale ? "0deg" : (Number(cue.tilt || 0).toFixed(1) + "deg"));
       set("gRocketState", stale ? "Stale" : (labels[dirMood] || "Idle / flat"));
@@ -6890,7 +7008,7 @@
       const mine = tickLogLines(book, mint);
       const cutoff = Date.now() - 60000;
       const inWin = mine.filter((r) => r.t >= cutoff).length;
-      const headSrc = tick.source === "jupiter_fallback" ? "src=jupiter_fallback" : tickSourceLabel(tick.source);
+      const headSrc = "src=" + tickSrcName(tick);
       const head = "changes/60s " + inWin + " · " + headSrc;
       el.textContent = head + "\n" + mine.slice(-12).map((r) => r.line).join("\n");
     }
@@ -6898,6 +7016,7 @@
     function noteLiveTick(tick) {
       tick = tick || {};
       rememberTickAge(tick);
+      state.lastTickResponse = tick;
       const mint = tick.mint || state.tickMint || "";
       const px = Number(tick.price_usd);
       const serverAge = Number(tick.quote_age_s);
@@ -6929,12 +7048,14 @@
       if (rocket) rocket.setAttribute("data-redraw", String(state.tickRedraw));
       if (chart) chart.setAttribute("data-redraw", String(state.tickRedraw));
       const mood = applyPoseFromGame(state.game);
+      paintSharedPct();
+      applyTickFlagToQuote();
       paintChart(mood, series);
       paintFeedAge();
     }
 
     function rocketBasis(g) {
-      const basis = sharedPnlBasis(g);
+      const basis = sharedTickPct(g);
       return { raw: basis.pct, hasOpen: basis.hasOpen, baseline: basis.baseline };
     }
 
@@ -7178,6 +7299,7 @@
       }
       paintTradeLocks();
       paintEquityFreshness();
+      applyTickFlagToQuote();
       const mh = document.getElementById("gMarkHint");
       const g = state.game || {};
       if (mh && !state.qaTickNote && !state.qaEndNote) {
@@ -8087,7 +8209,7 @@
       const startBal = g.start_bankroll != null ? Number(g.start_bankroll) : null;
       const peak = g.peak_equity != null ? Number(g.peak_equity) : null;
       const pnlUsd = g.pnl_usd != null ? Number(g.pnl_usd) : (eq != null && startBal != null ? eq - startBal : null);
-      const basis = sharedPnlBasis(g);
+      const basis = sharedTickPct(g);
       const pnlPct = basis.pct;
 
       document.body.classList.toggle("game-idle", status !== "active");
@@ -8190,7 +8312,10 @@
           const pnlPctP = p.pnl_pct != null ? Number(p.pnl_pct) : 0;
           const pnlUsdP = p.pnl_usd != null ? Number(p.pnl_usd) : 0;
           const mark = p.mark_usd != null ? Number(p.mark_usd) : Number(p.stake_usd || 0);
-          const liveOn = p.quote_live === true && p.live_price_usd != null && Number.isFinite(Number(p.live_price_usd)) && quoteAgeOk(p.quoted_at, p.quote_sla_s);
+          const onWatch = !!(state.lastTickResponse && p.mint === state.lastTickResponse.mint);
+          const liveOn = onWatch
+            ? !feedIsStale()
+            : (p.quote_live === true && p.live_price_usd != null && Number.isFinite(Number(p.live_price_usd)) && quoteAgeOk(p.quoted_at, p.quote_sla_s));
           const last = liveOn ? Number(p.live_price_usd) : NaN;
           const ageN = Number(p.quote_age_s);
           const staleTxt = liveOn ? "" : (Number.isFinite(ageN) ? staleLabel(ageN) : "stale");
@@ -8350,6 +8475,11 @@
     async function refreshQuoteLive(mint) {
       const card = document.querySelector("#gQuoteBox .quote-card");
       if (!mint || !card || card.getAttribute("data-mint") !== mint) return;
+      const tick = state.lastTickResponse;
+      if (tick && tick.mint === mint && (tick.stale === true || tick.stale === false)) {
+        applyTickFlagToQuote();
+        return;
+      }
       let data = null;
       try {
         const res = await fetch(withQaDown("/api/game/quote?mint=" + encodeURIComponent(mint)), { cache: "no-store", credentials: "same-origin" });

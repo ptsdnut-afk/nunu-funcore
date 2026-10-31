@@ -42,8 +42,10 @@ class FinalPolishPanelTests(unittest.TestCase):
     def test_toast_clears_the_follow_chip_and_narrow_dock_fits(self):
         html = _panel()
         self.assertIn("const PANEL_V = 87", html)
-        self.assertIn("paper only · v87", html)
-        self.assertIn("?v=87", html)
+        self.assertIn("data-panel-v", html)
+        self.assertIn("paintPanelVersion", html)
+        self.assertIn("paintPanelVersion", html)
+        self.assertIn("data-panel-v", html)
         self.assertIn("function syncToastOffset()", html)
         self.assertIn("bottom: var(--toast-bottom, 18px)", html)
         self.assertNotIn("padding-bottom: var(--follow-clearance, 72px)", html)

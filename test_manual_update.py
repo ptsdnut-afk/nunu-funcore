@@ -48,9 +48,11 @@ class HealthAndChromeTests(unittest.TestCase):
     def test_update_now_sits_beside_refresh(self):
         html = _panel()
         self.assertIn("const PANEL_V = 87", html)
-        self.assertIn("paper only · v87", html)
+        self.assertIn("data-panel-v", html)
+        self.assertIn("paintPanelVersion", html)
         self.assertNotIn("?v=76", html)
-        self.assertIn("?v=87", html)
+        self.assertIn("paintPanelVersion", html)
+        self.assertIn("data-panel-v", html)
         update_at = html.index('id="btnUpdateNow"')
         refresh_at = html.index('id="btnRefresh"')
         self.assertLess(update_at, refresh_at)

@@ -40,8 +40,10 @@ class FollowPanelTests(unittest.TestCase):
     def test_panel_advertises_v78_and_follow_chrome(self):
         html = _panel()
         self.assertIn("const PANEL_V = 87", html)
-        self.assertIn("paper only · v87", html)
-        self.assertIn("?v=87", html)
+        self.assertIn("data-panel-v", html)
+        self.assertIn("paintPanelVersion", html)
+        self.assertIn("paintPanelVersion", html)
+        self.assertIn("data-panel-v", html)
         self.assertIn('id="gameFollow"', html)
         self.assertIn('data-feature="game_follow_tab"', html)
         self.assertIn('data-covers-flow="0"', html)

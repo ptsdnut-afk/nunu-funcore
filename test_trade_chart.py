@@ -28,9 +28,11 @@ class TradeChartTests(unittest.TestCase):
     def test_panel_advertises_v73_and_keeps_prior_ships(self):
         html = _panel()
         self.assertIn("const PANEL_V = 87", html)
-        self.assertIn("paper only · v87", html)
+        self.assertIn("data-panel-v", html)
+        self.assertIn("paintPanelVersion", html)
         self.assertNotIn("?v=76", html)
-        self.assertIn("?v=87", html)
+        self.assertIn("paintPanelVersion", html)
+        self.assertIn("data-panel-v", html)
         self.assertIn('id="btnUpdateNow"', html)
         self.assertIn('data-dismiss="trade"', html)
         self.assertIn("const FEED_LOOP_MIN = 5", html)
