@@ -519,7 +519,14 @@ def _live_lock(mint: str) -> threading.Lock:
 
 def _http_json(url: str) -> tuple[int, dict | None]:
     """GET JSON. 429 is returned as a status so the caller can back off."""
-    req = Request(url, headers={"User-Agent": _UA, "Accept": "application/json"})
+    req = Request(
+        url,
+        headers={
+            "User-Agent": _UA,
+            "Accept": "application/json",
+            "Cache-Control": "no-cache",
+        },
+    )
     try:
         with urlopen(req, timeout=_LIVE_TIMEOUT) as resp:
             raw = json.loads(resp.read().decode("utf-8"))
@@ -645,10 +652,10 @@ def _cached_pool(mint: str) -> str | None:
     return None
 
 
-def _trade_price(raw: dict | None, mint: str) -> float | None:
-    """Latest trade's USD price for mint. This is the print the Dex chart draws."""
+def _trade_price(raw: dict | None, mint: str) -> tuple[float | None, str | None]:
+    """Latest trade's USD price for mint, plus its block time."""
     if not isinstance(raw, dict):
-        return None
+        return None, None
     for row in raw.get("data") or []:
         if not isinstance(row, dict):
             continue
@@ -660,8 +667,17 @@ def _trade_price(raw: dict | None, mint: str) -> float | None:
         else:
             continue
         if px is not None and px > 0:
-            return px
-    return None
+            ts = attrs.get("block_timestamp")
+            return px, ts if isinstance(ts, str) else None
+    return None, None
+
+
+def _trade_is_fresh(ts: str | None, max_age_s: float = 8.0) -> bool:
+    parsed = _parse_utc(ts) if ts else None
+    if parsed is None:
+        return False
+    age = (datetime.now(timezone.utc) - parsed).total_seconds()
+    return  -5 <= age <= max_age_s
 
 
 def _jupiter_price(mint: str) -> tuple[float | None, int | None, bool]:
@@ -707,8 +723,8 @@ def _pull_live_price(mint: str) -> tuple[float | None, str, int | None, bool]:
         if tcode == 429:
             limited = True
         else:
-            trade_px = _trade_price(traw, mint)
-            if trade_px is not None and trade_px > 0:
+            trade_px, trade_ts = _trade_price(traw, mint)
+            if trade_px is not None and trade_px > 0 and _trade_is_fresh(trade_ts):
                 return trade_px, "gecko", None, False
     px, block, jup_limited = _jupiter_price(mint)
     if px is not None and px > 0:

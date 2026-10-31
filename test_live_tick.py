@@ -142,6 +142,7 @@ class LiveTickCacheTests(unittest.TestCase):
                             "to_token_address": game.SOL_MINT,
                             "price_from_in_usd": "0.0008173",
                             "price_to_in_usd": "100",
+                            "block_timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                         }
                     }]
                 }
