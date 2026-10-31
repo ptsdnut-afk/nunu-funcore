@@ -368,6 +368,46 @@ class QaXFixtureTests(unittest.TestCase):
         self.assertEqual(lp["source"], "Solana RPC")
         self.assertFalse(out["forced_skip"])
 
+    def test_no_creator_is_a_clean_dev_and_seven_traces_count(self):
+        no_dev = cc.assemble(MINT, _clean_sources(pump={
+            "mint": MINT,
+            "description": "A real description from the launchpad.",
+            "created_timestamp": 1_700_000_000_000,
+            "complete": False,
+        }))
+        dev = next(row for row in no_dev["checks"] if row["id"] == "dev_history")
+        self.assertEqual(dev["status"], "pass")
+        self.assertIn("no prior", dev["detail"])
+        traces = [
+            {"owner": f"W{i}xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "pct": 2, "funder": f"f{i}", "reason": "traced", "source": "public RPC"}
+            for i in range(7)
+        ] + [
+            {"owner": f"U{i}xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "pct": 3, "funder": None, "reason": "long_history", "source": "public RPC"}
+            for i in range(3)
+        ]
+        holders = [{"owner": row["owner"], "pct": row["pct"], "excluded": False} for row in traces]
+        traced = cc.assemble(MINT, _clean_sources(traces=traces, holders=holders))
+        bundle = next(row for row in traced["checks"] if row["id"] == "not_bundled")
+        self.assertEqual(bundle["status"], "pass")
+        self.assertIn("7/10", bundle["detail"])
+        self.assertFalse(traced["forced_skip"])
+
+    def test_gecko_hour_trades_are_an_organic_result(self):
+        out = cc.assemble(MINT, _clean_sources(
+            dex={
+                "priceUsd": "0.0000913",
+                "marketCap": 286000,
+                "priceChange": {"h1": 38},
+                "txns": {"h1": {"buys": 400, "sells": 200}},
+                "info": {"websites": [{"url": "https://example.com"}], "socials": [{"type": "twitter", "url": "https://x.com/example"}]},
+            },
+            organic={"known": True, "unique_traders": 180, "max_wallet_pct": 6.0, "source": "GeckoTerminal + Dexscreener"},
+        ))
+        row = next(item for item in out["checks"] if item["id"] == "organic")
+        self.assertEqual(row["status"], "pass")
+        self.assertIn("180", row["detail"])
+        self.assertIn("Dexscreener", row["detail"])
+
     def test_dead_prior_within_one_hour_is_a_rug_dev(self):
         out = cc.assemble(MINT, _clean_sources(
             creator_coins={

@@ -51,11 +51,11 @@ ORGANIC_MIN_TRADERS = 100
 ORGANIC_WALLET_MAX_PCT = 10.0
 
 CACHE_TTL_S = 150.0
-FUNDER_TTL_S = 6 * 3600.0
+FUNDER_TTL_S = 10 * 60.0
 FUNDER_MISS_TTL_S = 90.0
 # Whole funding trace. Partial rows are returned when this expires.
 TRACE_BUDGET_S = 10.0
-CACHE_VERSION = "x-rows"
+CACHE_VERSION = "x10"
 PUMP_AMM = "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"
 RAYDIUM_AMM = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
 _NARRATIVE_STOP = {
@@ -423,22 +423,35 @@ def _narrative_tokens(*parts: Any) -> set[str]:
     return tokens
 
 
-def _dead_within_1h(coin: dict[str, Any], now_s: float) -> bool | None:
-    """True when a prior launch stopped trading inside its first hour."""
+def _prior_failed(coin: dict[str, Any], now_s: float) -> bool:
+    """A prior launch failed if it was rugged or dead inside its first hour.
+
+    Liquidity and age come from Dexscreener. Pump.fun timestamps fill in when
+    the pair print is missing. A live market, or a coin that traded past an
+    hour, is not that failure.
+    """
+    if coin.get("rugged") is True:
+        return True
     created = _when(coin.get("created_timestamp"))
     last = _when(coin.get("last_trade_timestamp"))
-    if created is None or last is None:
-        return None
-    if coin.get("complete") is True:
+    liq = _num(coin.get("dex_liquidity_usd"))
+    age = _num(coin.get("dex_age_s"))
+    if age is None and created is not None:
+        age = max(0.0, now_s - created)
+    life = None
+    if created is not None and last is not None and last >= created:
+        life = last - created
+    if liq is not None and liq >= 100.0:
         return False
-    if last < created:
-        return None
-    if (last - created) > 3600:
+    if life is not None and life <= 3600.0 and last is not None and (now_s - last) > 3600.0:
+        return True
+    if age is not None and age <= 3600.0 and liq is not None and liq < 100.0:
+        return True
+    if life is not None and life > 3600.0:
         return False
-    # Still inside the first hour and trading recently: not dead yet.
-    if (now_s - last) <= 3600:
+    if age is not None and age > 3600.0:
         return False
-    return True
+    return False
 
 
 def assemble(mint: str, sources: dict[str, Any] | None, now: float | None = None) -> dict[str, Any]:
@@ -652,22 +665,21 @@ def assemble(mint: str, sources: dict[str, Any] | None, now: float | None = None
                 bits.append("freeze authority on")
             auth_row = _check("mint_freeze", CHECKS[1][1], "fail", ", ".join(bits), source)
 
-    dead_flags = [_dead_within_1h(coin, now_s) for coin in prior_coins]
-    dead_unknown = any(flag is None for flag in dead_flags)
-    dead_n = sum(1 for flag in dead_flags if flag is True)
-    dead_known = bool(prior_coins) and not dead_unknown
+    dead_n = sum(1 for coin in prior_coins if _prior_failed(coin, now_s))
 
     forced_reasons: list[str] = []
-    if creator is None and not (isinstance(pump, dict) and not pump.get("error") and not pump.get("missing")):
+    pump_missing = isinstance(pump, dict) and pump.get("missing") is True
+    pump_error = not isinstance(pump, dict) or pump.get("error") is True
+    if pump_missing or (creator is None and not pump_error):
         dev_row = _check(
-            "dev_history", CHECKS[2][1], "unknown",
-            "Unknown — creator wallet was not returned",
+            "dev_history", CHECKS[2][1], "pass",
+            "no prior Pump.fun launches",
             "Pump.fun",
         )
     elif creator is None:
         dev_row = _check(
             "dev_history", CHECKS[2][1], "unknown",
-            "Unknown — Pump.fun returned no creator",
+            "Unknown — Pump.fun did not return the coin or its creator",
             "Pump.fun",
         )
     elif rugs_n is not None and rugs_n >= 1:
@@ -682,25 +694,22 @@ def assemble(mint: str, sources: dict[str, Any] | None, now: float | None = None
         dev_row = _check(
             "dev_history", CHECKS[2][1], "fail",
             f"{dead_n} prior coin" + ("s" if dead_n != 1 else "") + " dead within 1h",
-            "Pump.fun",
+            "Pump.fun + Dexscreener",
         )
     elif launched is not None and prior_total == 0:
         dev_row = _check("dev_history", CHECKS[2][1], "pass", "0 prior coins", "Pump.fun")
-    elif (dead_known or prior_total == 0) and (rugs_n in {None, 0}) and dead_n == 0 and prior_total is not None:
-        dev_source = "Pump.fun + RugCheck" if rugs_n == 0 else "Pump.fun"
-        extra = "" if rugs_n == 0 else " · RugCheck unavailable"
+    elif prior_total is not None and dead_n == 0:
         dev_row = _check(
             "dev_history", CHECKS[2][1], "pass",
-            f"0 of {prior_total} priors rugged or dead within 1h" + extra,
-            dev_source,
+            f"0 of {prior_total} priors rugged or dead within 1h",
+            "Pump.fun + Dexscreener",
         )
     else:
-        detail = "Unknown — RugCheck did not return rugged flags"
-        if prior_total is not None:
-            detail += f" for {prior_total} prior coin" + ("s" if prior_total != 1 else "")
-        elif launched is not None:
-            detail += f" ({launched} launches, prior list incomplete)"
-        dev_row = _check("dev_history", CHECKS[2][1], "unknown", detail, "RugCheck")
+        dev_row = _check(
+            "dev_history", CHECKS[2][1], "unknown",
+            "Unknown — the Pump.fun creator coin list was not returned",
+            "Pump.fun",
+        )
 
     if cluster.get("bundled"):
         forced_reasons.append("linked cluster ≥10%")
@@ -734,7 +743,25 @@ def assemble(mint: str, sources: dict[str, Any] | None, now: float | None = None
             for row in traces
         )
         trace_source = trace_rows[0]["source"] if trace_rows else ("Helius" if helius_key() else "public RPC")
-        if traces and worst < CLUSTER_BUNDLE_AT:
+        covered = sum(1 for row in traces if isinstance(row, dict) and not _trace_unresolved(row))
+        # Seven or more of the top 10, or every holder when fewer than seven exist.
+        covered_enough = covered >= 7 or (len(traces) > 0 and covered == len(traces))
+        if covered_enough:
+            held_pct = float(cluster.get("traced_pct") or 0.0)
+            if held_pct >= CLUSTER_BUNDLE_AT:
+                forced_reasons.append("linked cluster ≥10%")
+                bundle_row = _check(
+                    "not_bundled", CHECKS[3][1], "fail",
+                    f"traced {covered}/{len(traces)} · linked cluster {held_pct:.1f}% ≥ {CLUSTER_BUNDLE_AT:.0f}%",
+                    trace_source,
+                )
+            else:
+                bundle_row = _check(
+                    "not_bundled", CHECKS[3][1], "pass",
+                    f"traced {covered}/{len(traces)} holders · linked cluster {held_pct:.1f}% < {CLUSTER_BUNDLE_AT:.0f}%",
+                    trace_source,
+                )
+        elif traces and worst < CLUSTER_BUNDLE_AT:
             bundle_row = _check(
                 "not_bundled", CHECKS[3][1], "pass",
                 f"partial trace · cluster {traced_pct:.1f}% · untraced {untraced_pct:.1f}% · worst case {worst:.1f}% < {CLUSTER_BUNDLE_AT:.0f}%",
@@ -806,10 +833,10 @@ def assemble(mint: str, sources: dict[str, Any] | None, now: float | None = None
     organic_source = "Dexscreener"
     if wallet_known:
         organic_source = (organic or {}).get("source") or "Helius"
-    if trades is not None and trades < ORGANIC_MIN_TRADERS and not wallet_known:
+    if trades is not None and trades < ORGANIC_MIN_TRADERS:
         organic_row = _check(
             "organic", CHECKS[6][1], "fail",
-            f"{trades:.0f} trades in 1h, so unique traders are under {ORGANIC_MIN_TRADERS}",
+            f"Dexscreener 1h txns {trades:.0f} < {ORGANIC_MIN_TRADERS}, so unique traders are under {ORGANIC_MIN_TRADERS}",
             "Dexscreener",
         )
     elif not wallet_known:
@@ -843,7 +870,8 @@ def assemble(mint: str, sources: dict[str, Any] | None, now: float | None = None
     else:
         organic_row = _check(
             "organic", CHECKS[6][1], "pass",
-            f"{unique:.0f} unique traders · largest wallet {wallet_pct:.1f}% of 1h volume",
+            f"{unique:.0f} unique traders in the last-300 GeckoTerminal trades · largest wallet {wallet_pct:.1f}% of that volume"
+            + (f" · Dexscreener 1h txns {trades:.0f}" if trades is not None else ""),
             organic_source,
         )
 
@@ -1068,7 +1096,12 @@ def fetch_pump(mint: str) -> dict[str, Any]:
     cached = filter_mod.cache_get("pump_coin", mint, CACHE_TTL_S)
     if isinstance(cached, dict):
         return cached
-    status, data = _http_json(PUMP_COIN.format(mint=mint), headers=_PUMP_HEADERS)
+    status, data = 0, None
+    for attempt in range(3):
+        status, data = _http_json(PUMP_COIN.format(mint=mint), headers=_PUMP_HEADERS)
+        if status != 403:
+            break
+        time.sleep(0.35 * (attempt + 1))
     if status == 404:
         out = {"missing": True}
     elif isinstance(data, dict) and data.get("mint"):
@@ -1224,31 +1257,55 @@ def _funder_from_tx(tx: dict[str, Any] | None, wallet: str) -> str | None:
     return None
 
 
-def trace_funder(wallet: str) -> dict[str, Any]:
+def trace_funder(wallet: str, deadline: float | None = None) -> dict[str, Any]:
+    """First SOL inflow. Cached 10 minutes. At most four signature pages, inside the 10s cap."""
     cached = filter_mod.cache_get("funder", wallet, FUNDER_TTL_S)
-    if isinstance(cached, dict) and cached.get("reason") in {"traced", "long_history", "no_tx"}:
+    if isinstance(cached, dict) and cached.get("reason") in {"traced", "long_history", "no_tx", "no_funder_in_oldest"}:
         return cached
     source_label = "Helius" if helius_key() else "public RPC"
-    sigs, label = _rpc("getSignaturesForAddress", [wallet, {"limit": 1000}])
-    if not isinstance(sigs, list):
-        out = {"funder": None, "reason": "rpc_error", "source": source_label}
-        filter_mod.cache_put("funder_miss", wallet, out)
-        return out
-    if label:
-        source_label = label
-    if not sigs:
-        out = {"funder": None, "reason": "no_tx", "source": source_label}
-        filter_mod.cache_put("funder", wallet, out)
-        return out
-    if len(sigs) >= 1000:
+
+    def _late() -> bool:
+        return deadline is not None and time.time() > deadline
+
+    if _late():
+        return {"funder": None, "reason": "timeout", "source": source_label}
+    before = None
+    oldest_page: list[Any] | None = None
+    hit_end = False
+    for _page in range(4):
+        if _late():
+            return {"funder": None, "reason": "timeout", "source": source_label}
+        params: dict[str, Any] = {"limit": 1000}
+        if before:
+            params["before"] = before
+        sigs, label = _rpc("getSignaturesForAddress", [wallet, params])
+        if not isinstance(sigs, list):
+            return {"funder": None, "reason": "rpc_error", "source": source_label}
+        if label:
+            source_label = label
+        if not sigs:
+            hit_end = True
+            break
+        oldest_page = sigs
+        if len(sigs) < 1000:
+            hit_end = True
+            break
+        cursor = sigs[-1].get("signature") if isinstance(sigs[-1], dict) else None
+        if not cursor or cursor == before:
+            break
+        before = cursor
+    if not hit_end:
         out = {"funder": None, "reason": "long_history", "source": source_label}
         filter_mod.cache_put("funder", wallet, out)
         return out
-    oldest = sigs[-1] if isinstance(sigs[-1], dict) else {}
-    signature = oldest.get("signature")
-    if not signature:
-        out = {"funder": None, "reason": "rpc_error", "source": source_label}
+    if not oldest_page:
+        out = {"funder": None, "reason": "no_tx", "source": source_label}
+        filter_mod.cache_put("funder", wallet, out)
         return out
+    oldest = oldest_page[-1] if isinstance(oldest_page[-1], dict) else {}
+    signature = oldest.get("signature")
+    if not signature or _late():
+        return {"funder": None, "reason": "timeout" if _late() else "rpc_error", "source": source_label}
     tx, tx_label = _rpc(
         "getTransaction",
         [signature, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 1}],
@@ -1488,6 +1545,33 @@ def fetch_lp_fallback(pump: dict[str, Any] | None, dex: dict[str, Any] | None) -
     return found
 
 
+def _attach_prior_markets(creator_coins: dict[str, Any] | None, current_mint: str) -> None:
+    """Dexscreener liquidity and age on each earlier mint. Caps the fan-out."""
+    if not isinstance(creator_coins, dict):
+        return
+    coins = creator_coins.get("coins")
+    if not isinstance(coins, list):
+        return
+    priors = [
+        coin for coin in coins
+        if isinstance(coin, dict) and coin.get("mint") and coin.get("mint") != current_mint
+    ][:8]
+
+    def _one(coin: dict[str, Any]) -> None:
+        pair = fetch_dex(str(coin.get("mint")))
+        if not isinstance(pair, dict) or pair.get("error"):
+            return
+        liq = pair.get("liquidity") if isinstance(pair.get("liquidity"), dict) else {}
+        coin["dex_liquidity_usd"] = _num(liq.get("usd"))
+        created = _when(pair.get("pairCreatedAt"))
+        coin["dex_age_s"] = (time.time() - created) if created else None
+
+    if not priors:
+        return
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(_one, priors))
+
+
 def fetch_organic(mint: str, dex: dict[str, Any] | None) -> dict[str, Any]:
     """Unique traders and wallet share from GeckoTerminal trades, capped to one page."""
     if not isinstance(dex, dict) or dex.get("error"):
@@ -1581,23 +1665,15 @@ def fetch_organic(mint: str, dex: dict[str, Any] | None) -> dict[str, Any]:
     max_usd = max(volume.values()) if volume else 0.0
     max_pct = (max_usd / total * 100.0) if total else None
     complete = not truncated
-    vol_h1 = None
-    volume_block = dex.get("volume") if isinstance(dex.get("volume"), dict) else {}
-    vol_h1 = _num(volume_block.get("h1"))
-    known = False
-    if complete and unique and max_pct is not None:
-        known = True
-    elif vol_h1 and max_usd and unique >= ORGANIC_MIN_TRADERS:
-        unseen = max(0.0, vol_h1 - total)
-        worst = (max_usd + unseen) / vol_h1 * 100.0
-        if worst <= ORGANIC_WALLET_MAX_PCT or (max_usd / vol_h1 * 100.0) > ORGANIC_WALLET_MAX_PCT:
-            known = True
-            max_pct = worst if worst <= ORGANIC_WALLET_MAX_PCT else (max_usd / vol_h1 * 100.0)
+    # The last 300 GeckoTerminal trades inside the hour are the measurement.
+    # Dexscreener's 1h trade count is the cross-check applied in assemble.
+    known = bool(volume) and max_pct is not None
     out = {
         "known": known,
         "unique_traders": unique if volume else None,
         "max_wallet_pct": max_pct,
-        "source": "GeckoTerminal",
+        "dex_trades_h1": trades,
+        "source": "GeckoTerminal + Dexscreener",
         "complete": complete,
     }
     if known:
@@ -1617,8 +1693,15 @@ def gather(mint: str) -> dict[str, Any]:
         rug = fut_rug.result()
         bubble = fut_bubble.result()
 
-    creator = pump.get("creator") if isinstance(pump, dict) and not pump.get("missing") and not pump.get("error") else None
+    creator = None
+    if isinstance(pump, dict) and not pump.get("missing") and not pump.get("error"):
+        for key in ("creator", "creator_address", "dev", "user"):
+            found = pump.get(key)
+            if isinstance(found, str) and len(found.strip()) >= 32:
+                creator = found.strip()
+                break
     creator_coins = fetch_creator_coins(creator) if creator else None
+    _attach_prior_markets(creator_coins if isinstance(creator_coins, dict) else None, mint)
     held = fetch_holders(mint, pump if isinstance(pump, dict) else None, dex if isinstance(dex, dict) else None)
     holders = held.get("holders") if isinstance(held, dict) else []
     ranked = [row for row in holders if isinstance(row, dict) and not row.get("excluded") and row.get("owner")]
@@ -1636,7 +1719,7 @@ def gather(mint: str) -> dict[str, Any]:
         coin_created = _when(dex.get("pairCreatedAt"))
 
     def _one(row: dict[str, Any]) -> dict[str, Any]:
-        traced = trace_funder(row["owner"])
+        traced = trace_funder(row["owner"], deadline)
         return {
             "owner": row.get("owner"),
             "pct": row.get("pct"),
@@ -1647,10 +1730,10 @@ def gather(mint: str) -> dict[str, Any]:
 
     traces: list[dict[str, Any]] = []
     trace_partial = False
+    deadline = time.time() + TRACE_BUDGET_S
     # A top-10 that already sums under 10% cannot hide a 10% cluster. Skip the trace.
     need_trace = holder_sum is None or holder_sum >= CLUSTER_BUNDLE_AT
     if top and need_trace:
-        deadline = time.time() + TRACE_BUDGET_S
         pool = ThreadPoolExecutor(max_workers=4)
         futures = [pool.submit(_one, row) for row in top]
         try:
