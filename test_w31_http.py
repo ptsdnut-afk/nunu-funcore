@@ -144,7 +144,7 @@ class LiveHttpPathTests(unittest.TestCase):
 
     def test_health_reports_stream_attachment(self):
         data = self.client.get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 89)
+        self.assertEqual(data["panel_v"], 90)
         stream = data["stream"]
         self.assertIn("why", stream)
         self.assertIn("ws_state", stream)
@@ -155,7 +155,7 @@ class LiveHttpPathTests(unittest.TestCase):
 
     def test_version_labels_share_one_constant_and_score_is_its_own_cell(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
-        self.assertIn("const PANEL_V = 89", html)
+        self.assertIn("const PANEL_V = 90", html)
         self.assertGreaterEqual(html.count("data-panel-v"), 2)
         self.assertIn("function paintPanelVersion()", html)
         self.assertIn("/* w31-score-cell", html)

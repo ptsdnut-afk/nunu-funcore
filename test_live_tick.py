@@ -534,7 +534,7 @@ class TradeFillTests(unittest.TestCase):
 class HealthAndChartTests(unittest.TestCase):
     def test_health_is_v82_with_live_tick_and_a_five_second_sla(self):
         data = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 89)
+        self.assertEqual(data["panel_v"], 90)
         self.assertIn("live_tick", data["features"])
         self.assertLessEqual(data["quote_sla_s"], 5.0)
         self.assertEqual(data["quote_sla_s"], 5.0)
@@ -1061,7 +1061,7 @@ class ShipW3Tests(unittest.TestCase):
 
     def test_health_documents_the_stream_and_panel_87(self):
         data = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 89)
+        self.assertEqual(data["panel_v"], 90)
         self.assertIn("trade_stream", data["features"])
         self.assertIn("stream", data["live_tick"])
         self.assertIn("PumpPortal", data["live_tick"])
@@ -1073,7 +1073,7 @@ class ShipW3Tests(unittest.TestCase):
 
     def test_w20_w22_w23_w26_w27_w28_panel_contract(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
-        self.assertIn("const PANEL_V = 89", html)
+        self.assertIn("const PANEL_V = 90", html)
         self.assertIn("paintPanelVersion", html)
         self.assertIn("data-panel-v", html)
         pure = html[html.index("/* ship-w-pure-start */"):html.index("/* ship-w-pure-end */")]
@@ -1304,6 +1304,316 @@ class ShipW6Tests(unittest.TestCase):
         self.assertTrue(out["ok"], out)
         self.assertAlmostEqual(out["position"]["entry_price_usd"], 2.0)
         self.assertEqual(out["position"].get("price_source"), "pool_vault")
+
+
+class _FakeSocket:
+    def __init__(self):
+        self.sent = []
+
+    def send(self, raw):
+        self.sent.append(json.loads(raw))
+
+
+def _pumpswap_pool():
+    import trade_stream
+    return {
+        "mint": MINT,
+        "kind": "pumpswap",
+        "address": trade_stream.USDC_MINT,
+        "base_mint": MINT,
+        "quote_mint": trade_stream.SOL_MINT,
+        "base_vault": "BaseVault111111111111111111111111111111111",
+        "quote_vault": "QuoteVault11111111111111111111111111111111",
+        "base_dec": 6,
+        "quote_dec": 9,
+        "virtual_quote": 0,
+    }
+
+
+def _fill_log(base_amt: int, user_quote: int, pool_addr: str, *, base_res: int = 0, quote_res: int = 0) -> str:
+    import base64
+    import struct
+    import trade_stream
+    body = bytearray(144)
+    struct.pack_into("<Q", body, 8, base_amt)
+    struct.pack_into("<Q", body, 40, base_res or base_amt)
+    struct.pack_into("<Q", body, 48, quote_res or user_quote)
+    struct.pack_into("<Q", body, 104, user_quote)
+    body[112:144] = trade_stream.b58decode(pool_addr)
+    raw = trade_stream.BUY_EVENT_DISC + bytes(body)
+    return "Program data: " + base64.b64encode(raw).decode()
+
+
+def _logs_msg(line: str, sig: str, sub_id: int = 7, slot: int = 1) -> dict:
+    return {
+        "method": "logsNotification",
+        "params": {
+            "subscription": sub_id,
+            "result": {
+                "context": {"slot": slot},
+                "value": {"signature": sig, "err": None, "logs": [line]},
+            },
+        },
+    }
+
+
+class ShipW90Tests(unittest.TestCase):
+    def setUp(self):
+        import trade_stream
+        game._live_cache.clear()
+        game._live_backoff_until.clear()
+        game._live_backoff_s.clear()
+        game._qa_walks.clear()
+        game.set_qa_walk_sid(None)
+        game.set_client_sid(None)
+        trade_stream.reset_for_tests()
+
+    def tearDown(self):
+        import trade_stream
+        game._live_cache.clear()
+        game._qa_walks.clear()
+        game.set_qa_walk_sid(None)
+        game.set_client_sid(None)
+        trade_stream.reset_for_tests()
+
+    def test_each_pool_keeps_its_own_log_plan_through_churn(self):
+        import trade_stream
+        pool = self._seed_pool()
+        key = "logs:" + pool["address"]
+        self.assertIn(key, trade_stream._wanted_log_ops())
+        self.assertEqual(trade_stream._wanted_log_ops()[key]["params"][1]["commitment"], "confirmed")
+        trade_stream._views[MINT] = time.monotonic() - 60
+        self.assertIn(key, trade_stream._wanted_log_ops())
+        ws = _FakeSocket()
+        subs, meta, pending, rpc = trade_stream._sync_subs(
+            ws, {}, {}, {}, 1, "http://unused", include_logs=False,
+        )
+        methods = [msg["method"] for msg in ws.sent]
+        self.assertNotIn("logsSubscribe", methods)
+        self.assertEqual(methods.count("accountSubscribe"), 2)
+        trade_stream._views[MINT] = time.monotonic() - 301
+        self.assertEqual(trade_stream._wanted_log_ops(), {})
+        trade_stream.note_view(MINT)
+        self.assertIn(key, trade_stream._wanted_log_ops())
+
+    def test_logs_commitment_is_confirmed(self):
+        import trade_stream
+        pool = _pumpswap_pool()
+        ops = trade_stream._ops_for(pool)
+        logs = ops["logs:" + pool["address"]]
+        self.assertEqual(logs["params"][1]["commitment"], "confirmed")
+        self.assertEqual(logs["params"][0]["mentions"], [pool["address"]])
+        self.assertIn("mainnet-beta.solana.com", trade_stream.logs_endpoint())
+
+    def test_view_stays_watched_for_five_minutes_and_a_position_outlives_it(self):
+        import trade_stream
+        trade_stream.note_view(MINT)
+        trade_stream._views[MINT] = time.monotonic() - 60
+        self.assertIn(MINT, trade_stream.watched_mints())
+        self.assertIn(MINT, trade_stream.view_mints())
+        trade_stream._views[MINT] = time.monotonic() - 301
+        self.assertNotIn(MINT, trade_stream.view_mints())
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        patch = mock.patch.object(game, "STATE_PATH", Path(tmp.name) / "state.json")
+        patch.start()
+        self.addCleanup(patch.stop)
+        now = datetime.now(timezone.utc)
+        game.save_state({
+            "session_id": "w90-book",
+            "status": "active",
+            "started_at": _utc(now - timedelta(hours=1)),
+            "ends_at": _utc(now + timedelta(hours=20)),
+            "cash_usd": 4.0,
+            "start_bankroll": 5.0,
+            "peak_equity": 5.0,
+            "positions": [{
+                "id": "pos-w90",
+                "mint": MINT,
+                "symbol": "ICAT",
+                "stake_usd": 1.0,
+                "entry_price_usd": 1.0,
+                "qty_tokens": 1.0,
+                "last_price_usd": 1.0,
+                "opened_at": _utc(now - timedelta(minutes=2)),
+                "sl_pct": 20,
+                "tp_pct": 100,
+            }],
+            "closed": [],
+            "events": [],
+        })
+        self.assertIn(MINT, trade_stream.watched_mints())
+
+    def _seed_pool(self):
+        import trade_stream
+        pool = _pumpswap_pool()
+        trade_stream._pools[MINT] = pool
+        trade_stream.note_view(MINT)
+        trade_stream.note_anchor(trade_stream.SOL_MINT, 100.0, force=True)
+        return pool
+
+    def _ack(self, ws, subs, meta, pending):
+        import trade_stream
+        for msg in list(ws.sent):
+            method = str(msg.get("method") or "")
+            if not method.endswith("Subscribe") or method.endswith("Unsubscribe"):
+                continue
+            trade_stream._take_sub_ack(
+                {"jsonrpc": "2.0", "id": msg["id"], "result": 1000 + int(msg["id"])},
+                subs, meta, pending,
+            )
+        ws.sent.clear()
+
+    def test_log_subs_survive_churn_inside_five_minutes_and_resubscribe(self):
+        import trade_stream
+        pool = self._seed_pool()
+        ws = _FakeSocket()
+        subs, meta, pending, rpc = {}, {}, {}, 1
+        subs, meta, pending, rpc = trade_stream._sync_subs(ws, subs, meta, pending, rpc, "http://unused")
+        self._ack(ws, subs, meta, pending)
+        logs = [key for key in subs if key.startswith("logs:")]
+        vaults = [key for key in subs if key.startswith("vault:")]
+        self.assertEqual(logs, ["logs:" + pool["address"]])
+        self.assertEqual(len(vaults), 2)
+        trade_stream._views[MINT] = time.monotonic() - 60
+        subs, meta, pending, rpc = trade_stream._sync_subs(ws, subs, meta, pending, rpc, "http://unused")
+        self.assertEqual(ws.sent, [])
+        self.assertIn("logs:" + pool["address"], subs)
+        self.assertEqual(len([key for key in subs if key.startswith("vault:")]), 2)
+        trade_stream._views[MINT] = time.monotonic() - 301
+        subs, meta, pending, rpc = trade_stream._sync_subs(ws, subs, meta, pending, rpc, "http://unused")
+        methods = [msg["method"] for msg in ws.sent]
+        self.assertIn("logsUnsubscribe", methods)
+        self.assertEqual(methods.count("accountUnsubscribe"), 2)
+        self.assertNotIn("logs:" + pool["address"], subs)
+        trade_stream.note_view(MINT)
+        ws.sent.clear()
+        fresh, fresh_meta, fresh_pending, rpc = {}, {}, {}, rpc
+        fresh, fresh_meta, fresh_pending, rpc = trade_stream._sync_subs(
+            ws, fresh, fresh_meta, fresh_pending, rpc, "http://unused",
+        )
+        resent = [msg["method"] for msg in ws.sent]
+        self.assertIn("logsSubscribe", resent)
+        self.assertEqual(resent.count("accountSubscribe"), 2)
+
+    def test_subscribe_error_and_string_id_do_not_stick_pending(self):
+        import trade_stream
+        pool = self._seed_pool()
+        pending = {4: {"key": "logs:" + pool["address"], "method": "logsSubscribe", "sent": time.monotonic()}}
+        subs, meta = {}, {}
+        self.assertTrue(trade_stream._take_sub_ack(
+            {"id": "4", "error": {"code": -32600, "message": "logsSubscribe rejected"}},
+            subs, meta, pending,
+        ))
+        self.assertEqual(subs, {})
+        self.assertEqual(pending, {})
+        pending = {4: {"key": "logs:" + pool["address"], "method": "logsSubscribe"}}
+        self.assertTrue(trade_stream._take_sub_ack({"id": "4", "result": 55}, subs, meta, pending))
+        self.assertEqual(subs["logs:" + pool["address"]], 55)
+        self.assertEqual(pending, {})
+        # An ack that never arrives is dropped so the next sync sends it again.
+        ws = _FakeSocket()
+        stale = {9: {
+            "key": "logs:" + pool["address"],
+            "method": "logsSubscribe",
+            "params": [{"mentions": [pool["address"]]}, {"commitment": "confirmed"}],
+            "sent": time.monotonic() - 5,
+        }}
+        subs, meta, pending, rpc = trade_stream._sync_subs(ws, {}, {}, stale, 9, "http://unused")
+        self.assertTrue(any(msg.get("method") == "logsSubscribe" for msg in ws.sent))
+        self.assertNotIn(9, pending)
+
+    def test_two_agreeing_reads_override_a_stuck_baseline(self):
+        import trade_stream
+        self.assertEqual(
+            trade_stream.ingest_swap(MINT, 1.49e-6, seed_ok=True, source="pool_vault"),
+            "ok",
+        )
+        trade_stream._seen[MINT] = time.time() - 6
+        self.assertEqual(trade_stream.ingest_swap(MINT, 1.92e-6, source="pool_vault", signature="a"), "spike")
+        # An echo of the stale baseline must not refresh it or erase the candidate.
+        echo = trade_stream.ingest_swap(MINT, 1.49e-6, source="pool_vault")
+        self.assertEqual(echo, "spike")
+        self.assertGreater(time.time() - trade_stream._seen[MINT], 5)
+        self.assertAlmostEqual(game._live_cache[MINT][1]["price_usd"], 1.49e-6)
+        # Same signature is not a second independent read.
+        self.assertEqual(trade_stream.ingest_swap(MINT, 1.925e-6, source="pool_swap", signature="a"), "spike")
+        self.assertAlmostEqual(game._live_cache[MINT][1]["price_usd"], 1.49e-6)
+        self.assertEqual(trade_stream.ingest_swap(MINT, 1.93e-6, source="pool_swap", signature="b"), "ok")
+        self.assertAlmostEqual(game._live_cache[MINT][1]["price_usd"], 1.93e-6)
+        kinds = [row.get("kind") for row in trade_stream.recent_spikes()]
+        self.assertIn("override", kinds)
+        override = next(row for row in trade_stream.recent_spikes() if row.get("kind") == "override")
+        self.assertGreater(override["baseline_age"], 5)
+        self.assertLessEqual(override["agree"], 0.02)
+
+    def test_executed_fill_beats_the_raw_vault_ratio(self):
+        import trade_stream
+        pool = self._seed_pool()
+        # 1.000000 token and 0.010 SOL is $1 at SOL=$100. The raw reserves are ~7% under that.
+        line = _fill_log(1_000_000, 10_700_000, pool["address"], base_res=1_000_000, quote_res=10_000_000)
+        px = trade_stream.price_from_program_logs([line], pool, 100.0)
+        raw = trade_stream.pumpswap_mid_usd(
+            1_000_000, 6, 10_000_000, 9, MINT, trade_stream.SOL_MINT, MINT, 100.0, 0,
+        )
+        corrected = trade_stream.pumpswap_mid_usd(
+            1_000_000, 6, 10_000_000, 9, MINT, trade_stream.SOL_MINT, MINT, 100.0, 700_000,
+        )
+        self.assertAlmostEqual(px, 1.07, places=6)
+        self.assertLess(raw, px * 0.94)
+        self.assertAlmostEqual(corrected, px, places=6)
+        trade_stream._on_logs(_logs_msg(line, "fill-1"), {7: {"mint": MINT, "role": "logs"}})
+        self.assertEqual(game._live_cache[MINT][1]["source"], "pool_swap")
+        self.assertAlmostEqual(game._live_cache[MINT][1]["price_usd"], 1.07, places=6)
+        held = trade_stream._publish(MINT, raw, compare_mid=False, source="pool_vault", sol=100.0)
+        self.assertEqual(held, "held")
+        self.assertAlmostEqual(game._live_cache[MINT][1]["price_usd"], 1.07, places=6)
+        trade_stream._swap_at[MINT] = time.time() - 6
+        with mock.patch.object(trade_stream, "_vault_amounts", return_value=(1_000_000, 10_000_000)), \
+             mock.patch.object(trade_stream, "mint_decimals", side_effect=lambda http, mint: 9 if mint == trade_stream.SOL_MINT else 6), \
+             mock.patch.object(trade_stream, "anchor_price", return_value=100.0), \
+             mock.patch.object(trade_stream, "_extra_for_pool", return_value=None):
+            pool["virtual_quote"] = 700_000
+            trade_stream._pools[MINT]["virtual_quote"] = 700_000
+            got = trade_stream._read_vault_mid("http://unused", pool)
+        self.assertAlmostEqual(got, 1.07, places=4)
+        self.assertEqual(game._live_cache[MINT][1]["source"], "pool_vault")
+        self.assertAlmostEqual(game._live_cache[MINT][1]["price_usd"], 1.07, places=4)
+
+    def test_log_notifications_are_not_collapsed(self):
+        import trade_stream
+        pool = self._seed_pool()
+        meta = {7: {"mint": MINT, "role": "logs"}}
+        price = 1.0
+        last = price
+        for i in range(9):
+            quote = int(round(price * 10_000_000))
+            last = quote / 10_000_000
+            line = _fill_log(1_000_000, quote, pool["address"])
+            trade_stream._on_logs(_logs_msg(line, f"sig-{i}", slot=i + 1), meta)
+            price *= 1.10
+        self.assertAlmostEqual(game._live_cache[MINT][1]["price_usd"], last, places=6)
+        self.assertEqual(game._live_cache[MINT][1]["source"], "pool_swap")
+
+    def test_uncovered_pool_is_polled_even_when_the_mid_is_fresh(self):
+        import trade_stream
+        self._seed_pool()
+        trade_stream.note_mid(MINT, 1.0)
+        calls = []
+
+        def _read(http, pool):
+            calls.append(pool.get("mint"))
+            return 1.0
+
+        with mock.patch.object(trade_stream, "_read_vault_mid", side_effect=_read), \
+             mock.patch.object(trade_stream, "_vault_sub_covered", return_value=False):
+            trade_stream._refresh_pump_mids("http://unused")
+        self.assertEqual(calls, [MINT])
+        calls.clear()
+        with mock.patch.object(trade_stream, "_read_vault_mid", side_effect=_read), \
+             mock.patch.object(trade_stream, "_vault_sub_covered", return_value=True):
+            trade_stream._refresh_pump_mids("http://unused")
+        self.assertEqual(calls, [])
 
 
 if __name__ == "__main__":

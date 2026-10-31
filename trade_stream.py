@@ -30,15 +30,29 @@ vaults and from logsSubscribe. Jupiter is only a labeled fallback after the
 pool has been unreachable for more than 10 seconds, and that tick is stale
 so it cannot fill. A non-SOL quote (a coin that trades against BABA, for
 example) is the pool ratio times that quote token's own SOL-pool USD price.
-Pump swap prices are the post-swap pool reserves (Buy and Sell events use
-the same offsets) plus the pool's virtual quote, scaled by mint decimals,
-times the quote token's USD price. That spot is what a fresh Dex print
-shows when the quote is SOL. The execution price (quote spent / base received)
-includes the fee and the trade's own slippage and is not the mark. A move
-through 15% publishes. One print beyond 15% is held until the other source,
-or the next paired vault read, agrees. It is not a stop or a take-profit
-until then. A PumpSwap mid more than 2% from Jupiter wins. The socket runs
-on a daemon thread.
+
+``logsSubscribe`` uses commitment ``confirmed``. On the public mainnet
+socket, ``processed`` returns a subscription id and then pushes nothing, so
+the book never printed ``pool_swap``. A shared socket also pushes only the
+first ``logsSubscribe``; each PumpSwap or pump pool has its own logs
+socket. Vault ``accountSubscribe`` stays on the shared socket. That socket
+only reads and refreshes subscriptions. HTTP (Jupiter anchor, pool resolve,
+vault poll) stays on the vault thread, so a slow RPC cannot sit on an ack
+or drop a notification.
+
+The mark from a Buy or Sell event is the executed fill: quote the user
+paid or received, divided by the base amount filled. The raw vault ratio
+(quote balance / base balance) runs about 7% under that fill on current
+PumpSwap SOL pools because the AMM quotes against
+``quote_vault + virtual_quote_reserves``, not the raw token balance.
+``virtual_quote_reserves`` is the signed i128 on the pool account. LP fee
+is 20 bps and protocol fee is 5 bps, so the fee schedule is not that gap.
+For 5 seconds after a fill the mark stays on that executed price. Between
+swaps the mark is the vault ratio plus virtual quote, which is the same
+correction. A move through 15% publishes once two consecutive independent
+reads agree within 2%, including when they are far from the baseline. A
+baseline older than 5 seconds does not veto those reads, and an echo of
+that old baseline does not refresh it. The socket runs on a daemon thread.
 """
 
 from __future__ import annotations
@@ -59,10 +73,14 @@ from urllib.request import Request, urlopen
 STREAM_SILENCE_S = 5.0
 STREAM_OUTLIER = 0.03  # kept for callers that still name the old band
 SPIKE_MOVE = 0.15  # one print beyond this waits for a second read
-SPIKE_AGREE = 0.03  # the confirming read must land within this of the held print
+SPIKE_AGREE = 0.02  # two consecutive reads within this override the baseline
+BASELINE_VETO_S = 5.0  # an older baseline cannot veto agreeing fresh reads
 MID_OVER_JUPITER = 0.02  # PumpSwap mid wins when it disagrees with Jupiter by more than this
 MAX_SUBS = 48
-WATCH_TTL_S = 60.0
+WATCH_TTL_S = 300.0  # a viewed coin keeps its subscriptions for 5 minutes
+SWAP_MARK_S = 5.0  # a fresh executed fill is the mark; vault ratio waits
+LOGS_COMMITMENT = "confirmed"  # processed acks on publicnode and never notifies
+SUB_ACK_S = 2.0  # a subscribe with no ack is dropped so the next sync retries
 _BACKOFF_CAP_S = 20.0
 
 SOURCE_WHY = (
@@ -98,8 +116,12 @@ PS_VIRTUAL_QUOTE = 245
 # same payload offsets on both (after the 8-byte event disc).
 BUY_EVENT_DISC = bytes([103, 244, 82, 31, 44, 245, 119, 119])
 SELL_EVENT_DISC = bytes([62, 47, 55, 10, 165, 3, 220, 42])
+# Body offsets (after the 8-byte disc). Buy and Sell share them:
+# base amount filled at 8, pre-trade vault reserves at 40/48, user quote at 104.
+EV_BASE_AMT = 8
 EV_BASE_RES = 40
 EV_QUOTE_RES = 48
+EV_USER_QUOTE = 104
 EV_POOL = 112
 
 # pump.json TradeEvent. virtual reserves follow mint, amounts, the is_buy
@@ -115,6 +137,9 @@ TOKEN_AMOUNT = 64
 _B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 _PUBLIC_WSS = "wss://solana-rpc.publicnode.com"
 _PUBLIC_HTTP = "https://solana-rpc.publicnode.com"
+# publicnode answers several logsSubscribe calls and then pushes notifications
+# for only one of them. api.mainnet-beta pushes every mentions subscription.
+_LOGS_WSS = "wss://api.mainnet-beta.solana.com"
 
 _guard = threading.Lock()
 _views: dict[str, float] = {}
@@ -127,11 +152,15 @@ _decimals: dict[str, int] = {SOL_MINT: 9, USDC_MINT: 6, USDT_MINT: 6}
 _rejects: list[dict] = []
 _spike_rejects: list[dict] = []
 _pending_spikes: dict[str, dict] = {}
+_swap_at: dict[str, float] = {}
 _native: dict[str, float] = {}
 _pools: dict[str, dict] = {}
 _pair_seq = 0
 _thread: threading.Thread | None = None
 _vault_thread: threading.Thread | None = None
+_logs_thread: threading.Thread | None = None
+_log_threads: dict[str, threading.Thread] = {}
+_log_stop: dict[str, threading.Event] = {}
 _stop = threading.Event()
 _no_pool: dict[str, float] = {}
 _pool_miss_at: dict[str, float] = {}
@@ -193,6 +222,11 @@ def next_backoff(prev: float) -> float:
     if cur < 1.0:
         return 1.0
     return min(_BACKOFF_CAP_S, cur * 2.0)
+
+
+def logs_endpoint() -> str:
+    """Websocket that actually pushes every pool's logsSubscribe."""
+    return (os.environ.get("SOLANA_LOGS_WSS") or "").strip() or _LOGS_WSS
 
 
 def endpoints() -> tuple[str, str, str]:
@@ -379,6 +413,7 @@ def reset_for_tests() -> None:
         _rejects.clear()
         _spike_rejects.clear()
         _pending_spikes.clear()
+        _swap_at.clear()
         _native.clear()
         _pools.clear()
         _no_pool.clear()
@@ -416,13 +451,21 @@ def _remember_reject(row: dict) -> None:
 
 
 def _remember_spike(row: dict) -> None:
+    age = row.get("baseline_age")
+    extra = ""
+    if age is not None:
+        extra += f" baseline_age={age}"
+    if row.get("agree") is not None:
+        extra += f" agree={row.get('agree')}"
     print(
-        "[trade-stream] spike {source} mint={mint} px={px} baseline={baseline} move={move}".format(
+        "[trade-stream] spike {kind} {source} mint={mint} px={px} baseline={baseline} move={move}{extra}".format(
+            kind=row.get("kind") or "spike",
             source=row.get("source"),
             mint=row.get("mint"),
             px=row.get("px"),
             baseline=row.get("baseline"),
             move=row.get("move"),
+            extra=extra,
         ),
         flush=True,
     )
@@ -432,23 +475,49 @@ def _remember_spike(row: dict) -> None:
             del _spike_rejects[:-50]
 
 
-def _spike_confirmed(mint: str, px: float, source: str, baseline: float) -> bool:
-    """A >15% print publishes only after the other source, or the next vault read, agrees."""
+def _spike_confirmed(mint: str, px: float, source: str, baseline: float, signature: str = "") -> bool:
+    """Two consecutive independent reads within 2% override the baseline.
+
+    The same signature twice is one observation. A candidate older than the
+    veto window is dropped so a stale pending print cannot confirm later.
+    """
+    now = time.time()
     with _guard:
         pend = _pending_spikes.get(mint)
+        fresh = {"px": px, "source": source, "baseline": baseline, "at": now, "sig": signature or ""}
         if not pend:
-            _pending_spikes[mint] = {"px": px, "source": source, "baseline": baseline}
+            _pending_spikes[mint] = fresh
             return False
-        same_dir = (px - baseline) * (float(pend["px"]) - float(pend["baseline"])) > 0
+        sig = signature or ""
+        if sig and sig == str(pend.get("sig") or ""):
+            return False
+        if now - float(pend.get("at") or 0) > BASELINE_VETO_S:
+            _pending_spikes[mint] = fresh
+            return False
         held = float(pend["px"])
         close = held > 0 and abs(px - held) / held <= SPIKE_AGREE
-        other = str(pend.get("source") or "") != source
-        next_vault = source == "pool_vault" and pend.get("source") == "pool_vault"
-        if same_dir and close and (other or next_vault):
+        if close:
             _pending_spikes.pop(mint, None)
             return True
-        _pending_spikes[mint] = {"px": px, "source": source, "baseline": baseline}
+        _pending_spikes[mint] = fresh
         return False
+
+
+def _baseline_age(mint: str, now: float | None = None) -> float:
+    stamped = time.time() if now is None else now
+    with _guard:
+        seen = _seen.get(mint)
+    if seen is None:
+        return 1e9
+    return max(0.0, stamped - seen)
+
+
+def _recent_swap(mint: str, now: float | None = None) -> bool:
+    """True when an executed fill is still the mark."""
+    stamped = time.time() if now is None else now
+    with _guard:
+        at = _swap_at.get(mint)
+    return at is not None and (stamped - at) < SWAP_MARK_S
 
 
 def _driver_for(mint: str, px: float, sol: float | None) -> str:
@@ -482,9 +551,11 @@ def ingest_swap(
 ) -> str:
     """Publish one real swap or pool mid into the shared tick cache.
 
-    Returns ok, same, spike, no-anchor, or bad. A move through 15% is a real
-    pump trade and is published. One print beyond 15% stays out of the cache
-    until a second read confirms it, so a stop or TP cannot fill on it.
+    Returns ok, same, spike, no-anchor, or bad. One print beyond 15% stays
+    out of the cache until a second independent read lands within 2% of it.
+    That pair is published even when it is far from the baseline. A baseline
+    older than 5s does not get refreshed by an echo of itself while that
+    pair is still forming.
     ``seed_ok`` accepts the first pump print when no decoded mid exists yet,
     so a wrong Jupiter quote cannot block it.
     """
@@ -515,19 +586,48 @@ def ingest_swap(
     move = 0.0
     if baseline and baseline > 0:
         move = abs(px - float(baseline)) / float(baseline)
+    now_mono = time.time()
+    baseline_age = _baseline_age(mint, now_mono)
     if move > SPIKE_MOVE:
-        if not _spike_confirmed(mint, px, source, float(baseline)):
+        with _guard:
+            pend_px = (_pending_spikes.get(mint) or {}).get("px")
+        if not _spike_confirmed(mint, px, source, float(baseline), signature):
             _remember_spike({
                 "kind": "spike",
                 "mint": mint,
                 "px": px,
                 "baseline": float(baseline),
+                "baseline_age": round(baseline_age, 3),
                 "move": round(move, 6),
                 "source": source,
-                "at": _iso_ms(time.time()),
+                "at": _iso_ms(now_mono),
             })
             return "spike"
+        agree = None
+        try:
+            if pend_px and float(pend_px) > 0:
+                agree = round(abs(px - float(pend_px)) / float(pend_px), 6)
+        except (TypeError, ValueError):
+            agree = None
+        _remember_spike({
+            "kind": "override",
+            "mint": mint,
+            "px": px,
+            "baseline": float(baseline),
+            "baseline_age": round(baseline_age, 3),
+            "move": round(move, 6),
+            "agree": agree,
+            "source": source,
+            "at": _iso_ms(now_mono),
+        })
     else:
+        echo = bool(baseline) and baseline > 0 and move <= SPIKE_AGREE
+        with _guard:
+            pend = _pending_spikes.get(mint)
+        # A baseline older than 5s must not refresh itself by echoing, or it
+        # vetoes the fresh reads that already agree with each other.
+        if echo and pend and baseline_age > BASELINE_VETO_S:
+            return "spike"
         with _guard:
             _pending_spikes.pop(mint, None)
     now = time.time()
@@ -669,24 +769,51 @@ def pumpswap_mid_usd(
     return _sided_usd(base_mint, quote_mint, quote_ui / base_ui, watched, sol_usd, extra_usd)
 
 
+def _event_body(raw: bytes) -> bytes | None:
+    if not raw or len(raw) < 8 or raw[:8] not in (BUY_EVENT_DISC, SELL_EVENT_DISC):
+        return None
+    return raw[8:]
+
+
+def _event_pool(body: bytes) -> str | None:
+    if len(body) < EV_POOL + 32:
+        return None
+    try:
+        return b58encode(body[EV_POOL:EV_POOL + 32])
+    except Exception:
+        return None
+
+
 def pumpswap_event_reserves(raw: bytes) -> tuple[int, int, str | None] | None:
-    """Post-swap base and quote reserves from a BuyEvent or SellEvent. None otherwise."""
-    if not raw or len(raw) < 8 + EV_QUOTE_RES + 8:
+    """Pre-trade base and quote vault balances from a BuyEvent or SellEvent.
+
+    These are the raw token balances, not the fill and not the virtual-quote
+    spot. None when the disc mismatches.
+    """
+    body = _event_body(raw)
+    if body is None or len(body) < EV_QUOTE_RES + 8:
         return None
-    if raw[:8] not in (BUY_EVENT_DISC, SELL_EVENT_DISC):
-        return None
-    body = raw[8:]
     base = struct.unpack_from("<Q", body, EV_BASE_RES)[0]
     quote = struct.unpack_from("<Q", body, EV_QUOTE_RES)[0]
-    pool = None
-    if len(body) >= EV_POOL + 32:
-        try:
-            pool = b58encode(body[EV_POOL:EV_POOL + 32])
-        except Exception:
-            pool = None
     if base <= 0 or quote <= 0:
         return None
-    return base, quote, pool
+    return base, quote, _event_pool(body)
+
+
+def pumpswap_event_fill(raw: bytes) -> tuple[int, int, str | None] | None:
+    """Executed (base amount, user quote amount, pool) from a Buy or Sell.
+
+    Buy is base received and quote the user paid. Sell is base sold and quote
+    the user received. The raw vault ratio is not this number.
+    """
+    body = _event_body(raw)
+    if body is None or len(body) < EV_USER_QUOTE + 8:
+        return None
+    base = struct.unpack_from("<Q", body, EV_BASE_AMT)[0]
+    quote = struct.unpack_from("<Q", body, EV_USER_QUOTE)[0]
+    if base <= 0 or quote <= 0:
+        return None
+    return base, quote, _event_pool(body)
 
 
 def pump_trade_reserves(raw: bytes) -> tuple[str, int, int] | None:
@@ -713,9 +840,10 @@ def price_from_program_logs(
 ) -> float | None:
     """Per-trade USD from Program data lines. Ignores every other log line.
 
-    BuyEvent and SellEvent both store post-swap pool reserves at the same
-    offsets. The mark is that spot plus virtual quote, not the execution
-    price, so the fee and the trade's own slippage stay out of the print.
+    The mark is the executed fill (user quote / base amount). Buy and Sell
+    store those amounts at the same body offsets. The pre-trade vault
+    reserves are the fallback when the fill fields are absent, and that
+    fallback adds ``virtual_quote`` the same way a quiet vault read does.
     """
     if not isinstance(logs, list) or not pool or not sol_usd or sol_usd <= 0:
         return None
@@ -731,10 +859,16 @@ def price_from_program_logs(
         except Exception:
             continue
         if kind == "pumpswap":
-            ev = pumpswap_event_reserves(raw)
-            if not ev:
+            fill = pumpswap_event_fill(raw)
+            reserves = pumpswap_event_reserves(raw)
+            if fill:
+                base, quote, pool_pk = fill
+                virtual = 0
+            elif reserves:
+                base, quote, pool_pk = reserves
+                virtual = int(pool.get("virtual_quote") or 0)
+            else:
                 continue
-            base, quote, pool_pk = ev
             if pool_pk and pool.get("address") and pool_pk != pool.get("address"):
                 continue
             px = pumpswap_mid_usd(
@@ -746,7 +880,7 @@ def price_from_program_logs(
                 str(pool.get("quote_mint") or ""),
                 watched,
                 sol_usd,
-                int(pool.get("virtual_quote") or 0),
+                virtual,
                 extra_usd,
             )
             if px and px > 0:
@@ -904,8 +1038,31 @@ def stream_health() -> dict:
 
 
 def _remember_subs(subs: dict) -> None:
+    """Publish the account-socket map without dropping per-pool logs ids."""
     with _guard:
-        _ws["subscriptions"] = {str(k): int(v) for k, v in subs.items() if v is not None}
+        current = dict(_ws.get("subscriptions") or {})
+        for key in list(current):
+            if str(key).startswith("logs:"):
+                continue
+            if key not in subs:
+                current.pop(key, None)
+        for key, val in subs.items():
+            if val is None or str(key).startswith("logs:"):
+                continue
+            current[str(key)] = int(val)
+        _ws["subscriptions"] = current
+
+
+def _set_log_sub(key: str, sub_id: int | None, *, clear_id: int | None = None) -> None:
+    """Record one pool's logs subscription. Clearing only removes that id."""
+    with _guard:
+        current = dict(_ws.get("subscriptions") or {})
+        if sub_id is None:
+            if clear_id is None or current.get(key) == clear_id:
+                current.pop(key, None)
+        else:
+            current[key] = int(sub_id)
+        _ws["subscriptions"] = current
 
 
 def _under_test() -> bool:
@@ -966,10 +1123,27 @@ def cold_vault_price(mint: str) -> bool:
     return True
 
 
+def _vault_sub_covered(pool: dict) -> bool:
+    """True when both PumpSwap vaults have a live accountSubscribe id."""
+    base = str(pool.get("base_vault") or "")
+    quote = str(pool.get("quote_vault") or "")
+    if not base or not quote:
+        return False
+    with _guard:
+        subs = _ws.get("subscriptions") or {}
+    return f"vault:{base}" in subs and f"vault:{quote}" in subs
+
+
 def _http_vault_loop() -> None:
-    """Poll pool vaults over HTTP every 1s. Runs even when the websocket is down."""
+    """Poll pool vaults over HTTP every 1s. Runs even when the websocket is down.
+
+    Also resolves pools so the socket thread can subscribe without doing HTTP.
+    A pool with no vault subscription is read on every pass. A covered pool
+    is read when its mid is older than a second.
+    """
     last_log = 0.0
     while not _stop.is_set():
+        started = time.monotonic()
         mints = watched_mints()
         if not mints:
             with _guard:
@@ -978,6 +1152,8 @@ def _http_vault_loop() -> None:
             continue
         http = endpoints()[1]
         try:
+            for mint in mints:
+                _pool_for(mint, http)
             _refresh_anchors(mints)
             _refresh_pump_mids(http)
             _refresh_account_mids(http, mints)
@@ -1005,7 +1181,8 @@ def _http_vault_loop() -> None:
                 errs.append(f"vault poll {exc}")
                 _ws["errors"] = errs[-8:]
                 _ws["why"] = _why_text()
-        time.sleep(1.0)
+        spent = time.monotonic() - started
+        time.sleep(max(0.0, 1.0 - spent))
 
 
 def _refresh_account_mids(http: str, mints: list[str]) -> None:
@@ -1037,12 +1214,16 @@ def _refresh_account_mids(http: str, mints: list[str]) -> None:
 
 
 def _run() -> None:
-    global _vault_thread
+    global _vault_thread, _logs_thread
     with _guard:
         start_vault = _vault_thread is None or not _vault_thread.is_alive()
         if start_vault:
             _vault_thread = threading.Thread(target=_http_vault_loop, name="trade-vault", daemon=True)
             _vault_thread.start()
+        start_logs = _logs_thread is None or not _logs_thread.is_alive()
+        if start_logs:
+            _logs_thread = threading.Thread(target=_logs_supervisor, name="trade-logs", daemon=True)
+            _logs_thread.start()
     backoff = 0.0
     while not _stop.is_set():
         try:
@@ -1064,7 +1245,10 @@ def _serve_socket() -> None:
 
     wss, http, name = endpoints()
     ws = websocket.WebSocket()
-    ws.settimeout(5)
+    # Short read timeout so a quiet socket still resubscribes a new watch.
+    # HTTP stays off this thread: a vault poll between messages was dropping
+    # both acks and logsNotification bursts.
+    ws.settimeout(1.0)
     ws.connect(wss, timeout=8)
     _record_ws("open", "")
     print(f"[trade-stream] connected via {name}", flush=True)
@@ -1074,9 +1258,9 @@ def _serve_socket() -> None:
     rpc_id = 1
     try:
         while not _stop.is_set():
-            _refresh_anchors(watched_mints())
-            _refresh_pump_mids(http)
-            subs, meta, pending, rpc_id = _sync_subs(ws, subs, meta, pending, rpc_id, http)
+            subs, meta, pending, rpc_id = _sync_subs(
+                ws, subs, meta, pending, rpc_id, http, include_logs=False,
+            )
             _remember_subs(subs)
             try:
                 raw = ws.recv()
@@ -1092,16 +1276,8 @@ def _serve_socket() -> None:
                 continue
             if not isinstance(msg, dict):
                 continue
-            if msg.get("id") in pending and "result" in msg and not msg.get("method"):
-                op = pending.pop(msg["id"])
-                key = str(op.get("key") or "")
-                try:
-                    sub_id = int(msg["result"])
-                except (TypeError, ValueError):
-                    subs.pop(key, None)
-                    continue
-                subs[key] = sub_id
-                meta[sub_id] = op
+            if _take_sub_ack(msg, subs, meta, pending):
+                _remember_subs(subs)
                 continue
             if msg.get("method") == "accountNotification":
                 _on_account(msg, meta)
@@ -1112,6 +1288,54 @@ def _serve_socket() -> None:
             ws.close()
         except Exception:
             pass
+
+
+def _note_sub_error(op: dict | None, err) -> None:
+    key = str((op or {}).get("key") or "")
+    text = f"subscribe {key} {err}"[:200]
+    print(f"[trade-stream] {text}", flush=True)
+    with _guard:
+        errs = list(_ws.get("errors") or [])
+        errs.append(text)
+        _ws["errors"] = errs[-8:]
+
+
+def _pending_pop(pending: dict, msg_id):
+    """Match a JSON-RPC id. Some sockets echo it as a string."""
+    if msg_id in pending:
+        return pending.pop(msg_id)
+    try:
+        alt = int(msg_id)
+    except (TypeError, ValueError):
+        return None
+    if alt in pending:
+        return pending.pop(alt)
+    return None
+
+
+def _take_sub_ack(msg: dict, subs: dict, meta: dict, pending: dict) -> bool:
+    """Store one subscribe ack. An error or a bad result is dropped so we retry.
+
+    Returns True when this message was a subscribe response (stored or not).
+    """
+    if msg.get("method") or "id" not in msg:
+        return False
+    op = _pending_pop(pending, msg.get("id"))
+    if not isinstance(op, dict):
+        return False
+    err = msg.get("error")
+    if err or "result" not in msg:
+        _note_sub_error(op, err or "no result")
+        return True
+    key = str(op.get("key") or "")
+    try:
+        sub_id = int(msg["result"])
+    except (TypeError, ValueError):
+        _note_sub_error(op, msg.get("result"))
+        return True
+    subs[key] = sub_id
+    meta[sub_id] = dict(op, key=key)
+    return True
 
 
 def prioritize_subscriptions(pools: list[dict], limit: int = MAX_SUBS) -> dict[str, dict]:
@@ -1153,13 +1377,13 @@ def _ops_for(pool: dict) -> dict[str, dict]:
         ops[f"acct:{addr}"] = {"method": "accountSubscribe", "params": [addr, acct], "role": "curve"}
         ops[f"logs:{addr}"] = {
             "method": "logsSubscribe",
-            "params": [{"mentions": [addr]}, {"commitment": "processed"}],
+            "params": [{"mentions": [addr]}, {"commitment": LOGS_COMMITMENT}],
             "role": "logs",
         }
     elif kind == "pumpswap":
         ops[f"logs:{addr}"] = {
             "method": "logsSubscribe",
-            "params": [{"mentions": [addr]}, {"commitment": "processed"}],
+            "params": [{"mentions": [addr]}, {"commitment": LOGS_COMMITMENT}],
             "role": "logs",
         }
         base_vault = str(pool.get("base_vault") or "")
@@ -1184,13 +1408,31 @@ def _ops_for(pool: dict) -> dict[str, dict]:
     return ops
 
 
-def _sync_subs(ws, subs, meta, pending, rpc_id, http):
-    pools = []
+def _cached_watched_pools() -> list[dict]:
+    """Pools already resolved. The socket thread must not hit HTTP."""
+    out = []
     for mint in watched_mints():
-        pool = _pool_for(mint, http)
-        if pool:
-            pools.append(pool)
+        with _guard:
+            pool = _pools.get(mint)
+            snap = dict(pool) if pool and pool.get("address") else None
+        if snap:
+            out.append(snap)
+    return out
+
+
+def _sync_subs(ws, subs, meta, pending, rpc_id, http, include_logs: bool = True):
+    del http  # pool resolve lives on the vault thread
+    now = time.monotonic()
+    for rpc, op in list(pending.items()):
+        sent = float(op.get("sent") or 0)
+        if sent and now - sent > SUB_ACK_S:
+            pending.pop(rpc, None)
+            _note_sub_error(op, "ack timeout")
+    pools = _cached_watched_pools()
     want = prioritize_subscriptions(pools, MAX_SUBS)
+    if not include_logs:
+        # Logs each have their own socket. This socket is vaults and pool accounts.
+        want = {k: v for k, v in want.items() if not str(k).startswith("logs:")}
     for key in list(subs):
         if key in want:
             continue
@@ -1208,13 +1450,159 @@ def _sync_subs(ws, subs, meta, pending, rpc_id, http):
         if len(subs) + len(pending) >= MAX_SUBS:
             break
         rpc_id += 1
-        pending[rpc_id] = dict(op, key=key)
+        pending[rpc_id] = dict(op, key=key, sent=now)
         _send(ws, {"jsonrpc": "2.0", "id": rpc_id, "method": op["method"], "params": op["params"]})
     for key, op in want.items():
         sub_id = subs.get(key)
         if sub_id is not None:
             meta[sub_id] = dict(op, key=key)
     return subs, meta, pending, rpc_id
+
+
+def _wanted_log_ops() -> dict[str, dict]:
+    """One logsSubscribe per PumpSwap or pump pool. Each runs on its own socket.
+
+    A shared socket on the public mainnet RPC pushes notifications for only
+    the first logsSubscribe. The others ack (or never ack) and stay silent,
+    which is why pool_swap was 0 on every coin but one.
+    """
+    ops: dict[str, dict] = {}
+    for pool in _cached_watched_pools():
+        addr = str(pool.get("address") or "")
+        if pool.get("kind") not in ("pumpswap", "pump") or not addr:
+            continue
+        key = f"logs:{addr}"
+        ops[key] = {
+            "method": "logsSubscribe",
+            "params": [{"mentions": [addr]}, {"commitment": LOGS_COMMITMENT}],
+            "role": "logs",
+            "mint": pool.get("mint"),
+            "pool": addr,
+            "key": key,
+        }
+    return ops
+
+
+def _logs_supervisor() -> None:
+    """Keep one live logs socket for every watched PumpSwap or pump pool."""
+    while not _stop.is_set():
+        want = _wanted_log_ops()
+        for key, ev in list(_log_stop.items()):
+            if key not in want:
+                ev.set()
+        for key, op in want.items():
+            ev = _log_stop.get(key)
+            thread = _log_threads.get(key)
+            if thread is not None and thread.is_alive() and ev is not None and not ev.is_set():
+                continue
+            ev = threading.Event()
+            _log_stop[key] = ev
+            thread = threading.Thread(
+                target=_serve_one_log,
+                args=(key, dict(op), ev),
+                name="trade-log",
+                daemon=True,
+            )
+            _log_threads[key] = thread
+            thread.start()
+        time.sleep(0.4)
+
+
+def _serve_one_log(key: str, op: dict, stop_ev: threading.Event) -> None:
+    """One websocket, one logsSubscribe, until the pool leaves the watch list."""
+    import websocket
+
+    backoff = 0.0
+    while not _stop.is_set() and not stop_ev.is_set():
+        ws = None
+        sub_id = None
+        try:
+            wss = logs_endpoint()
+            ws = websocket.WebSocket()
+            ws.settimeout(5)
+            ws.connect(wss, timeout=8)
+            ws.send(json.dumps({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "logsSubscribe",
+                "params": op["params"],
+            }))
+            deadline = time.time() + 8
+            while sub_id is None and time.time() < deadline and not stop_ev.is_set() and not _stop.is_set():
+                try:
+                    raw = ws.recv()
+                except Exception as exc:
+                    if exc.__class__.__name__ == "WebSocketTimeoutException":
+                        continue
+                    raise
+                if not raw:
+                    continue
+                try:
+                    msg = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(msg, dict) or msg.get("method"):
+                    continue
+                if msg.get("error") or "result" not in msg:
+                    _note_sub_error(op, msg.get("error") or "no result")
+                    raise RuntimeError("logs ack failed")
+                try:
+                    sub_id = int(msg["result"])
+                except (TypeError, ValueError):
+                    _note_sub_error(op, msg.get("result"))
+                    raise RuntimeError("logs ack was not an id")
+            if sub_id is None:
+                _note_sub_error(op, "ack timeout")
+                raise RuntimeError("logs ack timeout")
+            _set_log_sub(key, sub_id)
+            meta = {sub_id: dict(op, key=key)}
+            backoff = 0.0
+            last_note = time.time()
+            while not _stop.is_set() and not stop_ev.is_set():
+                try:
+                    raw = ws.recv()
+                except Exception as exc:
+                    if exc.__class__.__name__ == "WebSocketTimeoutException":
+                        try:
+                            ws.ping()
+                        except Exception:
+                            raise
+                        # A subscription that acks and then stays silent is the
+                        # publicnode failure mode. Reconnect and subscribe again.
+                        if time.time() - last_note > 45:
+                            raise RuntimeError("logs silent")
+                        continue
+                    raise
+                if not raw:
+                    continue
+                try:
+                    msg = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(msg, dict) and msg.get("method") == "logsNotification":
+                    last_note = time.time()
+                    _on_logs(msg, meta)
+        except Exception as exc:
+            if not stop_ev.is_set() and not _stop.is_set():
+                text = f"{exc.__class__.__name__}: {exc}"
+                # 1006 is an idle drop from the logs socket. Reconnect quietly.
+                routine = "1006" in text or "Connection to remote host was lost" in text
+                if routine:
+                    time.sleep(0.4)
+                else:
+                    backoff = next_backoff(backoff)
+                    _note_sub_error(op, text)
+                    time.sleep(min(backoff, 3.0))
+        finally:
+            if sub_id is not None:
+                _set_log_sub(key, None, clear_id=sub_id)
+            if ws is not None:
+                try:
+                    ws.close()
+                except Exception:
+                    pass
+        if stop_ev.is_set() or _stop.is_set():
+            return
 
 
 def _send(ws, payload: dict) -> None:
@@ -1299,7 +1687,15 @@ def _on_logs(msg: dict, meta: dict[int, dict]) -> None:
         return
     sig = str(value.get("signature") or "")
     sol_driver = sol if _quote_is_sol_or_stable(pool) else None
-    _publish(mint, px, compare_mid=True, slot=_slot_of(result), signature=sig, sol=sol_driver)
+    _publish(
+        mint,
+        px,
+        compare_mid=True,
+        slot=_slot_of(result),
+        signature=sig,
+        sol=sol_driver,
+        executed=True,
+    )
 
 
 def _slot_of(result: dict) -> int | None:
@@ -1319,8 +1715,14 @@ def _publish(
     signature: str = "",
     source: str = "pool_swap",
     sol: float | None = None,
+    executed: bool = False,
 ) -> str:
-    """Publish against the previous mid. A spike does not move that mid."""
+    """Publish against the previous mid. A spike does not move that mid.
+
+    An executed fill becomes the mark for SWAP_MARK_S. Vault ratios wait.
+    """
+    if source == "pool_vault" and _recent_swap(mint):
+        return "held"
     had = mid_price(mint, max_age=120.0)
     status = ingest_swap(
         mint,
@@ -1334,6 +1736,9 @@ def _publish(
     )
     if status in ("ok", "same"):
         note_mid(mint, px)
+        if executed:
+            with _guard:
+                _swap_at[mint] = time.time()
     return status
 
 
@@ -1503,9 +1908,12 @@ def _refresh_pump_mids(http: str) -> None:
             pool = _pools.get(mint)
             if not pool or pool.get("kind") != "pumpswap":
                 continue
+            snap = dict(pool)
             seen = _mids.get(mint)
-            if seen and now - seen[0] < 1.0:
-                continue
+        # No vault subscription: poll every pass (the loop is 1s). A covered
+        # pool can wait on the socket until the mid is a second old.
+        if _vault_sub_covered(snap) and seen and now - seen[0] < 1.0:
+            continue
         mints.append(mint)
     for mint in mints:
         with _guard:
