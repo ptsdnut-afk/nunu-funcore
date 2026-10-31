@@ -830,6 +830,14 @@ def fetch_live_tick(
             return None
         _clear_live_backoff(mint)
         fetched = time.time()
+        # Jupiter is only the fallback. A fresh PumpSwap/curve mid more than
+        # 2% from that quote is the price (Jupiter is wrong on those pools).
+        if source == "jupiter":
+            source = "jupiter_fallback"
+        mid = trade_stream.prefer_mid_over_jupiter(mint, px)
+        if mid:
+            px = mid
+            source = "stream"
         payload = {
             "mint": mint,
             "price_usd": px,
@@ -1486,15 +1494,20 @@ def _mark_ended(st: dict) -> None:
     _push_event(st, "end", f"24h over — final ${st['final_cash']:.3f}")
 
 
-def force_end_session() -> dict:
+def force_end_session(session_id: str | None = None) -> dict:
     """Close the active 24h run the same way the clock does.
 
     Does not start another run. A future ends_at is pulled back so tick_session
     takes the natural force-sell path (live mark when DEX answers, else last mark).
+    A session_id that is not the active run is ignored, so a late end for an
+    old run cannot close the one that replaced it.
     """
     with _lock:
         st = load_state()
         if st.get("status") != "active":
+            return st
+        wanted = (session_id or "").strip()
+        if wanted and str(st.get("session_id") or "") != wanted:
             return st
         past = datetime.now(timezone.utc) - timedelta(seconds=2)
         st["ends_at"] = past.strftime("%Y-%m-%dT%H:%M:%SZ")

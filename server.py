@@ -252,7 +252,7 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 86,
+            "panel_v": 87,
             "time": _utc(),
             "qa_tick": "page ?qa_tick=both|up|down",
             "qa_end": "page ?qa_end=1 (one-shot) or POST /api/game/end",
@@ -298,15 +298,19 @@ def api_health():
             ),
             "live_tick": (
                 "Game price and the rocket chart share one tick cache. "
-                "Watched mints (an open position or an open Game/drawer) get post-swap prices from "
-                "Solana RPC accountSubscribe on the main pool. PumpPortal trade sockets are not used: "
-                "they require a funded API key. Jupiter Price API usdPrice is the anchor and the fallback "
-                "when that stream is silent for more than 5s. A swap more than 3% from the anchor is rejected. "
+                "The displayed price is the last real swap on the coin's main pool. "
+                "PumpSwap and pump.fun curves use logsSubscribe (mentions the pool) and parse "
+                "Buy/Sell Program data into a per-trade price. Vault accountSubscribe is the second source. "
+                "Orca keeps accountSubscribe. PumpPortal trade sockets are not used: "
+                "they require a funded API key. No getTransaction. "
+                "Jupiter Price API usdPrice is only the fallback when no trade has come in for more than 5s "
+                "(source jupiter_fallback). For pump coins a swap more than 3% from the decoded pool mid "
+                "is rejected, and a PumpSwap mid more than 2% from Jupiter wins. "
                 "Browsers poll /api/game/tick every 1s and never call Jupiter or RPC. "
                 "A 429 or a timeout backs off and serves the last good tick with its true age. "
                 "stale is true exactly when quote_age_s > quote_sla_s (5s). Past that, Buy, Sell, and stops "
                 "will not fill. A fresh tick stores price_ts, trade_ts, and render_ts. "
-                "source is stream or jupiter."
+                "source is stream or jupiter_fallback."
             ),
             "qa_tick_down": (
                 "Server ?qa_tick=down on /api/game/tick (also buy, sell, and quote) walks this browser "
@@ -361,7 +365,7 @@ def api_gold():
     return jsonify(
         {
             "ok": True,
-            "panel_v": 86,
+            "panel_v": 87,
             "feature": "gold_scar",
             "count": len(picks),
             "empty_ok": True,
@@ -743,8 +747,14 @@ def api_game_state_tick():
 
 @app.post("/api/game/end")
 def api_game_end():
-    """Force-end the active 24h paper run. Same close as the clock. No auto-start."""
-    st = game_mod.force_end_session()
+    """Force-end the active 24h paper run. Same close as the clock. No auto-start.
+
+    Body session_id, when present, must be the active run. A stale end for an
+    older session does not close the current one.
+    """
+    body = request.get_json(silent=True) or {}
+    sid = str(body.get("session_id") or "").strip() or None
+    st = game_mod.force_end_session(session_id=sid)
     return jsonify({"ok": True, "state": game_mod.public_state(st), "sound": "end"})
 
 

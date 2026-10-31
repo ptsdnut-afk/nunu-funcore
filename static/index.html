@@ -2711,7 +2711,7 @@
         <div class="logo">N</div>
         <div>
           <h1>Nunu Filter</h1>
-          <p class="sub">Solana Research Panel · paper only · v85</p>
+          <p class="sub">Solana Research Panel · paper only · v87</p>
         </div>
       </div>
       <div class="mode-tabs" role="tablist">
@@ -3130,7 +3130,7 @@
     </div>
 
     <footer class="app-foot">
-      <div class="foot-live">Paper only · no wallets. <code>?v=86</code></div>
+      <div class="foot-live">Paper only · no wallets. <code>?v=87</code></div>
       <details class="qa-foot">
         <summary>QA fixtures</summary>
         <div>APIs: <code>/api/flagged</code> · <code>/api/update-now</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>. Social Tap is coin, meme, and crypto viral from public sources — nothing invented. Checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: <code>&amp;mode=game</code>. Equity tick proof: <code>?qa_tick=both</code>, <code>?qa_tick=up</code>, <code>?qa_tick=down</code>. Display offset only. Do not combine with <code>?fixture=</code>. 24h end proof: <code>?qa_end=1</code> (one-shot, then Start 24h). Does not auto-start. An ended run opens a paper Review (dismiss, or Start next 24h — same restart as the main button). Mute silences the soft review cue. Max fixture proof: <code>?qa_max=1</code> (one synthetic bonding row, badge QA MAX). Absent query leaves the live feed unchanged. Do not combine with <code>?fixture=</code>. Gold fixture proof: <code>?qa_gold=1</code> (one synthetic rare card in Gold picks, no chime on the seeded load) or <code>?qa_gold=arrive</code> (same card, one ♪ GOLD). Mute silences the gold cue. It is not the Token Flow new-token chime. Absent query leaves Gold empty unless a live row clears the stricter 7-gate stack. Do not combine with <code>?fixture=</code>.</div>
@@ -3191,7 +3191,7 @@
 
   <script>
 
-    const PANEL_V = 86;
+    const PANEL_V = 87;
     const QA_MAX_NOTE = "QA Max fixture — synthetic bonding row QAMAX. Live unknown rows stay Max-empty. Not a real mint.";
     const QA_GOLD_NOTE = "QA Gold fixture — synthetic rare card QAGOLD in Gold picks. Not a live mint. The normal page stays empty unless the 7-gate stack clears.";
     const QA_GOLD_ARRIVE_NOTE = "QA Gold arrive — one ♪ GOLD for the synthetic card. Mute silences it. This cue is not the Token Flow new-token chime. ?qa_gold=1 seeds quietly.";
@@ -6150,13 +6150,17 @@
 
     function tickSourceLabel(src) {
       if (src === "stream" || src === "qa_tick") return src;
+      if (src === "jupiter_fallback") return "jupiter_fallback";
       if (src === "jup" || src === "jupiter" || !src) return "jupiter";
       return String(src);
     }
 
     function tickDebugLine(tick, px, renderTs) {
       tick = tick || {};
-      return "source=" + tickSourceLabel(tick.source)
+      const srcField = tick.source === "jupiter_fallback"
+        ? "src=jupiter_fallback"
+        : ("source=" + tickSourceLabel(tick.source));
+      return srcField
         + " trade_ts=" + (tick.trade_ts || tick.price_ts || "—")
         + " render_ts=" + (renderTs || "—")
         + " px=" + px
@@ -6368,6 +6372,39 @@
       return { reset: false, mood: "keep", chip: "keep", tick: "keep", reason: "same-run" };
     }
     /* ship-k-pure-end */
+
+    /* w30-pure-start */
+    function acceptGameState(current, incoming) {
+      if (!incoming || typeof incoming !== "object") return { ok: false, reason: "empty" };
+      current = current || {};
+      const curSid = String(current.session_id || "");
+      if (!curSid) return { ok: true, reason: "first" };
+      const nextSid = String(incoming.session_id || "");
+      const curTime = Date.parse(current.server_time || "");
+      const nextTime = Date.parse(incoming.server_time || "");
+      const curMs = Number.isNaN(curTime) ? 0 : curTime;
+      const nextMs = Number.isNaN(nextTime) ? 0 : nextTime;
+      const remain = Number(incoming.remain_seconds);
+      const incomingEnded = incoming.status === "ended"
+        || (incoming.status === "active" && Number.isFinite(remain) && remain <= 0);
+      const curRemain = Number(current.remain_seconds);
+      const currentLive = current.status === "active"
+        && !(Number.isFinite(curRemain) && curRemain <= 0);
+      if (nextSid && nextSid !== curSid) {
+        if (currentLive && incomingEnded) return { ok: false, reason: "stale-ended" };
+        const curStarted = Date.parse(current.started_at || "");
+        const nextStarted = Date.parse(incoming.started_at || "");
+        if (currentLive && !Number.isNaN(curStarted) && !Number.isNaN(nextStarted) && nextStarted < curStarted) {
+          return { ok: false, reason: "older-run" };
+        }
+        if (currentLive && curMs && nextMs && nextMs < curMs) return { ok: false, reason: "stale-clock" };
+      }
+      if (nextSid && nextSid === curSid && curMs && nextMs && nextMs < curMs) {
+        return { ok: false, reason: "stale-snapshot" };
+      }
+      return { ok: true, reason: "apply" };
+    }
+    /* w30-pure-end */
 
     /* ship-p-pure-start */
     const REVIEW_COOK_MS = 800;
@@ -6853,7 +6890,8 @@
       const mine = tickLogLines(book, mint);
       const cutoff = Date.now() - 60000;
       const inWin = mine.filter((r) => r.t >= cutoff).length;
-      const head = "changes/60s " + inWin + " · " + tickSourceLabel(tick.source);
+      const headSrc = tick.source === "jupiter_fallback" ? "src=jupiter_fallback" : tickSourceLabel(tick.source);
+      const head = "changes/60s " + inWin + " · " + headSrc;
       el.textContent = head + "\n" + mine.slice(-12).map((r) => r.line).join("\n");
     }
 
@@ -7595,8 +7633,7 @@
           return;
         }
         if (data.state) {
-          state.game = data.state;
-          state.gameLoaded = true;
+          commitGameState(data.state);
         } else if (data.profile) {
           state.game = state.game || {};
           state.game.profile = data.profile;
@@ -7632,8 +7669,7 @@
           return;
         }
         if (data.state) {
-          state.game = data.state;
-          state.gameLoaded = true;
+          commitGameState(data.state);
         } else if (data.profile && state.game) {
           state.game = state.game || {};
           state.game.profile = data.profile;
@@ -8383,26 +8419,38 @@
       return true;
     }
 
+    function commitGameState(incoming, opts) {
+      opts = opts || {};
+      if (opts.gen != null && opts.gen !== (state.gameGen || 0)) return false;
+      if (!incoming || typeof incoming !== "object") return false;
+      if (!opts.force) {
+        const gate = acceptGameState(state.game, incoming);
+        if (!gate.ok) return false;
+      }
+      state.game = incoming;
+      state.gameLoaded = true;
+      return true;
+    }
+
     function requestDeadClockEnd(g) {
       const sid = (g && g.session_id) || "";
       if (!sid || state.deadEndFor === sid || state.gameBusy) return;
+      const liveSid = (state.game && state.game.session_id) || "";
+      if (liveSid && liveSid !== sid) return;
       state.deadEndFor = sid;
       const gen = state.gameGen || 0;
       fetch("/api/game/end", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: "{}",
+        body: JSON.stringify({ session_id: sid }),
         cache: "no-store",
       }).then(async (res) => {
         if (!res.ok) return null;
         return res.json();
       }).then((data) => {
-        if (!data || gen !== (state.gameGen || 0)) return;
-        if (data.state) {
-          state.game = data.state;
-          state.gameLoaded = true;
-          renderGame();
-        }
+        if (!data || !data.state) return;
+        if (!commitGameState(data.state, { gen: gen })) return;
+        renderGame();
       }).catch(() => {});
     }
 
@@ -8424,9 +8472,8 @@
           cache: "no-store",
         });
         if (!res.ok) throw new Error("game HTTP " + res.status);
-        if (gen !== (state.gameGen || 0)) return;
-        state.game = await res.json();
-        state.gameLoaded = true;
+        const body = await res.json();
+        if (!commitGameState(body, { gen: gen })) return;
         if (qaEnd) {
           state.qaEndNote = state.game && state.game.status === "ended"
             ? "QA force-end closed this 24h run. Start 24h begins a fresh $5 run. This does not auto-start."
@@ -8501,8 +8548,7 @@
         });
         const data = await res.json();
         if (!res.ok || data.ok === false) throw new Error(data.error || ("HTTP " + res.status));
-        state.game = data.state || data;
-        state.gameLoaded = true;
+        commitGameState(data.state || data, { force: true });
         state.lastPeak = 0;
         state.seenEventAt = null;
         state.rocketPhase = "";
@@ -8959,8 +9005,7 @@
           sounded = true;
           throw new Error(data.error || ("HTTP " + res.status));
         }
-        state.game = data.state || data;
-        state.gameLoaded = true;
+        commitGameState(data.state || data, { force: true });
         state.lastPeak = 0;
         renderGame();
         const cashTxt = state.game && state.game.cash_usd != null ? fmtGameUsd(state.game.cash_usd) : "—";
@@ -9079,14 +9124,13 @@
           if (!data.sound) beep("fail");
           setGameLine(data.error || "Buy failed", "bad");
           toast(data.error || "Buy failed", true);
-          if (data.state) { state.game = data.state; state.gameLoaded = true; renderGame(); }
+          if (data.state) { commitGameState(data.state); renderGame(); }
           return;
         }
         const filled = data.position && data.position.mint ? data.position.mint : "";
         const mintMismatch = !!(looksLikeMint(requestedMint) && filled && filled !== requestedMint);
         if (filled && !mintMismatch) document.getElementById("gMint").value = filled;
-        state.game = data.state;
-        state.gameLoaded = true;
+        commitGameState(data.state);
         renderGame();
         playResponseSound(data);
         const sym = (data.position && data.position.symbol) || "?";
@@ -9133,18 +9177,16 @@
           if (!data.sound) beep("fail");
           setGameLine(data.error || "Sell failed", "bad");
           toast(data.error || "Sell failed", true);
-          if (data.state) {
-            state.game = data.state;
-            state.gameLoaded = true;
+          if (data.state && commitGameState(data.state)) {
             if (state.mode === "game") renderGame();
             else paintFollowTab();
           }
           return;
         }
-        state.game = data.state;
-        state.gameLoaded = true;
-        if (state.mode === "game") renderGame();
-        else paintFollowTab();
+        if (commitGameState(data.state)) {
+          if (state.mode === "game") renderGame();
+          else paintFollowTab();
+        }
         playResponseSound(data);
         setGameLine("Sold", "ok");
         toast("Sold");
@@ -9193,11 +9235,10 @@
           const reason = data.error || (soldN === 0 ? "Sold 0" : "Sell all failed");
           setGameLine(reason, "bad");
           toast(reason, true);
-          if (data.state) { state.game = data.state; state.gameLoaded = true; renderGame(); }
+          if (data.state) { commitGameState(data.state); renderGame(); }
           return;
         }
-        state.game = data.state;
-        state.gameLoaded = true;
+        commitGameState(data.state);
         renderGame();
         playResponseSound(data);
         const sold = Number(data.sold);

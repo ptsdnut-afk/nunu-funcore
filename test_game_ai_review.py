@@ -305,7 +305,7 @@ class ShipPReviewTests(unittest.TestCase):
 
         data = server.app.test_client().get("/api/health").get_json()
         self.assertTrue(data["ok"])
-        self.assertEqual(data["panel_v"], 86)
+        self.assertEqual(data["panel_v"], 87)
         for feature in (
             "game_ai_review",
             "game_24h_restart",
@@ -324,10 +324,10 @@ class ShipPReviewTests(unittest.TestCase):
 class ShipPPanelTests(unittest.TestCase):
     def test_panel_offers_review_without_trapping_restart(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
-        self.assertIn("const PANEL_V = 86", html)
-        self.assertIn("paper only · v85", html)
+        self.assertIn("const PANEL_V = 87", html)
+        self.assertIn("paper only · v87", html)
         self.assertNotIn("?v=76", html)
-        self.assertIn("?v=86", html)
+        self.assertIn("?v=87", html)
         self.assertIn('id="gReview"', html)
         self.assertIn('id="gReviewSheet"', html)
         self.assertIn('data-feature="game_ai_review"', html)

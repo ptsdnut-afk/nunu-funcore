@@ -120,6 +120,18 @@ class ShipKRestartTests(unittest.TestCase):
         self.assertEqual(again["session_id"], "ghost")
         self.assertEqual(len(again["closed"]), 1)
 
+    def test_stale_end_for_another_session_does_not_close_the_live_run(self):
+        future = _utc(datetime.now(timezone.utc) + timedelta(hours=20))
+        self._save_active(ends_at=future, positions=[_pos()], session_id="live", cash=4.0)
+        stayed = game.force_end_session(session_id="oldrun")
+        self.assertEqual(stayed["status"], "active")
+        self.assertEqual(stayed["session_id"], "live")
+        self.assertEqual(len(stayed["positions"]), 1)
+        ended = game.force_end_session(session_id="live")
+        self.assertEqual(ended["status"], "ended")
+        self.assertEqual(ended["session_id"], "live")
+        self.assertEqual(ended["positions"], [])
+
     def test_start_after_end_is_a_fresh_baseline(self):
         future = _utc(datetime.now(timezone.utc) + timedelta(hours=23))
         self._save_active(ends_at=future, positions=[_pos()], session_id="ghost")
@@ -208,7 +220,7 @@ class ShipKRestartTests(unittest.TestCase):
         res = server.app.test_client().get("/api/health")
         data = res.get_json()
         self.assertTrue(data["ok"])
-        self.assertEqual(data["panel_v"], 86)
+        self.assertEqual(data["panel_v"], 87)
         self.assertIn("game_24h_restart", data["features"])
         self.assertIn("dismiss_back", data["features"])
         self.assertIn("game_polish", data["features"])
@@ -220,10 +232,10 @@ class ShipKRestartTests(unittest.TestCase):
 class ShipKPanelTests(unittest.TestCase):
     def test_panel_resets_rocket_and_hides_ghost_open(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
-        self.assertIn("const PANEL_V = 86", html)
-        self.assertIn("paper only · v85", html)
+        self.assertIn("const PANEL_V = 87", html)
+        self.assertIn("paper only · v87", html)
         self.assertNotIn("?v=76", html)
-        self.assertIn("?v=86", html)
+        self.assertIn("?v=87", html)
         self.assertIn("function sessionEndView(", html)
         self.assertIn("function freshRunBaseline(", html)
         self.assertIn("function rocketResetDecision(", html)
@@ -279,6 +291,38 @@ const keep = rocketResetDecision(
 if (keep.reset || keep.reason !== "same-run") process.exit(10);
 """
         subprocess.check_call(["node", "-e", script])
+        pure30 = html[html.index("/* w30-pure-start */"):html.index("/* w30-pure-end */")]
+        script30 = pure30 + r"""
+const live = {
+  session_id: "live", status: "active", remain_seconds: 80000,
+  server_time: "2026-10-31T12:00:10Z", started_at: "2026-10-31T12:00:00Z",
+};
+const oldEnded = {
+  session_id: "old", status: "ended", remain_seconds: 0,
+  server_time: "2026-10-31T11:00:00Z", started_at: "2026-10-31T10:00:00Z",
+};
+const stale = acceptGameState(live, oldEnded);
+if (stale.ok || stale.reason !== "stale-ended") process.exit(2);
+const deadOld = acceptGameState(live, {
+  session_id: "old", status: "active", remain_seconds: 0,
+  server_time: "2026-10-31T11:59:00Z", started_at: "2026-10-31T10:00:00Z",
+});
+if (deadOld.ok) process.exit(3);
+const realEnd = acceptGameState(live, {
+  session_id: "live", status: "ended", remain_seconds: 0,
+  server_time: "2026-10-31T12:00:20Z",
+});
+if (!realEnd.ok) process.exit(4);
+const olderSnap = acceptGameState(live, {
+  session_id: "live", status: "active", remain_seconds: 80000,
+  server_time: "2026-10-31T12:00:01Z",
+});
+if (olderSnap.ok || olderSnap.reason !== "stale-snapshot") process.exit(5);
+const first = acceptGameState(null, oldEnded);
+if (!first.ok) process.exit(6);
+"""
+        subprocess.check_call(["node", "-e", script30])
+        self.assertIn("JSON.stringify({ session_id: sid })", html)
 
 
 if __name__ == "__main__":

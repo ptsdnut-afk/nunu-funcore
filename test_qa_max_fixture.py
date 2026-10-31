@@ -72,7 +72,7 @@ class HealthTests(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         data = res.get_json()
         self.assertTrue(data["ok"])
-        self.assertEqual(data["panel_v"], 86)
+        self.assertEqual(data["panel_v"], 87)
         self.assertIn("qa_max_fixture", data["features"])
         self.assertIn("hide_max_unknown", data["features"])
         self.assertIn("trade_chart", data["features"])
@@ -85,10 +85,10 @@ class HealthTests(unittest.TestCase):
 
     def test_panel_wires_the_opt_in_query(self):
         html = _panel()
-        self.assertIn("const PANEL_V = 86", html)
-        self.assertIn("paper only · v85", html)
+        self.assertIn("const PANEL_V = 87", html)
+        self.assertIn("paper only · v87", html)
         self.assertNotIn("?v=76", html)
-        self.assertIn("?v=86", html)
+        self.assertIn("?v=87", html)
         self.assertIn('data-feature="hide_max_unknown"', html)
         self.assertIn('data-qa-max-fixture="opt-in"', html)
         self.assertIn("function wantsQaMax()", html)
