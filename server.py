@@ -254,7 +254,7 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 87,
+            "panel_v": 88,
             "time": _utc(),
             "qa_tick": "page ?qa_tick=both|up|down",
             "qa_end": "page ?qa_end=1 (one-shot) or POST /api/game/end",
@@ -314,10 +314,14 @@ def api_health():
                 "Websocket logsSubscribe is attached when the RPC allows it; if it is blocked, the "
                 "HTTP vault poll still prices the coin. /api/health stream reports ws_state, ws_error, "
                 "subscriptions, and last_event. "
-                "Browsers poll /api/game/tick every 1s and never call Jupiter or RPC. "
+                "Browsers poll /api/game/tick every 500ms and never call Jupiter or RPC. "
                 "stale is true exactly when quote_age_s > quote_sla_s (5s). Past that, Buy, Sell, and stops "
-                "will not fill. A fresh tick stores price_ts, trade_ts, render_ts, src, and fetched_at. "
-                "src is pool_swap, pool_vault, jupiter, or jupiter_fallback."
+                "will not fill. A fresh tick stores price_ts, trade_ts, render_ts, src, driver, and fetched_at. "
+                "src is pool_swap, pool_vault, jupiter, or jupiter_fallback. "
+                "driver is swap, or sol_usd when only the SOL price moved. "
+                "A single print more than 15% from the last published price is held "
+                "until the other source or the next paired vault read agrees. "
+                "Held spikes are stream.spike_rejects and are not a stop or a take-profit."
             ),
             "qa_tick_down": (
                 "Server ?qa_tick=down on /api/game/tick (also buy, sell, and quote) walks this browser "
@@ -373,7 +377,7 @@ def api_gold():
     return jsonify(
         {
             "ok": True,
-            "panel_v": 87,
+            "panel_v": 88,
             "feature": "gold_scar",
             "count": len(picks),
             "empty_ok": True,

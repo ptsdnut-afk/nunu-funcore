@@ -1744,13 +1744,22 @@
       box-shadow: 0 0 22px rgba(62,207,142,.5), 0 0 0 2px rgba(62,207,142,.28);
     }
     /* w31-score-cell: score pill is its own column at every width, never on the name */
+    /* w5-score-pill: the text box itself stays inside the coin column.
+       max-width:100% on an indefinite flex item does not shrink the border box,
+       so getBoundingClientRect still overlapped the pill. */
     #modeFilter .tok > .coin {
       grid-column: 1;
       grid-row: 1;
       min-width: 0;
+      max-width: 100%;
       overflow: hidden;
       position: relative;
       z-index: 1;
+    }
+    #modeFilter .coin > .ident {
+      min-width: 0;
+      flex: 1 1 0%;
+      overflow: hidden;
     }
     #modeFilter .tok > .score-btn {
       grid-column: 2;
@@ -1759,11 +1768,14 @@
       align-self: center;
       position: relative;
       z-index: 2;
+      max-width: 100%;
     }
     #modeFilter .coin .ticker,
     #modeFilter .coin .name {
       display: block;
+      width: 100%;
       max-width: 100%;
+      min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -3216,7 +3228,7 @@
 
   <script>
 
-    const PANEL_V = 87;
+    const PANEL_V = 88;
     function paintPanelVersion() {
       const label = String(PANEL_V);
       document.querySelectorAll("[data-panel-v]").forEach((el) => {
@@ -3383,7 +3395,7 @@
       pfpPickerGotFile: false,
       pfpPickerSnap: null,
       GAME_POLL_MS: 2000,
-      LIVE_TICK_MS: 1000,
+      LIVE_TICK_MS: 500,
       tickQuote: null,
       tickDebug: [],
       lastLoggedPx: null,
@@ -3437,6 +3449,13 @@
         }
         loadData(false);
       }, state.pollMs);
+    }
+
+    function fmtLivePx(n) {
+      const x = Number(n);
+      if (!(x > 0) || !Number.isFinite(x)) return "—";
+      if (x >= 1) return x.toPrecision(8);
+      return x.toExponential(6);
     }
 
         function fmtPx(n) {
@@ -5060,7 +5079,7 @@
         '<div class="metric"><span class="lab">' + lab + '</span><span class="mval' + (cls ? (" " + cls) : "") + '">' + val + "</span></div>";
       return '<article class="tok' + (late ? " late-row" : "") + (isCopy ? " copy-row" : "") + (sitBand === "near" ? " sit-near" : "") + (sitBand === "over" ? " sit-over" : "") + (open ? " open" : "") + (selected ? " selected" : "") + (arrived ? (state.mute ? " arrive-muted" : " arrive") : "") + (r.qa_max_fixture ? " qa-max-row" : "") + '" data-mint="' + esc(mint) + '" data-sitting-band="' + esc(sitBand) + '"' + (r.qa_max_fixture ? ' data-qa-max="1"' : "") + '>' +
         '<button type="button" class="coin coin-open" data-mint="' + esc(mint) + '" aria-haspopup="dialog" aria-label="Open ' + esc(r.ticker || "coin") + ' detail">' + imgHtml +
-          "<div><div class=\"ticker\">" + esc(r.ticker) + " " + badge + "</div>" +
+          "<div class=\"ident\"><div class=\"ticker\">" + esc(r.ticker) + " " + badge + "</div>" +
           '<div class="name" title="' + esc(r.name) + '">' + esc(r.name) + "</div>" +
           (warnHtml ? '<div class="warns">' + warnHtml + "</div>" : "") +
           "</div></button>" +
@@ -6097,22 +6116,29 @@
         if (n > 0 && Number.isFinite(n)) nums.push(n);
       });
       if (nums.length < 2) return "";
-      let lo = nums[0];
-      let hi = nums[0];
+      const last = nums[nums.length - 1];
+      const host = (typeof state !== "undefined" && state) ? state : (seriesPoints.host || (seriesPoints.host = {}));
+      let band = host.chartBand;
+      if (!band || !(band.hi > band.lo)) {
+        const pad = Math.max(Math.abs(last) * 0.01, 1e-12);
+        band = { lo: last - pad, hi: last + pad };
+      }
+      let lo = band.lo;
+      let hi = band.hi;
+      const span = Math.max(hi - lo, Math.abs(last) * 0.004, 1e-12);
+      if (last > hi) hi = last + span * 0.5;
+      if (last < lo) lo = last - span * 0.5;
       nums.forEach((n) => {
-        if (n < lo) lo = n;
-        if (n > hi) hi = n;
+        if (n > hi) hi = n + span * 0.25;
+        if (n < lo) lo = n - span * 0.25;
       });
-      const span = hi - lo;
-      const pad = span > 0 ? span * 0.12 : (hi * 0.01 || 1);
-      lo -= pad;
-      hi += pad;
+      host.chartBand = { lo: lo, hi: hi };
       const height = hi - lo;
       if (!(height > 0)) return "";
       const pts = nums.map((n, i) => {
         const x = nums.length === 1 ? 320 : (i / (nums.length - 1)) * 320;
         const y = 8 + (1 - (n - lo) / height) * 56;
-        return x.toFixed(1) + "," + y.toFixed(1);
+        return x.toFixed(2) + "," + y.toFixed(2);
       });
       return pts.join(" ");
     }
@@ -6276,12 +6302,17 @@
       return tickSrcName({ source: src });
     }
 
+    function tickDriver(tick) {
+      return String((tick && tick.driver) || "swap") === "sol_usd" ? "sol_usd" : "swap";
+    }
+
     function tickDebugLine(tick, px, renderTs) {
       tick = tick || {};
       return "src=" + tickSrcName(tick)
         + " trade_ts=" + (tick.trade_ts || tick.price_ts || "—")
         + " render_ts=" + (renderTs || "—")
         + " px=" + px
+        + " driver=" + tickDriver(tick)
         + " mint=" + (tick.mint || "");
     }
 
@@ -6848,6 +6879,8 @@
         dot.setAttribute("cx", last[0]);
         dot.setAttribute("cy", last[1]);
         dot.setAttribute("fill", color);
+        const seriesPx = series && series.length ? Number(series[series.length - 1]) : NaN;
+        if (seriesPx > 0) dot.setAttribute("data-px", String(seriesPx));
       }
     }
 
@@ -7000,17 +7033,45 @@
       const rendered = new Date().toISOString();
       const line = tickDebugLine(tick, px, rendered);
       const book = state.tickDebugByMint[mint] || (state.tickDebugByMint[mint] = []);
-      book.push({ t: Date.now(), line: line, px: px, mint: mint });
+      const swapMove = tickDriver(tick) === "swap";
+      book.push({ t: Date.now(), line: line, px: px, mint: mint, swap: swapMove });
       if (book.length > 240) book.splice(0, book.length - 240);
       if (mint !== (state.tickMint || mint)) return;
       const el = document.getElementById("gTickDebug");
       if (!el) return;
       const mine = tickLogLines(book, mint);
       const cutoff = Date.now() - 60000;
-      const inWin = mine.filter((r) => r.t >= cutoff).length;
+      const inWin = mine.filter((r) => r.t >= cutoff && r.swap).length;
       const headSrc = "src=" + tickSrcName(tick);
-      const head = "changes/60s " + inWin + " · " + headSrc;
+      const head = "swap changes/60s " + inWin + " · " + headSrc;
       el.textContent = head + "\n" + mine.slice(-12).map((r) => r.line).join("\n");
+    }
+
+    function paintLastFromTick(mint, px, tick) {
+      const text = fmtLivePx(px);
+      const driver = tickDriver(tick);
+      document.querySelectorAll("#gPositions .pos-card").forEach((pos) => {
+        if ((pos.getAttribute("data-mint") || "") !== mint) return;
+        const last = pos.querySelector("[data-role=last-px]");
+        if (last) {
+          last.textContent = text;
+          last.setAttribute("data-px", String(px));
+          last.setAttribute("data-driver", driver);
+        }
+        const live = pos.querySelector("[data-role=live-px]");
+        if (!live) return;
+        const texts = [];
+        live.childNodes.forEach((node) => {
+          if (node.nodeType === 3) texts.push(node);
+        });
+        if (texts.length) texts[texts.length - 1].nodeValue = text;
+        else live.appendChild(document.createTextNode(text));
+      });
+      const dot = document.getElementById("gChartDot");
+      if (dot) {
+        dot.setAttribute("data-px", String(px));
+        dot.setAttribute("data-driver", driver);
+      }
     }
 
     function noteLiveTick(tick) {
@@ -7037,8 +7098,13 @@
         return;
       }
       logTickChange(tick, px);
+      if (state.chartBandMint !== mint) {
+        state.chartBand = null;
+        state.chartBandMint = mint;
+      }
       const series = state.tickSeries[mint] || (state.tickSeries[mint] = []);
       series.push(px);
+      paintLastFromTick(mint, px, tick);
       state.tickPushedAt = Date.now();
       if (series.length > 180) series.splice(0, series.length - 180);
       state.tickMint = mint;
@@ -8320,8 +8386,10 @@
           const ageN = Number(p.quote_age_s);
           const staleTxt = liveOn ? "" : (Number.isFinite(ageN) ? staleLabel(ageN) : "stale");
           const held = Number(p.last_price_usd);
-          const priceShown = liveOn ? last : (held > 0 ? held : NaN);
-          const priceHtml = Number.isFinite(priceShown) && priceShown > 0 ? fmtPx(priceShown) : "—";
+          const tickNow = state.lastTickResponse;
+          const tickPx = tickNow && tickNow.mint === p.mint ? Number(tickNow.price_usd) : NaN;
+          const priceShown = (liveOn && tickPx > 0) ? tickPx : (liveOn ? last : (held > 0 ? held : NaN));
+          const priceHtml = Number.isFinite(priceShown) && priceShown > 0 ? fmtLivePx(priceShown) : "—";
           const staleHtml = staleTxt ? ('<span class="tick-stale" data-role="stale">' + esc(staleTxt) + "</span>") : "";
           if (Number.isFinite(priceShown) && priceShown > 0) nextPx[p.id] = priceShown;
           let flash = "";
