@@ -534,7 +534,7 @@ class TradeFillTests(unittest.TestCase):
 class HealthAndChartTests(unittest.TestCase):
     def test_health_is_v82_with_live_tick_and_a_five_second_sla(self):
         data = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 91)
+        self.assertEqual(data["panel_v"], 92)
         self.assertIn("live_tick", data["features"])
         self.assertLessEqual(data["quote_sla_s"], 5.0)
         self.assertEqual(data["quote_sla_s"], 5.0)
@@ -868,7 +868,7 @@ class ShipW3Tests(unittest.TestCase):
 
     def test_stream_serves_a_swap_and_falls_back_after_silence(self):
         import trade_stream
-        status = trade_stream.ingest_swap(MINT, 1.0, anchor=1.0)
+        status = trade_stream.ingest_swap(MINT, 1.0, anchor=1.0, seed_ok=True)
         self.assertEqual(status, "ok")
         with mock.patch.object(game, "_http_json", side_effect=AssertionError("jupiter")):
             tick = game.fetch_live_tick(MINT, apply_qa=False)
@@ -1046,7 +1046,7 @@ class ShipW3Tests(unittest.TestCase):
         trade_stream.note_anchor(MINT, 50.0)
         trade_stream.note_mid(MINT, 20.0)
         self.assertEqual(trade_stream.anchor_price(MINT), 20.0)
-        self.assertEqual(trade_stream.ingest_swap(MINT, 20.2), "ok")
+        self.assertEqual(trade_stream.ingest_swap(MINT, 20.2, seed_ok=True), "ok")
         self.assertEqual(trade_stream.ingest_swap(MINT, 22.0), "ok")
         self.assertEqual(game._live_cache[MINT][1]["price_usd"], 22.0)
 
@@ -1061,7 +1061,7 @@ class ShipW3Tests(unittest.TestCase):
 
     def test_health_documents_the_stream_and_panel_87(self):
         data = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 91)
+        self.assertEqual(data["panel_v"], 92)
         self.assertIn("trade_stream", data["features"])
         self.assertIn("stream", data["live_tick"])
         self.assertIn("PumpPortal", data["live_tick"])
@@ -1073,7 +1073,7 @@ class ShipW3Tests(unittest.TestCase):
 
     def test_w20_w22_w23_w26_w27_w28_panel_contract(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
-        self.assertIn("const PANEL_V = 91", html)
+        self.assertIn("const PANEL_V = 92", html)
         self.assertIn("paintPanelVersion", html)
         self.assertIn("data-panel-v", html)
         pure = html[html.index("/* ship-w-pure-start */"):html.index("/* ship-w-pure-end */")]
@@ -1562,6 +1562,7 @@ class ShipW90Tests(unittest.TestCase):
         self.assertAlmostEqual(px, 1.07, places=6)
         self.assertLess(raw, px * 0.94)
         self.assertAlmostEqual(corrected, px, places=6)
+        trade_stream.ingest_swap(MINT, 1.07, seed_ok=True, source="pool_vault")
         trade_stream._on_logs(_logs_msg(line, "fill-1"), {7: {"mint": MINT, "role": "logs"}})
         self.assertEqual(game._live_cache[MINT][1]["source"], "pool_swap")
         self.assertAlmostEqual(game._live_cache[MINT][1]["price_usd"], 1.07, places=6)
@@ -1584,6 +1585,7 @@ class ShipW90Tests(unittest.TestCase):
         import trade_stream
         pool = self._seed_pool()
         meta = {7: {"mint": MINT, "role": "logs"}}
+        trade_stream.ingest_swap(MINT, 1.0, seed_ok=True, source="pool_swap")
         price = 1.0
         last = price
         for i in range(9):
@@ -1852,10 +1854,18 @@ class ShipW91Tests(unittest.TestCase):
             tick_fafa = game.fetch_live_tick(fafa, apply_qa=False)
         self.assertAlmostEqual(sis_px, 200.0)
         self.assertAlmostEqual(fafa_px, 8.0)
-        self.assertEqual(tick_sis["source"], "pool_vault")
-        self.assertEqual(tick_fafa["source"], "pool_vault")
+        # SPCX math is unchanged and did not ask Jupiter. A lone vault is stale
+        # until a swap agrees within 5%.
+        self.assertFalse(tick_sis.get("quote_live"))
+        self.assertFalse(tick_fafa.get("quote_live"))
+        self.assertEqual(trade_stream.ingest_swap(sis, sis_px, source="pool_swap", signature="sis"), "ok")
+        self.assertEqual(trade_stream.ingest_swap(fafa, fafa_px, source="pool_swap", signature="fafa"), "ok")
+        tick_sis = game.fetch_live_tick(sis, apply_qa=False)
+        tick_fafa = game.fetch_live_tick(fafa, apply_qa=False)
         self.assertAlmostEqual(tick_sis["price_usd"], 200.0)
         self.assertAlmostEqual(tick_fafa["price_usd"], 8.0)
+        self.assertIn(tick_sis["source"], ("pool_swap", "pool_vault"))
+        self.assertIn(tick_fafa["source"], ("pool_swap", "pool_vault"))
         logs = trade_stream._wanted_log_ops()
         self.assertIn("logs:" + sis_pool["address"], logs)
         self.assertIn("logs:" + spcx_pool["address"], logs)
@@ -1905,8 +1915,16 @@ class ShipW91Tests(unittest.TestCase):
         self.assertEqual([row["method"] for row in calls], ["getMultipleAccounts"])
         self.assertEqual(len(calls[0]["params"][0]), 12)
         for pool in pools:
+            # One shared poll still priced every vault. It is not a live tick
+            # until a swap agrees, so a lone read cannot publish an override.
+            self.assertNotIn(pool["mint"], game._live_cache)
+            vault_px = trade_stream._pairs[pool["mint"]]["pool_vault"]["px"]
+            self.assertGreater(vault_px, 0)
+            self.assertEqual(
+                trade_stream.ingest_swap(pool["mint"], vault_px, source="pool_swap", signature="swap"),
+                "ok",
+            )
             tick = game._live_cache[pool["mint"]][1]
-            self.assertEqual(tick["source"], "pool_vault")
             self.assertGreater(tick["price_usd"], 0)
 
     def test_raydium_usdc_pool_prices_a_non_sol_quote(self):
@@ -2033,7 +2051,12 @@ class ShipW91Tests(unittest.TestCase):
              mock.patch.object(game, "_http_json", side_effect=AssertionError("jupiter")):
             got = trade_stream._read_vault_mid("http://rpc", sis_pool)
         self.assertAlmostEqual(got, 8.0, places=3)
-        self.assertEqual(game._live_cache[sis][1]["source"], "pool_vault")
+        # SPCX math is unchanged. A lone vault is not a live tick until a swap agrees.
+        self.assertEqual(
+            trade_stream.ingest_swap(sis, got, source="pool_swap", signature="sis-fill"),
+            "ok",
+        )
+        self.assertAlmostEqual(game._live_cache[sis][1]["price_usd"], 8.0, places=3)
         # Ten watched pools, one of them a position. The socket plan is capped
         # and the position is first.
         trade_stream.reset_for_tests()
@@ -2090,6 +2113,133 @@ class ShipW91Tests(unittest.TestCase):
                 self.assertEqual(trade_stream.logs_endpoint(), "wss://rpc.example/sol")
         finally:
             os.environ.update(saved)
+
+
+def _parse_iso(ts: str) -> float:
+    return datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc).timestamp()
+
+
+class ShipW92Tests(unittest.TestCase):
+    """Spike guard: no unconfirmed override, and a hard 3.0s hold cap."""
+
+    def setUp(self):
+        import trade_stream
+        game._live_cache.clear()
+        game._live_backoff_until.clear()
+        game._live_backoff_s.clear()
+        game._qa_walks.clear()
+        game.set_qa_walk_sid(None)
+        game.set_client_sid(None)
+        trade_stream.reset_for_tests()
+
+    def tearDown(self):
+        import trade_stream
+        game._live_cache.clear()
+        game._qa_walks.clear()
+        game.set_qa_walk_sid(None)
+        game.set_client_sid(None)
+        trade_stream.reset_for_tests()
+
+    def test_no_baseline_override_is_refused_and_the_tick_is_stale(self):
+        """Two identical swaps with baseline_age 1e9 must not publish an override."""
+        import trade_stream
+        bad = 2.99e-4
+        real = 1.96e-6
+        self.assertEqual(
+            trade_stream.ingest_swap(MINT, bad, anchor=real, source="pool_swap", signature="a"),
+            "spike",
+        )
+        self.assertEqual(
+            trade_stream.ingest_swap(MINT, bad, anchor=real, source="pool_swap", signature="b"),
+            "spike",
+        )
+        self.assertNotIn(MINT, game._live_cache)
+        kinds = [row.get("kind") for row in trade_stream.recent_spikes()]
+        self.assertNotIn("override", kinds)
+        self.assertTrue(any(row.get("reason") == "no-baseline" for row in trade_stream.recent_spikes()))
+        self.assertGreater(trade_stream._baseline_age(MINT), trade_stream.BASELINE_HUGE_S)
+        tick = game.fetch_live_tick(MINT, apply_qa=False)
+        self.assertTrue(tick.get("stale"))
+        self.assertFalse(tick.get("quote_live"))
+        self.assertGreater(tick.get("quote_age_s"), 5)
+        body = server.app.test_client().get("/api/game/tick?mint=" + MINT).get_json()
+        self.assertTrue(body["stale"])
+        self.assertFalse(body["quote_live"])
+
+    def test_swap_and_vault_within_5_percent_publish(self):
+        import trade_stream
+        real = 1.96e-6
+        self.assertEqual(
+            trade_stream.ingest_swap(MINT, real, anchor=real * 100, source="pool_swap", signature="swap"),
+            "spike",
+        )
+        self.assertNotIn(MINT, game._live_cache)
+        status = trade_stream.ingest_swap(MINT, real * 1.04, source="pool_vault", signature="vault")
+        self.assertEqual(status, "ok")
+        self.assertAlmostEqual(game._live_cache[MINT][1]["price_usd"], real * 1.04, places=12)
+        self.assertFalse(trade_stream.awaiting_baseline(MINT))
+        trade_stream.reset_for_tests()
+        game._live_cache.clear()
+        self.assertEqual(
+            trade_stream.ingest_swap(MINT, 1.0, anchor=50.0, source="pool_swap", signature="swap"),
+            "spike",
+        )
+        # 6% is outside the 5% pair. It must not become the tick.
+        self.assertEqual(
+            trade_stream.ingest_swap(MINT, 1.06, source="pool_vault", signature="vault"),
+            "spike",
+        )
+        self.assertNotIn(MINT, game._live_cache)
+
+    def test_two_agreeing_reads_replace_a_stuck_price(self):
+        import trade_stream
+        bad = 2.99e-4
+        good = 1.96e-6
+        self.assertEqual(trade_stream.ingest_swap(MINT, bad, seed_ok=True, source="pool_swap"), "ok")
+        self.assertEqual(
+            trade_stream.ingest_swap(MINT, good, source="pool_vault", signature="vault"),
+            "spike",
+        )
+        # An echo of the stuck price must not erase the vault read.
+        echo = trade_stream.ingest_swap(MINT, bad, source="pool_swap", signature="echo")
+        self.assertIn(echo, ("ok", "same"))
+        self.assertAlmostEqual(game._live_cache[MINT][1]["price_usd"], bad)
+        status = trade_stream.ingest_swap(MINT, good * 1.02, source="pool_swap", signature="swap")
+        self.assertEqual(status, "ok")
+        self.assertAlmostEqual(game._live_cache[MINT][1]["price_usd"], good * 1.02, places=12)
+
+    def test_hard_3s_timer_publishes_the_latest_read(self):
+        import trade_stream
+        self.assertEqual(trade_stream.ingest_swap(MINT, 1.0, seed_ok=True, source="pool_vault"), "ok")
+        self.assertEqual(
+            trade_stream.ingest_swap(MINT, 0.06, source="pool_swap", signature="dump"),
+            "spike",
+        )
+        self.assertAlmostEqual(game._live_cache[MINT][1]["price_usd"], 1.0)
+        deadline = time.time() + 3.4
+        while time.time() < deadline:
+            if abs(game._live_cache[MINT][1]["price_usd"] - 0.06) < 1e-12:
+                break
+            time.sleep(0.02)
+        self.assertAlmostEqual(game._live_cache[MINT][1]["price_usd"], 0.06, places=6)
+        row = next(r for r in trade_stream.recent_spikes() if r.get("reason") == "hold-cap")
+        self.assertTrue(row.get("hold_start"))
+        self.assertTrue(row.get("publish"))
+        held = _parse_iso(row["publish"]) - _parse_iso(row["hold_start"])
+        self.assertGreaterEqual(held, 2.9)
+        self.assertLessEqual(held, 3.05)
+        self.assertLessEqual(row["hold_s"], 3.05)
+
+    def test_one_off_disagreement_blocks_the_timer(self):
+        """A later read that disagrees keeps the 64x out, including if the timer fires."""
+        import trade_stream
+        self.assertEqual(trade_stream.ingest_swap(MINT, 1.0, seed_ok=True, source="pool_vault"), "ok")
+        self.assertEqual(trade_stream.ingest_swap(MINT, 64.0, source="pool_swap", signature="fake"), "spike")
+        self.assertEqual(trade_stream.ingest_swap(MINT, 2.0, source="pool_swap", signature="other"), "spike")
+        self.assertAlmostEqual(game._live_cache[MINT][1]["price_usd"], 1.0)
+        trade_stream._release_hold(MINT, trade_stream._hold_gen.get(MINT, 0))
+        self.assertAlmostEqual(game._live_cache[MINT][1]["price_usd"], 1.0)
+        self.assertTrue(trade_stream._pending_spikes[MINT].get("rejected"))
 
 
 if __name__ == "__main__":

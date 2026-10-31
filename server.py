@@ -259,7 +259,7 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 91,
+            "panel_v": 92,
             "time": _utc(),
             "qa_tick": "page ?qa_tick=both|up|down",
             "qa_end": "page ?qa_end=1 (one-shot) or POST /api/game/end",
@@ -341,9 +341,15 @@ def api_health():
                 "driver is swap, or sol_usd when only the SOL price moved. "
                 "A single print more than 15% from the last published price is held. A second "
                 "independent read publishes immediately when the two agree within 2%, or within 12% "
-                "when one is the executed fill and the other is the vault. The hold is at most 3s: "
-                "a later read that is still the crash publishes then, so a real dump cannot sit for "
-                "half a minute. A one-off bounce with no confirming read stays out of the cache. "
+                "when one is the executed fill and the other is the vault. The hold is at most 3.0s "
+                "from hold start: a hard timer publishes the latest on-chain read then, even if no "
+                "confirm has arrived, so a real crash cannot be held longer. A one-off bounce is "
+                "rejected when a later read disagrees. "
+                "There is no real baseline when none has been accepted, or baseline_age is huge. "
+                "The guard does not publish an override in that case. It publishes only once a swap "
+                "price and a vault price agree within 5%. Until then the tick is stale and Buy stays "
+                "off. Two agreeing on-chain reads replace a stuck price. "
+                "Spike rows log hold_start and publish. "
                 "That pair is accepted even when it is far from the baseline. A baseline older than 5s cannot veto them. "
                 "Held spikes and overrides are stream.spike_rejects and are not a stop or a take-profit "
                 "until the override publishes."
@@ -403,7 +409,7 @@ def api_gold():
     return jsonify(
         {
             "ok": True,
-            "panel_v": 91,
+            "panel_v": 92,
             "feature": "gold_scar",
             "count": len(picks),
             "empty_ok": True,
