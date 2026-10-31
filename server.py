@@ -201,7 +201,7 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 82,
+            "panel_v": 83,
             "time": _utc(),
             "qa_tick": "page ?qa_tick=both|up|down",
             "qa_end": "page ?qa_end=1 (one-shot) or POST /api/game/end",
@@ -246,12 +246,16 @@ def api_health():
                 "A rejected profile file cannot flip the avatar to Star."
             ),
             "live_tick": (
-                "Game price is a fresh Jupiter tick (GeckoTerminal if Jupiter is down), "
-                "not the DexScreener token snapshot. Server cache is at most 2s so many "
-                "clients share one upstream call. A 429 or a timeout backs off and, past "
-                "5s, the panel shows stale Ns and will not buy, sell, or stop on that print. "
-                "Buy, sell, and stop fill at that tick and store price_ts. The rocket chart "
-                "polls /api/game/tick every 2s while Game is open."
+                "Game price and the rocket chart share one tick: the latest GeckoTerminal trade "
+                "on the mint's SOL pool (the print the Dex chart draws). Jupiter is the fallback. "
+                "DexScreener priceUsd is not read. Server cache is 1s so a 2s poll refetches. "
+                "A 429 or a timeout backs off and, past 5s, the panel shows stale Ns and will not "
+                "buy, sell, or stop on that print. Buy, sell, and stop fill at that tick and store price_ts."
+            ),
+            "qa_stale": (
+                "Page ?qa_stale=1 is this browser only. The client treats live ticks as older than "
+                "quote_sla_s, shows stale Ns, and blocks Buy and Sell. It does not change the server feed. "
+                "Absent the query, ticks behave normally."
             ),
             "live_tick_ttl_s": game_mod.LIVE_TICK_TTL_S,
             "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture", "game_ai_review", "gold_scar", "game_follow_tab", "filter_smart", "profile_custom_pic", "final_polish", "live_tick"],
@@ -292,7 +296,7 @@ def api_gold():
     return jsonify(
         {
             "ok": True,
-            "panel_v": 82,
+            "panel_v": 83,
             "feature": "gold_scar",
             "count": len(picks),
             "empty_ok": True,
@@ -696,7 +700,8 @@ def api_game_buy():
     stake = body.get("stake_usd", body.get("stake"))
     sl = body.get("sl_pct", body.get("stop_loss_pct"))
     tp = body.get("tp_pct", body.get("take_profit_pct"))
-    result = game_mod.buy(mint, stake, sl_pct=sl, tp_pct=tp)
+    rid = body.get("client_request_id") or body.get("request_id")
+    result = game_mod.buy(mint, stake, sl_pct=sl, tp_pct=tp, client_request_id=rid)
     code = 200 if result.get("ok") else 400
     if result.get("state") is not None:
         result["state"] = game_mod.public_state(result.get("state"))

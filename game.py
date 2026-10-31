@@ -46,10 +46,20 @@ _DEX_TIMEOUT = 3.5
 # SHIP W — execution price. DexScreener's token priceUsd can sit still for
 # half a minute while the chart moves. Jupiter (then GeckoTerminal) is the
 # lightweight tick. Many clients share one fetch for LIVE_TICK_TTL_S.
-LIVE_TICK_TTL_S = 2.0
+LIVE_TICK_TTL_S = 1.0
 _LIVE_TIMEOUT = 2.0
+SOL_MINT = "So11111111111111111111111111111111111111112"
+# 0.001 SOL keeps price impact small so the quote stays near the pool mid.
+_JUP_QUOTE_LAMPORTS = 1_000_000
 JUP_PRICE_URL = "https://lite-api.jup.ag/price/v3?ids={mint}"
+JUP_QUOTE_URL = (
+    "https://lite-api.jup.ag/swap/v1/quote?inputMint={sol}&outputMint={mint}&amount={amount}"
+)
 GECKO_PRICE_URL = "https://api.geckoterminal.com/api/v2/simple/networks/solana/token_price/{mint}"
+GECKO_POOLS_URL = "https://api.geckoterminal.com/api/v2/networks/solana/tokens/{mint}/pools?page=1"
+GECKO_TRADES_URL = "https://api.geckoterminal.com/api/v2/networks/solana/pools/{pool}/trades"
+_pool_cache: dict[str, tuple[float, str]] = {}
+_POOL_TTL_S = 300.0
 _live_cache: dict[str, tuple[float, dict]] = {}
 _live_backoff_until: dict[str, float] = {}
 _live_backoff_s: dict[str, float] = {}
@@ -533,11 +543,16 @@ def _clear_live_backoff(mint: str) -> None:
     _live_backoff_until.pop(mint, None)
 
 
-def _parse_jup_price(raw: dict | None, mint: str) -> tuple[float | None, int | None]:
+def _jup_row(raw: dict | None, mint: str) -> dict | None:
     if not isinstance(raw, dict):
-        return None, None
+        return None
     row = raw.get(mint)
-    if not isinstance(row, dict):
+    return row if isinstance(row, dict) else None
+
+
+def _parse_jup_price(raw: dict | None, mint: str) -> tuple[float | None, int | None]:
+    row = _jup_row(raw, mint)
+    if not row:
         return None, None
     block = row.get("blockId")
     try:
@@ -545,6 +560,43 @@ def _parse_jup_price(raw: dict | None, mint: str) -> tuple[float | None, int | N
     except (TypeError, ValueError):
         block_i = None
     return _f(row.get("usdPrice")), block_i
+
+
+def _jup_decimals(raw: dict | None, mint: str) -> int | None:
+    row = _jup_row(raw, mint)
+    if not row or row.get("decimals") is None:
+        return None
+    try:
+        dec = int(row.get("decimals"))
+    except (TypeError, ValueError):
+        return None
+    if dec < 0 or dec > 18:
+        return None
+    return dec
+
+
+def implied_token_usd(sol_usd: float, lamports: int, out_amount: int, decimals: int) -> float | None:
+    """USD per token from a SOL→token quote. None when the quote cannot be priced."""
+    try:
+        sol = float(lamports) / 1_000_000_000.0
+        tokens = float(out_amount) / float(10 ** int(decimals))
+        sol_px = float(sol_usd)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if sol <= 0 or tokens <= 0 or sol_px <= 0:
+        return None
+    return (sol * sol_px) / tokens
+
+
+def _price_from_jup_quote(raw: dict | None, sol_usd: float | None, decimals: int | None) -> float | None:
+    if not isinstance(raw, dict) or sol_usd is None or decimals is None:
+        return None
+    raw_out = raw.get("outAmount")
+    try:
+        out_amount = int(raw_out)
+    except (TypeError, ValueError):
+        return None
+    return implied_token_usd(sol_usd, _JUP_QUOTE_LAMPORTS, out_amount, decimals)
 
 
 def _parse_gecko_price(raw: dict | None, mint: str) -> float | None:
@@ -558,20 +610,122 @@ def _parse_gecko_price(raw: dict | None, mint: str) -> float | None:
     return _f(prices.get(mint))
 
 
-def _pull_live_price(mint: str) -> tuple[float | None, str, int | None, bool]:
-    """Return (price, source, block_id, rate_limited). Does not read the cache."""
-    code, raw = _http_json(JUP_PRICE_URL.format(mint=mint))
+def _sol_pool_address(mint: str, raw: dict | None) -> str | None:
+    """Deepest SOL pool whose base token is this mint. That is the chart pair."""
+    if not isinstance(raw, dict):
+        return None
+    best_id = None
+    best_reserve = -1.0
+    for row in raw.get("data") or []:
+        if not isinstance(row, dict):
+            continue
+        rel = row.get("relationships") or {}
+        base = ((rel.get("base_token") or {}).get("data") or {}).get("id") or ""
+        quote = ((rel.get("quote_token") or {}).get("data") or {}).get("id") or ""
+        if not str(base).endswith(mint):
+            continue
+        if SOL_MINT not in str(quote):
+            continue
+        attrs = row.get("attributes") or {}
+        try:
+            reserve = float(attrs.get("reserve_in_usd") or 0)
+        except (TypeError, ValueError):
+            reserve = 0.0
+        if reserve >= best_reserve:
+            best_reserve = reserve
+            pool_id = str(row.get("id") or "")
+            best_id = pool_id.split("_", 1)[-1] if pool_id else None
+    return best_id or None
+
+
+def _cached_pool(mint: str) -> str | None:
+    hit = _pool_cache.get(mint)
+    if hit and time.time() - hit[0] < _POOL_TTL_S:
+        return hit[1]
+    return None
+
+
+def _trade_price(raw: dict | None, mint: str) -> float | None:
+    """Latest trade's USD price for mint. This is the print the Dex chart draws."""
+    if not isinstance(raw, dict):
+        return None
+    for row in raw.get("data") or []:
+        if not isinstance(row, dict):
+            continue
+        attrs = row.get("attributes") or {}
+        if attrs.get("from_token_address") == mint:
+            px = _f(attrs.get("price_from_in_usd"))
+        elif attrs.get("to_token_address") == mint:
+            px = _f(attrs.get("price_to_in_usd"))
+        else:
+            continue
+        if px is not None and px > 0:
+            return px
+    return None
+
+
+def _jupiter_price(mint: str) -> tuple[float | None, int | None, bool]:
+    """SOL→token quote, then Jupiter usdPrice. (price, block, rate_limited)."""
+    code, raw = _http_json(JUP_PRICE_URL.format(mint=SOL_MINT + "," + mint))
     if code == 429:
-        return None, "", None, True
+        return None, None, True
+    sol_px, _ = _parse_jup_price(raw, SOL_MINT)
     px, block = _parse_jup_price(raw, mint)
+    decimals = _jup_decimals(raw, mint)
+    qcode, qraw = _http_json(
+        JUP_QUOTE_URL.format(sol=SOL_MINT, mint=mint, amount=_JUP_QUOTE_LAMPORTS)
+    )
+    if qcode == 429 and (px is None or px <= 0):
+        return None, block, True
+    quoted = _price_from_jup_quote(qraw, sol_px, decimals) if qcode != 429 else None
+    if quoted is not None and quoted > 0:
+        return quoted, block, False
+    if px is not None and px > 0:
+        return px, block, False
+    return None, block, False
+
+
+def _pull_live_price(mint: str) -> tuple[float | None, str, int | None, bool]:
+    """Return (price, source, block_id, rate_limited).
+
+    The tick is the newest GeckoTerminal trade on the mint's SOL pool — the
+    same print the Dex chart draws — and it moves as trades land. Jupiter is
+    the fallback. DexScreener priceUsd is not read.
+    """
+    pool = _cached_pool(mint)
+    limited = False
+    if not pool:
+        code, raw = _http_json(GECKO_POOLS_URL.format(mint=mint))
+        if code == 429:
+            limited = True
+        else:
+            pool = _sol_pool_address(mint, raw)
+            if pool:
+                _pool_cache[mint] = (time.time(), pool)
+    if pool and not limited:
+        tcode, traw = _http_json(GECKO_TRADES_URL.format(pool=pool))
+        if tcode == 429:
+            limited = True
+        else:
+            trade_px = _trade_price(traw, mint)
+            if trade_px is not None and trade_px > 0:
+                return trade_px, "gecko", None, False
+    px, block, jup_limited = _jupiter_price(mint)
     if px is not None and px > 0:
         return px, "jup", block, False
-    code, raw = _http_json(GECKO_PRICE_URL.format(mint=mint))
-    if code == 429:
+    if limited or jup_limited:
+        gcode, graw = _http_json(GECKO_PRICE_URL.format(mint=mint))
+        if gcode != 429:
+            gpx = _parse_gecko_price(graw, mint)
+            if gpx is not None and gpx > 0:
+                return gpx, "gecko", None, False
         return None, "", None, True
-    px = _parse_gecko_price(raw, mint)
-    if px is not None and px > 0:
-        return px, "gecko", None, False
+    gcode, graw = _http_json(GECKO_PRICE_URL.format(mint=mint))
+    if gcode == 429:
+        return None, "", None, True
+    gpx = _parse_gecko_price(graw, mint)
+    if gpx is not None and gpx > 0:
+        return gpx, "gecko", None, False
     return None, "", None, False
 
 
@@ -639,10 +793,9 @@ def fetch_live_tick(mint: str, bypass_cache: bool = False) -> dict | None:
 
 
 def _apply_live_tick(quote: dict, tick: dict) -> dict:
-    """Use the live tick as the price. Scale mcap so the card matches that price."""
+    """Replace any Dex priceUsd with the live tick. The card and the fill match."""
     out = dict(quote)
     px = float(tick["price_usd"])
-    dex_px = _f(out.get("price_usd"))
     out["price_usd"] = px
     out["price_ts"] = tick.get("price_ts")
     out["quoted_at"] = tick.get("price_ts")
@@ -651,19 +804,18 @@ def _apply_live_tick(quote: dict, tick: dict) -> dict:
     out["quote_sla_s"] = QUOTE_FRESH_SLA_S
     out["quote_live"] = True
     out["price_source"] = tick.get("source")
-    if dex_px and dex_px > 0:
-        ratio = px / dex_px
-        if 0.05 <= ratio <= 20:
-            mcap = _f(out.get("market_cap_usd"))
-            if mcap is not None and mcap > 0:
-                out["market_cap_usd"] = mcap * ratio
-            prog = out.get("mcap_progress")
-            if isinstance(prog, dict) and _f(prog.get("market_cap_usd")):
-                prog = dict(prog)
-                prog["market_cap_usd"] = float(prog["market_cap_usd"]) * ratio
-                out["mcap_progress"] = prog
-                out["market_cap_usd"] = prog["market_cap_usd"]
     return out
+
+
+def _position_for_request(st: dict, request_id: str) -> dict | None:
+    rid = (request_id or "").strip()
+    if not rid:
+        return None
+    for bucket in (st.get("positions") or [], st.get("closed") or []):
+        for pos in bucket:
+            if isinstance(pos, dict) and pos.get("client_request_id") == rid:
+                return pos
+    return None
 
 
 def _f(v) -> float | None:
@@ -1461,11 +1613,29 @@ def _record_score(st: dict) -> None:
     save_scores(scores)
 
 
-def buy(mint: str, stake_usd: float, sl_pct: float | None = None, tp_pct: float | None = None) -> dict:
+def buy(
+    mint: str,
+    stake_usd: float,
+    sl_pct: float | None = None,
+    tp_pct: float | None = None,
+    client_request_id: str | None = None,
+) -> dict:
     with _lock:
         st = tick_session()
         if st.get("status") != "active":
             return _fail("No active session — POST /api/game/start first", st)
+        rid = (client_request_id or "").strip()[:80]
+        if rid:
+            prev = _position_for_request(st, rid)
+            if prev:
+                return {
+                    "ok": True,
+                    "position": prev,
+                    "state": st,
+                    "sound": "buy",
+                    "deduped": True,
+                    "resolved_mint": prev.get("mint"),
+                }
         try:
             stake = float(stake_usd)
         except (TypeError, ValueError):
@@ -1514,6 +1684,7 @@ def buy(mint: str, stake_usd: float, sl_pct: float | None = None, tp_pct: float 
             "quote_epoch": tick.get("quoted_epoch"),
             "quoted_at": price_ts,
             "price_source": tick.get("source"),
+            "client_request_id": rid or None,
             "red_flags": flags_for_mint(mint),
             "ca_short": (mint[:4] + "…" + mint[-4:]) if len(mint) > 10 else mint,
             "market_cap_usd": (q or {}).get("market_cap_usd"),
@@ -2091,29 +2262,43 @@ def qa_tick_view(payload: dict | None, mode: str | None) -> dict:
 
 
 def sell_all() -> dict:
+    """Close every open position in one pass. The saved book is the count."""
     with _lock:
-        st = tick_session()
+        st = load_state()
         if st.get("status") != "active":
             return _fail("No active session", st)
-        ids = [p.get("id") for p in list(st.get("positions") or []) if p.get("id")]
-        if not ids:
+        st = tick_session(st)
+        positions = [p for p in list(st.get("positions") or []) if p.get("id")]
+        if not positions:
             return _fail("No open positions", st)
-        sold = 0
-        for pid in ids:
-            # re-tick each time so prices stay fresh
-            st = tick_session()
-            pos = next((p for p in (st.get("positions") or []) if p.get("id") == pid), None)
-            if not pos:
+        wanted = [p.get("id") for p in positions]
+        ticks: dict[str, dict] = {}
+        for pos in positions:
+            mint = str(pos.get("mint") or "")
+            if mint and mint not in ticks:
+                tick = fetch_live_tick(mint)
+                if isinstance(tick, dict):
+                    ticks[mint] = tick
+        for pos in positions:
+            if pos.get("id") not in {p.get("id") for p in (st.get("positions") or [])}:
                 continue
-            tick = fetch_live_tick(str(pos.get("mint") or ""))
+            mint = str(pos.get("mint") or "")
+            tick = ticks.get(mint)
             if not fillable_tick(tick):
                 continue
             _close_position(st, pos, float(tick["price_usd"]), "manual", price_ts=tick.get("price_ts"))
-            sold += 1
         save_state(st)
-        if sold == 0 and st.get("positions"):
+        still = {p.get("id") for p in (st.get("positions") or []) if p.get("id")}
+        sold = len([pid for pid in wanted if pid not in still])
+        if sold == 0 and still:
             return _fail("Price is older than 5s — not selling at a stale quote", st)
-        return {"ok": True, "sold": sold, "state": st, "sound": "sell"}
+        return {
+            "ok": True,
+            "sold": sold,
+            "open_count": len(still),
+            "state": st,
+            "sound": "sell",
+        }
 
 
 def append_paper_trade(
