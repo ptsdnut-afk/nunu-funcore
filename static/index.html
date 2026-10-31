@@ -1070,6 +1070,7 @@
       body.mode-game .pane-body, body.mode-game .game-status {
         white-space: normal; overflow-wrap: anywhere;
       }
+      body.mode-game .live-px .live-lab { white-space: nowrap; }
       .viral-pane { max-width: none; max-height: 68vh; }
       .panes.tweets-gone .viral-pane,
       .panes.side-traders .viral-pane { max-height: 0 !important; min-height: 0 !important; }
@@ -1258,7 +1259,9 @@
       box-shadow: 0 0 14px rgba(240,113,120,.22);
       font-size: 1rem; font-weight: 800; padding: 14px 22px; border-radius: 10px;
     }
-    body.mode-game .game-wrap { grid-template-columns: minmax(0, 1.55fr) minmax(260px, 0.9fr); gap: 12px; }
+    @media (min-width: 961px) {
+      body.mode-game .game-wrap { grid-template-columns: minmax(0, 1.55fr) minmax(260px, 0.9fr); gap: 12px; }
+    }
     .game-side-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
     .game-chart { min-height: 480px; border-color: #2a5a40; }
     .game-chart > .pane-head h2 { color: #3ecf8e; letter-spacing: 0.08em; }
@@ -2412,6 +2415,17 @@
       #modeFilter .tok > .links,
       #modeFilter .tok > .score-detail { grid-column: 1 / -1; }
       #modeFilter .tok > .links { justify-content: flex-start; }
+      /* Score pill stays in row 1. It was painting over the name on rows 2–3. */
+      #modeFilter .tok > .coin {
+        grid-column: 1; grid-row: 1; min-width: 0; overflow: hidden; position: relative; z-index: 2;
+      }
+      #modeFilter .tok > .score-btn {
+        grid-column: 2; grid-row: 1; align-self: start; height: auto; min-height: 0;
+        position: relative; z-index: 1;
+      }
+      #modeFilter .coin .name, #modeFilter .coin .ticker {
+        max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+      }
       .coin-hero, .outlook { grid-template-columns: 1fr 1fr; }
     }
 
@@ -3030,7 +3044,7 @@
         <button type="button" class="gbtn" id="gReview" hidden data-feature="game_ai_review">Review</button>
         <input type="text" id="gMint" placeholder="CA, ticker, or name (TikTok) — Play from Filter is safest." spellcheck="false" autocomplete="off" />
         <button type="button" class="gbtn" id="gQuote">Quote</button>
-        <label class="gfield">Stake $<input type="number" id="gStake" value="1" min="0.01" step="0.01" /></label>
+        <label class="gfield">Stake $<input type="text" inputmode="decimal" id="gStake" value="1" data-stake-draft="1" autocomplete="off" /></label>
         <label class="gfield">SL%<input type="number" id="gSl" value="20" min="0" step="1" /></label>
         <label class="gfield">TP%<input type="number" id="gTp" value="100" min="0" step="1" /></label>
         <button type="button" class="gbtn buy" id="gBuy">▲ BUY</button>
@@ -3116,7 +3130,7 @@
     </div>
 
     <footer class="app-foot">
-      <div class="foot-live">Paper only · no wallets. <code>?v=85</code></div>
+      <div class="foot-live">Paper only · no wallets. <code>?v=86</code></div>
       <details class="qa-foot">
         <summary>QA fixtures</summary>
         <div>APIs: <code>/api/flagged</code> · <code>/api/update-now</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>. Social Tap is coin, meme, and crypto viral from public sources — nothing invented. Checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: <code>&amp;mode=game</code>. Equity tick proof: <code>?qa_tick=both</code>, <code>?qa_tick=up</code>, <code>?qa_tick=down</code>. Display offset only. Do not combine with <code>?fixture=</code>. 24h end proof: <code>?qa_end=1</code> (one-shot, then Start 24h). Does not auto-start. An ended run opens a paper Review (dismiss, or Start next 24h — same restart as the main button). Mute silences the soft review cue. Max fixture proof: <code>?qa_max=1</code> (one synthetic bonding row, badge QA MAX). Absent query leaves the live feed unchanged. Do not combine with <code>?fixture=</code>. Gold fixture proof: <code>?qa_gold=1</code> (one synthetic rare card in Gold picks, no chime on the seeded load) or <code>?qa_gold=arrive</code> (same card, one ♪ GOLD). Mute silences the gold cue. It is not the Token Flow new-token chime. Absent query leaves Gold empty unless a live row clears the stricter 7-gate stack. Do not combine with <code>?fixture=</code>.</div>
@@ -3177,7 +3191,7 @@
 
   <script>
 
-    const PANEL_V = 85;
+    const PANEL_V = 86;
     const QA_MAX_NOTE = "QA Max fixture — synthetic bonding row QAMAX. Live unknown rows stay Max-empty. Not a real mint.";
     const QA_GOLD_NOTE = "QA Gold fixture — synthetic rare card QAGOLD in Gold picks. Not a live mint. The normal page stays empty unless the 7-gate stack clears.";
     const QA_GOLD_ARRIVE_NOTE = "QA Gold arrive — one ♪ GOLD for the synthetic card. Mute silences it. This cue is not the Token Flow new-token chime. ?qa_gold=1 seeds quietly.";
@@ -6763,6 +6777,13 @@
       }
       const sessionSigned = g.pnl_usd != null ? fmtSignedTick(g.pnl_usd) : "$0.00";
       set("gRocketEqHint", stale ? "stale · last mark" : (mood === "tick" ? "green flash · " + sessionSigned : (dirMood === "down" ? "session red · " + sessionSigned : "session " + sessionSigned)));
+      const streakChip = document.getElementById("gStreak");
+      if (streakChip && g.status === "active") {
+        streakChip.hidden = false;
+        const curChip = streakChip.textContent || "";
+        if (stale) streakChip.textContent = "STALE";
+        else if (curChip.indexOf("STREAK") < 0) streakChip.textContent = "▲ LIVE";
+      }
       if (pulsing && floatDelta != null && Number.isFinite(Number(floatDelta)) && Number(floatDelta) !== 0) {
         state.lastTickShown = Number(floatDelta);
         state.lastTickSign = mood === "tick" ? "up" : "down";
@@ -7080,7 +7101,7 @@
 
     function paintEquityFreshness() {
       const chrome = currentChrome();
-      const stale = chrome.stale;
+      const stale = !!chrome.stale;
       ["gEquityCard", "gRocketEqCard"].forEach((id) => {
         const el = document.getElementById(id);
         if (el) el.setAttribute("data-stale", stale ? "1" : "0");
@@ -7089,10 +7110,17 @@
       const status = (state.game || {}).status;
       if (streak && status === "active") {
         streak.hidden = false;
-        streak.textContent = chrome.equity === "STALE" ? "STALE" : "▲ LIVE";
+        if (stale) streak.textContent = "STALE";
+        else if ((streak.textContent || "").indexOf("STREAK") < 0) streak.textContent = "▲ LIVE";
       }
       const hint = document.getElementById("gRocketEqHint");
-      if (hint && stale) hint.textContent = "stale · last mark";
+      if (hint) {
+        if (stale) hint.textContent = "stale · last mark";
+        else if (hint.textContent === "stale · last mark") {
+          const g = state.game || {};
+          hint.textContent = "session " + (g.pnl_usd != null ? fmtSignedTick(g.pnl_usd) : "$0.00");
+        }
+      }
       const eqHint = document.getElementById("gEqHint");
       if (eqHint && status === "active") {
         const cur = eqHint.textContent || "";
@@ -8004,6 +8032,7 @@
     }
 
     function renderGame() {
+      rememberStakeDraft();
       if (gameFixtureOn()) {
         applyGameFixture();
         paintTradeChart();
@@ -8072,7 +8101,11 @@
       const streakEl = document.getElementById("gStreak");
       if (streakEl) {
         const streak = winStreak(g.closed);
-        if (status === "active" && streak >= 1) {
+        const staleNow = feedIsStale();
+        if (status === "active" && staleNow) {
+          streakEl.hidden = false;
+          streakEl.textContent = "STALE";
+        } else if (status === "active" && streak >= 1) {
           streakEl.hidden = false;
           streakEl.textContent = "▲ STREAK ×" + streak;
         } else if (status === "active") {
@@ -8229,6 +8262,7 @@
       paintRunReview(g);
       paintFollowTab();
       paintFeedAge();
+      restoreStakeDraft();
 
       // Keep quote-card live price ticking when a quote is on screen
       if (state.lastQuoteMint && status === "active") {
@@ -8945,6 +8979,65 @@
       return "b" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     }
 
+    function stakeEl() {
+      return document.getElementById("gStake");
+    }
+
+    function rememberStakeDraft() {
+      const el = stakeEl();
+      if (!el) return;
+      if (document.activeElement === el) {
+        el.dataset.stakeFocus = "1";
+        el.dataset.stakeDraft = el.value;
+      }
+    }
+
+    function restoreStakeDraft() {
+      const el = stakeEl();
+      if (!el) return;
+      const focused = document.activeElement === el || el.dataset.stakeFocus === "1";
+      const dirty = el.dataset.stakeDirty === "1";
+      if ((focused || dirty) && el.dataset.stakeDraft != null && el.value !== el.dataset.stakeDraft) {
+        el.value = el.dataset.stakeDraft;
+      }
+    }
+
+    function commitStakeDraft() {
+      const el = stakeEl();
+      if (!el) return;
+      el.dataset.stakeDirty = "0";
+      el.dataset.stakeFocus = "0";
+      el.dataset.stakeDraft = el.value;
+    }
+
+    function readStakeUsd() {
+      const el = stakeEl();
+      if (!el) return 0;
+      const drafting = el.dataset.stakeDirty === "1" || el.dataset.stakeFocus === "1" || document.activeElement === el;
+      const raw = drafting && el.dataset.stakeDraft != null ? el.dataset.stakeDraft : el.value;
+      const n = Number(String(raw == null ? "" : raw).replace(/[^0-9.]/g, ""));
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function bindStakeDraft() {
+      const el = stakeEl();
+      if (!el || el.dataset.stakeBound === "1") return;
+      el.dataset.stakeBound = "1";
+      el.dataset.stakeDraft = el.value;
+      el.addEventListener("focus", () => {
+        el.dataset.stakeFocus = "1";
+        el.dataset.stakeDraft = el.value;
+      });
+      el.addEventListener("input", () => {
+        el.dataset.stakeDirty = "1";
+        el.dataset.stakeDraft = el.value;
+      });
+      el.addEventListener("blur", () => commitStakeDraft());
+      el.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") commitStakeDraft();
+      });
+    }
+
     async function gameBuy(mint) {
       if (state.buyInFlight || state.gameBusy) return;
       if (feedIsStale()) {
@@ -8955,7 +9048,7 @@
         return;
       }
       mint = (mint || document.getElementById("gMint").value || "").trim();
-      const stake = Number(document.getElementById("gStake").value);
+      const stake = readStakeUsd();
       const sl = document.getElementById("gSl").value;
       const tp = document.getElementById("gTp").value;
       if (!mint || !(stake > 0)) {
@@ -9483,6 +9576,7 @@
     });
     document.getElementById("gBuy").addEventListener("click", () => gameBuy());
     document.getElementById("gSellAll").addEventListener("click", () => gameSellAll());
+    bindStakeDraft();
     document.getElementById("gMint").addEventListener("keydown", (ev) => {
       if (ev.key === "Enter") { ev.preventDefault(); gameQuote(); }
     });

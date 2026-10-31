@@ -158,6 +158,89 @@ class LiveTickCacheTests(unittest.TestCase):
         self.assertEqual(other["source"], "jupiter")
         self.assertAlmostEqual(other["price_usd"], 1.0)
 
+    def test_same_price_one_second_polls_stay_under_two_seconds(self):
+        """Ten polls, identical usdPrice. Age is since the fetch, not the print."""
+        clock = {"t": 1_700_000_000.0}
+        calls = {"n": 0}
+
+        def now():
+            return clock["t"]
+
+        def fake(_url, timeout=None):
+            calls["n"] += 1
+            return _jup(0.0000785, 7)
+
+        with mock.patch("game.time.time", side_effect=now), mock.patch.object(game, "_http_json", side_effect=fake):
+            for _ in range(10):
+                tick = game.fetch_live_tick(MINT)
+                self.assertIsNotNone(tick)
+                self.assertLess(tick["quote_age_s"], 2.0)
+                self.assertFalse(game.tick_is_stale(tick["quote_age_s"], tick["quote_sla_s"]))
+                self.assertTrue(tick["quote_live"])
+                clock["t"] += 1.0
+        self.assertEqual(calls["n"], 10)
+
+    def test_fetch_failures_for_six_seconds_go_stale(self):
+        clock = {"t": 1_700_000_000.0}
+        calls = {"n": 0}
+
+        def now():
+            return clock["t"]
+
+        def fake(_url, timeout=None):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return _jup(1.25, 3)
+            return 0, None
+
+        with mock.patch("game.time.time", side_effect=now), mock.patch.object(game, "_http_json", side_effect=fake):
+            fresh = game.fetch_live_tick(MINT)
+            self.assertTrue(fresh["quote_live"])
+            last = fresh
+            for _ in range(6):
+                clock["t"] += 1.0
+                last = game.fetch_live_tick(MINT)
+        self.assertGreater(calls["n"], 1)
+        self.assertGreater(last["quote_age_s"], 5)
+        self.assertTrue(game.tick_is_stale(last["quote_age_s"], last["quote_sla_s"]))
+        self.assertFalse(last["quote_live"])
+
+    def test_cold_tick_waits_and_returns_a_price(self):
+        calls = {"n": 0}
+
+        def fake(_url, timeout=None):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return 0, None
+            return _jup(0.42, 1)
+
+        with mock.patch.object(game, "_http_json", side_effect=fake):
+            tick = game.fetch_live_tick(MINT)
+            body = server.app.test_client().get("/api/game/tick?mint=" + MINT).get_json()
+        self.assertTrue(game.fillable_tick(tick))
+        self.assertAlmostEqual(tick["price_usd"], 0.42)
+        self.assertTrue(body["ok"])
+        self.assertAlmostEqual(body["price_usd"], 0.42)
+        self.assertFalse(body["stale"])
+        self.assertNotEqual(body.get("error"), "no price")
+
+    def test_tick_quote_and_coin_mark_watched_and_start_the_stream(self):
+        with mock.patch.object(game, "_http_json", return_value=_jup(1.0)), mock.patch.object(
+            game, "fetch_dex_token", return_value={"symbol": "NVD", "price_usd": 1.0}
+        ), mock.patch("trade_stream.ensure_started") as started, mock.patch(
+            "trade_stream.note_view"
+        ) as noted, mock.patch("filter.coin_payload", return_value={"ok": True, "mint": MINT}):
+            game.quote_payload(MINT)
+            client = server.app.test_client()
+            tick = client.get("/api/game/tick?mint=" + MINT)
+            coin = client.get("/api/coin?mint=" + MINT)
+        self.assertEqual(tick.status_code, 200)
+        self.assertTrue(tick.get_json().get("ok"))
+        self.assertEqual(coin.status_code, 200)
+        self.assertGreaterEqual(started.call_count, 3)
+        watched = [call.args[0] for call in noted.call_args_list if call.args]
+        self.assertIn(MINT, watched)
+
 
 class TradeFillTests(unittest.TestCase):
     def setUp(self):
@@ -326,8 +409,16 @@ class TradeFillTests(unittest.TestCase):
         self.assertAlmostEqual(row["pnl_pct"], -21.0, places=2)
         self.assertLess(abs(row["pnl_pct"] - (-20)), 2.0)
 
-    def test_qa_walk_does_not_stop_or_fill_at_the_synthetic_price(self):
-        """W24: the shared book stops and sells on the real tick only."""
+    def test_qa_walk_reaches_a_twenty_percent_stop_within_sixty_seconds(self):
+        """W07: armed walk crosses −20% inside the span and that stop fills.
+
+        The shared cache stays the real Jupiter price, so another session's
+        tick is not the walked print.
+        """
+        self.assertLessEqual(game.QA_WALK_SPAN_S, 60.0)
+        self.assertGreaterEqual(game.QA_WALK_DROP, 0.20)
+        cross_s = game.QA_WALK_SPAN_S * (0.20 / game.QA_WALK_DROP)
+        self.assertLessEqual(cross_s, 60.0)
         self._active([{
             "id": "pos1",
             "mint": MINT,
@@ -345,14 +436,17 @@ class TradeFillTests(unittest.TestCase):
         with mock.patch.object(game, "_http_json", return_value=_jup(1.0)):
             shown = game.fetch_live_tick(MINT)
             held = game.tick_session()
-            sold = game.sell("pos1")
-        self.assertLessEqual(shown["price_usd"], 0.75)
+            game.set_qa_walk_sid(None)
+            other = game.fetch_live_tick(MINT)
+        self.assertLessEqual(shown["price_usd"], 0.80)
         self.assertEqual(shown["source"], "qa_tick")
-        self.assertEqual(len(held["positions"]), 1)
+        self.assertEqual(held["positions"], [])
+        self.assertEqual(held["closed"][0]["close_reason"], "stop")
+        self.assertLessEqual(held["closed"][0]["pnl_pct"], -20.0)
         self.assertEqual(game._live_cache[MINT][1]["price_usd"], 1.0)
         self.assertEqual(game._live_cache[MINT][1]["source"], "jupiter")
-        self.assertTrue(sold["ok"], sold)
-        self.assertAlmostEqual(sold["state"]["closed"][0]["exit_price_usd"], 1.0)
+        self.assertAlmostEqual(other["price_usd"], 1.0)
+        self.assertEqual(other["source"], "jupiter")
 
     def test_one_request_id_opens_one_position(self):
         dex = {"symbol": "NVD", "name": "Nvidia", "price_usd": 0.000112, "pair_url": "https://dexscreener.com/solana/x"}
@@ -394,11 +488,44 @@ class TradeFillTests(unittest.TestCase):
         self.assertEqual(out["state"]["positions"], [])
         self.assertEqual(len(out["state"]["closed"]), 2)
 
+    def test_sell_all_closes_two_different_mints(self):
+        """W11: a second mint must not stay open after Sell all."""
+        other = "B" * 44
+        opened = _utc(datetime.now(timezone.utc) - timedelta(minutes=10))
+        rows = []
+        for pid, mint, px in (("a", MINT, 1.0), ("b", other, 2.0)):
+            rows.append({
+                "id": pid,
+                "mint": mint,
+                "symbol": pid,
+                "stake_usd": 1.0,
+                "entry_price_usd": px,
+                "qty_tokens": 1.0 / px,
+                "last_price_usd": px,
+                "opened_at": opened,
+                "sl_pct": 20,
+                "tp_pct": 100,
+            })
+        self._active(rows)
+
+        def fake(url, timeout=None):
+            if other in url:
+                return 200, {other: {"usdPrice": 2.0, "blockId": 2}}
+            return 200, {MINT: {"usdPrice": 1.0, "blockId": 1}}
+
+        with mock.patch.object(game, "_http_json", side_effect=fake):
+            out = game.sell_all()
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(out["sold"], 2)
+        self.assertEqual(out["open_count"], 0)
+        self.assertEqual(out["state"]["positions"], [])
+        self.assertEqual(len(out["state"]["closed"]), 2)
+
 
 class HealthAndChartTests(unittest.TestCase):
     def test_health_is_v82_with_live_tick_and_a_five_second_sla(self):
         data = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 85)
+        self.assertEqual(data["panel_v"], 86)
         self.assertIn("live_tick", data["features"])
         self.assertLessEqual(data["quote_sla_s"], 5.0)
         self.assertEqual(data["quote_sla_s"], 5.0)
@@ -763,7 +890,7 @@ class ShipW3Tests(unittest.TestCase):
 
     def test_health_documents_the_stream_and_panel_85(self):
         data = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 85)
+        self.assertEqual(data["panel_v"], 86)
         self.assertIn("trade_stream", data["features"])
         self.assertIn("stream", data["live_tick"])
         self.assertIn("PumpPortal", data["live_tick"])
@@ -771,8 +898,8 @@ class ShipW3Tests(unittest.TestCase):
 
     def test_w20_w22_w23_w26_w27_w28_panel_contract(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
-        self.assertIn("const PANEL_V = 85", html)
-        self.assertIn("?v=85", html)
+        self.assertIn("const PANEL_V = 86", html)
+        self.assertIn("?v=86", html)
         pure = html[html.index("/* ship-w-pure-start */"):html.index("/* ship-w-pure-end */")]
         script = pure + r"""
 const nothing = surfaceChrome(null, 5, false, false, "active", 0, "01:02:03");

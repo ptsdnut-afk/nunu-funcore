@@ -32,6 +32,7 @@ import base64
 import json
 import os
 import struct
+import sys
 import threading
 import time
 from datetime import datetime, timezone
@@ -377,11 +378,14 @@ def watched_mints(now: float | None = None) -> list[str]:
 
 
 def ensure_started() -> None:
-    """Start the daemon if it is not already running. No-op under pytest."""
+    """Start the daemon if it is not already running. No-op under tests."""
     global _thread
     if (os.environ.get("NUNU_TRADE_STREAM") or "1").strip() == "0":
         return
     if os.environ.get("PYTEST_CURRENT_TEST"):
+        return
+    argv = " ".join(sys.argv)
+    if "unittest" in argv or "pytest" in argv:
         return
     with _guard:
         if _thread is not None and _thread.is_alive():
@@ -599,9 +603,18 @@ def _account_info(http: str, addr: str) -> dict | None:
     return value if isinstance(value, dict) else None
 
 
+_anchor_at = 0.0
+
+
 def _refresh_anchors(mints: list[str]) -> None:
+    """One Jupiter anchor fetch per second. A hot account stream must not 429 ticks."""
+    global _anchor_at
     import game
 
+    now = time.time()
+    if now - _anchor_at < 1.0:
+        return
+    _anchor_at = now
     ids = []
     for mint in list(mints) + [SOL_MINT]:
         if mint and mint not in ids:
