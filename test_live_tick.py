@@ -1,14 +1,14 @@
-"""SHIP W — live game ticks (AC-W01…W05). Not a QA PASS.
+"""SHIP W2 — Jupiter mid ticks (AC-W01…W19). Not a QA PASS.
 
-The Game mark is a fresh Jupiter/Gecko tick with a <=2s server cache.
-Buy, sell, and stops fill at that tick and store price_ts. A print older
-than 5s is not a fill. The rocket chart is driven by those prices.
+The Game mark is Jupiter Price API usdPrice. One shared fetch per mint per
+second. A print older than 5s is not a fill. GeckoTerminal is not used.
 """
 
 from __future__ import annotations
 
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -34,13 +34,15 @@ class LiveTickCacheTests(unittest.TestCase):
         game._live_cache.clear()
         game._live_backoff_until.clear()
         game._live_backoff_s.clear()
-        game._pool_cache.clear()
+        game._qa_walks.clear()
+        game.set_qa_walk_sid(None)
 
     def tearDown(self):
         game._live_cache.clear()
         game._live_backoff_until.clear()
         game._live_backoff_s.clear()
-        game._pool_cache.clear()
+        game._qa_walks.clear()
+        game.set_qa_walk_sid(None)
 
     def test_ttl_is_at_most_two_seconds_and_coalesces_callers(self):
         self.assertLessEqual(game.LIVE_TICK_TTL_S, 2.0)
@@ -55,8 +57,7 @@ class LiveTickCacheTests(unittest.TestCase):
             first = game.fetch_live_tick(MINT)
             after_miss = calls["n"]
             second = game.fetch_live_tick(MINT)
-        self.assertGreaterEqual(after_miss, 1)
-        self.assertLessEqual(after_miss, 4)
+        self.assertEqual(after_miss, 1)
         self.assertEqual(calls["n"], after_miss)
         self.assertTrue(game.fillable_tick(first))
         self.assertEqual(second["price_usd"], first["price_usd"])
@@ -86,75 +87,73 @@ class LiveTickCacheTests(unittest.TestCase):
         self.assertFalse(again["quote_live"])
         self.assertEqual(calls["n"], tried)
 
-    def test_gecko_is_used_when_jupiter_has_no_price(self):
+    def test_missing_jupiter_price_does_not_call_gecko(self):
+        seen = []
+
         def fake(url: str):
-            if "jup.ag" in url:
-                return 200, {}
-            return 200, {
-                "data": {"attributes": {"token_prices": {MINT: "0.0000913"}}},
-            }
-
-        with mock.patch.object(game, "_http_json", side_effect=fake):
-            tick = game.fetch_live_tick(MINT, bypass_cache=True)
-        self.assertTrue(game.fillable_tick(tick))
-        self.assertEqual(tick["source"], "gecko")
-        self.assertAlmostEqual(tick["price_usd"], 0.0000913)
-
-    def test_sol_quote_beats_a_stale_jupiter_mark(self):
-        """Pool quote, not the slower Jupiter usdPrice and not Dex priceUsd."""
-        def fake(url: str):
-            if "swap/v1/quote" in url:
-                return 200, {"outAmount": "1000000"}
-            return 200, {
-                game.SOL_MINT: {"usdPrice": 100.0, "decimals": 9},
-                MINT: {"usdPrice": 0.5, "decimals": 6, "blockId": 9},
-            }
-
-        with mock.patch.object(game, "_http_json", side_effect=fake):
-            tick = game.fetch_live_tick(MINT, bypass_cache=True)
-        self.assertTrue(game.fillable_tick(tick))
-        self.assertAlmostEqual(tick["price_usd"], 0.1)
-        self.assertNotAlmostEqual(tick["price_usd"], 0.5)
-        self.assertEqual(tick["source"], "jup")
-        dex = 0.101
-        gap = abs(tick["price_usd"] - dex) / dex
-        self.assertLess(gap, 0.02)
-
-    def test_pool_trade_is_the_fallback_when_jupiter_is_down(self):
-        pool = "Pool111111111111111111111111111111111111111"
-        def fake(url: str):
-            if "/pools?" in url or url.endswith("/pools?page=1"):
-                return 200, {
-                    "data": [{
-                        "id": "solana_" + pool,
-                        "attributes": {"reserve_in_usd": "50000"},
-                        "relationships": {
-                            "base_token": {"data": {"id": "solana_" + MINT}},
-                            "quote_token": {"data": {"id": "solana_" + game.SOL_MINT}},
-                        },
-                    }]
-                }
-            if "/trades" in url:
-                return 200, {
-                    "data": [{
-                        "attributes": {
-                            "from_token_address": MINT,
-                            "to_token_address": game.SOL_MINT,
-                            "price_from_in_usd": "0.0008173",
-                            "price_to_in_usd": "100",
-                            "block_timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                        }
-                    }]
-                }
-            if "jup.ag" in url:
-                return 200, {}
+            seen.append(url)
             return 200, {}
 
         with mock.patch.object(game, "_http_json", side_effect=fake):
             tick = game.fetch_live_tick(MINT, bypass_cache=True)
-        self.assertEqual(tick["source"], "gecko")
-        self.assertAlmostEqual(tick["price_usd"], 0.0008173)
-        self.assertLess(abs(tick["price_usd"] - 0.0008173) / 0.0008173, 0.02)
+        self.assertIsNone(tick)
+        self.assertTrue(seen)
+        self.assertTrue(all("jup.ag/price" in url for url in seen))
+        self.assertFalse(any("gecko" in url for url in seen))
+        self.assertFalse(any("swap/v1/quote" in url for url in seen))
+
+    def test_price_api_mid_ignores_a_swap_quote(self):
+        """usdPrice is the mid. A one-way quote that would print ~8% higher is not fetched."""
+        def fake(url: str):
+            self.assertNotIn("swap/v1/quote", url)
+            return 200, {MINT: {"usdPrice": 0.000737, "decimals": 6, "blockId": 9}}
+
+        with mock.patch.object(game, "_http_json", side_effect=fake):
+            tick = game.fetch_live_tick(MINT, bypass_cache=True)
+        self.assertTrue(game.fillable_tick(tick))
+        self.assertAlmostEqual(tick["price_usd"], 0.000737)
+        self.assertEqual(tick["source"], "jup")
+        dex = 0.000737
+        gap = abs(tick["price_usd"] - dex) / dex
+        self.assertLess(gap, 0.02)
+        inflated = 0.00080
+        self.assertGreater(abs(tick["price_usd"] - inflated) / inflated, 0.02)
+
+    def test_ten_concurrent_polls_make_one_upstream_call(self):
+        calls = {"n": 0}
+        started = threading.Barrier(10)
+
+        def fake(_url: str):
+            time.sleep(0.05)
+            calls["n"] += 1
+            return _jup(0.000737, 3)
+
+        def worker():
+            started.wait(timeout=2)
+            game.fetch_live_tick(MINT)
+
+        with mock.patch.object(game, "_http_json", side_effect=fake):
+            threads = [threading.Thread(target=worker) for _ in range(10)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=3)
+        self.assertEqual(calls["n"], 1)
+        self.assertTrue(all(not t.is_alive() for t in threads))
+
+    def test_qa_tick_down_walks_one_session_and_leaves_the_cache(self):
+        with mock.patch.object(game, "_http_json", return_value=_jup(1.0, 4)):
+            real = game.fetch_live_tick(MINT)
+            game._qa_walks["qa-a"] = {MINT: {"t0": time.time() - game.QA_WALK_SPAN_S, "px0": 1.0}}
+            walked = game.fetch_live_tick(MINT, qa_sid="qa-a")
+            other = game.fetch_live_tick(MINT)
+        self.assertAlmostEqual(real["price_usd"], 1.0)
+        self.assertLessEqual(walked["price_usd"], 1.0 * (1.0 - 0.25))
+        self.assertGreater(walked["qa_walk_drop"], 0.25)
+        self.assertEqual(walked["source"], "qa_tick")
+        self.assertEqual(game._live_cache[MINT][1]["price_usd"], 1.0)
+        self.assertEqual(other["source"], "jup")
+        self.assertAlmostEqual(other["price_usd"], 1.0)
 
 
 class TradeFillTests(unittest.TestCase):
@@ -165,7 +164,8 @@ class TradeFillTests(unittest.TestCase):
         game._live_cache.clear()
         game._live_backoff_until.clear()
         game._live_backoff_s.clear()
-        game._pool_cache.clear()
+        game._qa_walks.clear()
+        game.set_qa_walk_sid(None)
         for patch in (
             mock.patch.object(game, "PROFILE_PATH", root / "profile.json"),
             mock.patch.object(game, "SCORES_PATH", root / "scores.json"),
@@ -282,7 +282,8 @@ class TradeFillTests(unittest.TestCase):
         game._live_cache.clear()
         game._live_backoff_until.clear()
         game._live_backoff_s.clear()
-        game._pool_cache.clear()
+        game._qa_walks.clear()
+        game.set_qa_walk_sid(None)
         with mock.patch.object(game, "_http_json", return_value=_jup(trigger)):
             closed = game.tick_session()
         self.assertEqual(closed["positions"], [])
@@ -319,6 +320,30 @@ class TradeFillTests(unittest.TestCase):
         self.assertEqual(row["close_reason"], "stop")
         self.assertAlmostEqual(row["pnl_pct"], -21.0, places=2)
         self.assertLess(abs(row["pnl_pct"] - (-20)), 2.0)
+
+    def test_qa_walk_fires_a_twenty_percent_stop_without_touching_the_feed(self):
+        self._active([{
+            "id": "pos1",
+            "mint": MINT,
+            "symbol": "NVD",
+            "stake_usd": 1.0,
+            "entry_price_usd": 1.0,
+            "qty_tokens": 1.0,
+            "last_price_usd": 1.0,
+            "opened_at": _utc(datetime.now(timezone.utc) - timedelta(minutes=10)),
+            "sl_pct": 20,
+            "tp_pct": 100,
+        }])
+        game._qa_walks["stop-sid"] = {MINT: {"t0": time.time() - game.QA_WALK_SPAN_S, "px0": 1.0}}
+        game.set_qa_walk_sid("stop-sid")
+        with mock.patch.object(game, "_http_json", return_value=_jup(1.0)):
+            closed = game.tick_session()
+        self.assertEqual(closed["positions"], [])
+        row = closed["closed"][0]
+        self.assertEqual(row["close_reason"], "stop")
+        self.assertLessEqual(row["exit_price_usd"], 0.75)
+        self.assertEqual(game._live_cache[MINT][1]["price_usd"], 1.0)
+        self.assertEqual(game._live_cache[MINT][1]["source"], "jup")
 
     def test_one_request_id_opens_one_position(self):
         dex = {"symbol": "NVD", "name": "Nvidia", "price_usd": 0.000112, "pair_url": "https://dexscreener.com/solana/x"}
@@ -364,7 +389,7 @@ class TradeFillTests(unittest.TestCase):
 class HealthAndChartTests(unittest.TestCase):
     def test_health_is_v82_with_live_tick_and_a_five_second_sla(self):
         data = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 83)
+        self.assertEqual(data["panel_v"], 84)
         self.assertIn("live_tick", data["features"])
         self.assertLessEqual(data["quote_sla_s"], 5.0)
         self.assertEqual(data["quote_sla_s"], 5.0)
@@ -407,6 +432,15 @@ class HealthAndChartTests(unittest.TestCase):
         self.assertIn("stale", body["stale_label"])
         self.assertIn("9", body["stale_label"])
 
+        lied = dict(fresh, quote_live=True, quote_age_s=130.4, price_usd=0.0000785)
+        with mock.patch.object(server.game_mod, "fetch_live_tick", return_value=lied):
+            res = client.get("/api/game/tick?mint=" + MINT)
+        body = res.get_json()
+        self.assertGreater(body["quote_age_s"], body["quote_sla_s"])
+        self.assertTrue(body["stale"])
+        self.assertFalse(body["quote_live"])
+        self.assertTrue(game.tick_is_stale(body["quote_age_s"], body["quote_sla_s"]))
+
     def test_stale_trade_buttons_say_waiting_for_live_price(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
         start = html.index("function tradeButtonLabel")
@@ -432,7 +466,7 @@ if (tradeButtonLabel("buy", false).indexOf("Waiting") >= 0) process.exit(9);
     def test_panel_chart_ignores_zero_and_rocket_keeps_moving(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
         self.assertIn('data-feature="live_tick"', html)
-        self.assertIn("LIVE_TICK_MS: 2000", html)
+        self.assertIn("LIVE_TICK_MS: 1000", html)
         self.assertIn("/api/game/tick?mint=", html)
         self.assertIn("rocket-sink", html)
         down = html[html.index('.rocket-live[data-mood="down"] .rocket-wrap'):html.index('.rocket-live[data-mood="down"] .rocket-wrap') + 180]
@@ -474,6 +508,23 @@ if (book.mood !== "down" || book.tilt < 8) process.exit(22);
 if (tradeMarkHint("active", 1, "01:02:03", 9).indexOf("stale 9s") !== 0) process.exit(23);
 if (tradeMarkHint("active", 1, "01:02:03", 1).indexOf("Live") !== 0) process.exit(24);
 if (tradeMarkHint("active", 2, "01:02:03", null).indexOf("stale") >= 0) process.exit(25);
+if (feedStale(4.9, 5) !== false) process.exit(30);
+if (feedStale(5, 5) !== false) process.exit(31);
+if (feedStale(5.01, 5) !== true) process.exit(32);
+if (feedStale(130, 5) !== true) process.exit(33);
+if (feedStale(null, 5) !== true) process.exit(34);
+let shown = rocketShownPct(null, 1.2);
+shown = rocketShownPct(shown, 1.5);
+shown = rocketShownPct(shown, 1.1);
+if (!(shown > 0)) process.exit(35);
+const nose = rocketCue(shown, 0, true);
+if (nose.mood !== "up" || !(nose.tilt < 0)) process.exit(36);
+let downShown = rocketShownPct(null, -1.2);
+downShown = rocketShownPct(downShown, -2.4);
+downShown = rocketShownPct(downShown, -1.8);
+if (!(downShown < 0)) process.exit(37);
+const noseDn = rocketCue(downShown, 99, true);
+if (noseDn.mood !== "down" || !(noseDn.tilt > 0)) process.exit(38);
 """
         proc = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=False)
         self.assertEqual(proc.returncode, 0, proc.stderr or proc.stdout)
