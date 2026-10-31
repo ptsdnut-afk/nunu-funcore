@@ -72,6 +72,11 @@ def _bind_qa_walk():
     that route still clears a walk cookie so a later buy is not the walked price.
     The walk covers only the mint it was armed on, and it stops after the span.
     """
+    client = (request.cookies.get(game_mod.CLIENT_COOKIE) or "").strip()
+    if not client:
+        client = uuid.uuid4().hex
+        g.client_set_cookie = client
+    game_mod.set_client_sid(client)
     cookie = (request.cookies.get(game_mod.QA_WALK_COOKIE) or "").strip()
     query = (request.args.get("qa_tick") or "").strip().lower()
     path = request.path or ""
@@ -254,7 +259,7 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 88,
+            "panel_v": 89,
             "time": _utc(),
             "qa_tick": "page ?qa_tick=both|up|down",
             "qa_end": "page ?qa_end=1 (one-shot) or POST /api/game/end",
@@ -305,14 +310,14 @@ def api_health():
                 "Buy/Sell Program data into a per-trade price. Vault accountSubscribe is the second source. "
                 "Orca keeps accountSubscribe. PumpPortal trade sockets are not used: "
                 "they require a funded API key. No getTransaction. "
-                "Jupiter Price API usdPrice is one batched call per second for every watched mint. "
-                "A 429 backs off at most 2s. It is the price only when no pool is found (src jupiter) "
-                "and the fallback when a pool has been quiet for more than 5s (src jupiter_fallback). "
-                "Pump coins prefer the decoded mid. "
-                "The first tick resolves the pool and reads vaults synchronously, then the mint stays "
-                "on the 1s HTTP vault poll for 60s after the last tick or Quote. "
-                "Websocket logsSubscribe is attached when the RPC allows it; if it is blocked, the "
-                "HTTP vault poll still prices the coin. /api/health stream reports ws_state, ws_error, "
+                "Jupiter Price API usdPrice is one batched call per second for the SOL anchor. "
+                "It is not the steady-state coin price. A pool that stays unreachable for more than "
+                "10s may return src jupiter_fallback, and that tick is stale so it cannot fill a buy, "
+                "sell, or stop. The first tick resolves the pool and reads vaults synchronously "
+                "(base64, within about 3s). A non-SOL quote is the pool ratio times that quote token's "
+                "own SOL-pool USD price. Every watched PumpSwap pool gets logsSubscribe before vault "
+                "accounts take subscription room. The HTTP vault poll still prices the coin if the "
+                "socket is quiet. /api/health stream reports ws_state, ws_error, "
                 "subscriptions, and last_event. "
                 "Browsers poll /api/game/tick every 500ms and never call Jupiter or RPC. "
                 "stale is true exactly when quote_age_s > quote_sla_s (5s). Past that, Buy, Sell, and stops "
@@ -330,7 +335,8 @@ def api_health():
                 "the walk stops and a later buy fills at the real price. "
                 "?qa_tick=off, ?qa_tick=0, and ?qa_tick=up clear the walk cookie. "
                 "/api/game/state?qa_tick=down stays the display-only equity nudge. "
-                "The shared tick cache and other browsers are not changed."
+                "The shared tick cache, the trade stream, and any other browser's stop are not changed. "
+                "A position is stopped on the walked price only for the browser that armed it."
             ),
             "qa_stale": (
                 "Page ?qa_stale=1 is this browser only. The client treats live ticks as older than "
@@ -377,7 +383,7 @@ def api_gold():
     return jsonify(
         {
             "ok": True,
-            "panel_v": 88,
+            "panel_v": 89,
             "feature": "gold_scar",
             "count": len(picks),
             "empty_ok": True,
@@ -858,6 +864,7 @@ def api_game_tick():
         "quote_sla_s": sla,
         "source": tick.get("source"),
         "src": tick.get("src") or game_mod.public_src(tick.get("source")),
+        "driver": tick.get("driver") or "swap",
         "fetched_at": tick.get("fetched_at") or tick.get("price_ts"),
         "trade_ts": tick.get("trade_ts") or tick.get("price_ts"),
         "render_ts": tick.get("render_ts") or _utc(),
@@ -944,6 +951,7 @@ def _qa_walk_cookie(resp: Response):
             httponly=True,
             samesite="Lax",
         )
+        _set_client_cookie(resp)
         return resp
     sid = getattr(g, "qa_walk_set_cookie", None)
     if sid:
@@ -954,7 +962,22 @@ def _qa_walk_cookie(resp: Response):
             samesite="Lax",
             path="/",
         )
+    _set_client_cookie(resp)
     return resp
+
+
+def _set_client_cookie(resp: Response) -> None:
+    client = getattr(g, "client_set_cookie", None)
+    if not client:
+        return
+    resp.set_cookie(
+        game_mod.CLIENT_COOKIE,
+        client,
+        max_age=60 * 60 * 24 * 400,
+        httponly=True,
+        samesite="Lax",
+        path="/",
+    )
 
 
 @app.after_request

@@ -758,6 +758,47 @@ def set_qa_walk_sid(sid: str | None) -> None:
     _qa_sid.set(sid or None)
 
 
+CLIENT_COOKIE = "nunu_client"
+_client_sid: contextvars.ContextVar[str | None] = contextvars.ContextVar("nunu_client", default=None)
+
+
+def set_client_sid(sid: str | None) -> None:
+    """Browser that owns this request. Stops only walk that browser's positions."""
+    _client_sid.set(sid or None)
+
+
+def _force_stale(tick: dict) -> dict:
+    """A Jupiter fallback is not a fill. quote_live stays false."""
+    out = dict(tick)
+    out["quote_live"] = False
+    out["stale"] = True
+    age = _f(out.get("quote_age_s"))
+    if age is None or age <= QUOTE_FRESH_SLA_S:
+        out["quote_age_s"] = round(QUOTE_FRESH_SLA_S + 0.01, 3)
+    return out
+
+
+def _stale_jupiter_fallback(mint: str) -> dict | None:
+    """Labeled Jupiter price after the pool has been unreachable. Not cached over the pool."""
+    px, _block, _limited = _jupiter_price(mint, timeout=_LIVE_TIMEOUT)
+    if px is None or px <= 0:
+        return None
+    fetched = time.time()
+    return {
+        "mint": mint,
+        "price_usd": px,
+        "price_ts": _utc(),
+        "trade_ts": _utc_ms(),
+        "trade_epoch": fetched,
+        "fetched_at": _utc_ms(),
+        "source": "jupiter_fallback",
+        "src": "jupiter_fallback",
+        "driver": "swap",
+        "block_id": _block,
+        "rate_limited": _limited,
+    }
+
+
 def qa_walk_armed(sid: str | None) -> bool:
     if not sid:
         return False
@@ -893,14 +934,54 @@ def fetch_live_tick(
             _live_cache.pop(mint, None)
             hit = None
         cache_age = None if not hit else max(0.0, now - float(hit[0]))
-        if (
-            trade_stream.stream_is_fresh(mint, now)
-            and hit
-            and trade_stream.is_pool_source(hit[1].get("source"))
-            and cache_age is not None
-            and cache_age <= trade_stream.STREAM_SILENCE_S
-        ):
+        poolish = bool(hit) and trade_stream.is_pool_source((hit[1] or {}).get("source"))
+        # On-chain price stays the tick until the pool has been silent for 10s.
+        # Jupiter is not consulted while that print is still in hand, even when
+        # Quote asks to bypass the 1s cache.
+        if poolish and cache_age is not None and cache_age <= trade_stream.POOL_UNREACHABLE_S:
+            trade_stream.clear_pool_miss(mint)
             return _out(hit[1], hit[0], now)
+        has_pool = bool(trade_stream.pool_kind(mint))
+        if has_pool and not poolish:
+            hit = _live_cache.get(mint)
+            cache_age = None if not hit else max(0.0, now - float(hit[0]))
+            poolish = bool(hit) and trade_stream.is_pool_source((hit[1] or {}).get("source"))
+            if poolish and cache_age is not None and cache_age <= trade_stream.POOL_UNREACHABLE_S:
+                trade_stream.clear_pool_miss(mint)
+                return _out(hit[1], hit[0], time.time())
+        fresh_mid = trade_stream.mid_price(mint) if has_pool else None
+        if fresh_mid:
+            fetched = time.time()
+            payload = {
+                "mint": mint,
+                "price_usd": fresh_mid,
+                "price_ts": _utc(),
+                "trade_ts": _utc_ms(),
+                "trade_epoch": fetched,
+                "fetched_at": _utc_ms(),
+                "source": "pool_vault",
+                "src": "pool_vault",
+                "driver": "swap",
+            }
+            _live_cache[mint] = (fetched, dict(payload))
+            trade_stream.clear_pool_miss(mint)
+            return _out(payload, fetched, fetched)
+        if has_pool or poolish:
+            # A pool print older than 10s is already unreachable. A pool we
+            # have never priced gets a 10s clock before any Jupiter fallback.
+            aged_out = poolish and cache_age is not None and cache_age > trade_stream.POOL_UNREACHABLE_S
+            if not aged_out:
+                trade_stream.mark_pool_miss(mint, now)
+                if not trade_stream.pool_unreachable(mint, now):
+                    if poolish:
+                        return _out(hit[1], hit[0], now)
+                    return None
+            fb = _stale_jupiter_fallback(mint)
+            if fb:
+                return _force_stale(_out(fb, time.time(), time.time()))
+            if poolish:
+                return _force_stale(_out(hit[1], hit[0], now))
+            return None
         cache_fresh = cache_age is not None and cache_age < LIVE_TICK_TTL_S
         # 429 holds the next try for under a second, then a poll refetches
         # even when usdPrice did not change. Quote passes bypass_cache.
@@ -947,6 +1028,7 @@ def fetch_live_tick(
             "fetched_at": _utc_ms(),
             "source": source,
             "block_id": block,
+            "driver": "swap",
             "rate_limited": limited,
         }
         if payload.get("source") in ("qa_tick", "qa") or payload.get("qa_tick"):
@@ -1687,9 +1769,8 @@ def tick_session(st: dict | None = None) -> dict:
 
         mints = list({p.get("mint") for p in (st.get("positions") or []) if p.get("mint")})
         ticks: dict[str, dict] = {}
-        # Real prices go in the shared book. This request's QA walk, if any,
-        # is applied only for the stop/TP check so a 20% walk can fire the stop
-        # without writing the synthetic price into another session's mark.
+        # Real prices go in the shared book. A walked price is used only to
+        # stop or take profit on a position this same browser opened.
         qa_sid = _qa_sid.get()
         if mints:
             futs = {_fetch_pool.submit(fetch_live_tick, m, False, None, False): m for m in mints}
@@ -1709,11 +1790,8 @@ def tick_session(st: dict | None = None) -> dict:
         for pos in list(st.get("positions") or []):
             mint = pos.get("mint")
             tick = ticks.get(mint) if mint else None
-            shown = _qa_overlay(qa_sid, tick) if qa_sid and isinstance(tick, dict) else tick
             fresh = fillable_tick(tick)
             px = _f(tick.get("price_usd")) if fresh and tick else None
-            shown_fresh = fillable_tick(shown)
-            shown_px = _f(shown.get("price_usd")) if shown_fresh and isinstance(shown, dict) else None
             entry = float(pos.get("entry_price_usd") or 0)
             if fresh and px is not None:
                 prev = _f(pos.get("last_price_usd"))
@@ -1745,16 +1823,34 @@ def tick_session(st: dict | None = None) -> dict:
                 continue
             sl = pos.get("sl_pct")
             tp = pos.get("tp_pct")
+            # The walked price belongs to the browser that armed it. Another
+            # session's position is marked and stopped on the real tick only.
+            owner = str(pos.get("client_id") or "")
+            client = _client_sid.get() or ""
+            use_walk = bool(qa_sid) and bool(owner) and owner == client
+            if use_walk and isinstance(tick, dict):
+                shown = _qa_overlay(qa_sid, tick)
+                shown_fresh = fillable_tick(shown)
+                shown_px = _f(shown.get("price_usd")) if shown_fresh else None
+            else:
+                shown = tick
+                shown_fresh = fresh
+                shown_px = px if fresh else None
             # Stops and targets fill at this tick's price, and only when that
             # tick is still inside the 5s window. A frozen cache must not gap
             # the fill past the mark the player was shown.
             stop_px = shown_px if shown_px is not None else (px if fresh else None)
-            stop_fresh = shown_fresh if qa_sid else fresh
+            stop_fresh = shown_fresh if use_walk else fresh
             stop_ts = (shown.get("price_ts") if isinstance(shown, dict) else None) or (
                 tick.get("price_ts") if isinstance(tick, dict) else None
             )
             if stop_fresh and entry and stop_px:
                 chg = (stop_px / entry - 1.0) * 100
+                fill_source = "qa_tick" if use_walk else (
+                    str(tick.get("source") or "") if isinstance(tick, dict) else ""
+                )
+                if fill_source:
+                    pos["price_source"] = fill_source
                 if sl is not None and chg <= -abs(float(sl)):
                     fill_px = stop_fill_price(entry, stop_px, float(sl))
                     _close_position(st, pos, fill_px, "stop", price_ts=stop_ts)
@@ -1870,6 +1966,7 @@ def buy(
             "quoted_at": price_ts,
             "price_source": tick.get("source"),
             "client_request_id": rid or None,
+            "client_id": _client_sid.get() or "",
             "red_flags": flags_for_mint(mint),
             "ca_short": (mint[:4] + "…" + mint[-4:]) if len(mint) > 10 else mint,
             "market_cap_usd": (q or {}).get("market_cap_usd"),

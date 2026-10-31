@@ -305,7 +305,7 @@ class ShipPReviewTests(unittest.TestCase):
 
         data = server.app.test_client().get("/api/health").get_json()
         self.assertTrue(data["ok"])
-        self.assertEqual(data["panel_v"], 88)
+        self.assertEqual(data["panel_v"], 89)
         for feature in (
             "game_ai_review",
             "game_24h_restart",
@@ -324,7 +324,7 @@ class ShipPReviewTests(unittest.TestCase):
 class ShipPPanelTests(unittest.TestCase):
     def test_panel_offers_review_without_trapping_restart(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
-        self.assertIn("const PANEL_V = 88", html)
+        self.assertIn("const PANEL_V = 89", html)
         self.assertIn("data-panel-v", html)
         self.assertIn("paintPanelVersion", html)
         self.assertNotIn("?v=76", html)

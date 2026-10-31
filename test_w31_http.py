@@ -109,11 +109,14 @@ class LiveHttpPathTests(unittest.TestCase):
         self.assertEqual(last.get("source"), "qa_tick")
 
     def test_stop_fills_within_one_tick_of_the_trigger(self):
+        self.client.set_cookie(game.CLIENT_COOKIE, "client-http")
         probe = self.client.get("/api/game/tick?mint=" + SOL)
         self.assertEqual(probe.status_code, 200, probe.get_json())
         spot = float(probe.get_json()["price_usd"])
         self.assertGreater(spot, 0)
-        self._book([self._pos("one", SOL, spot)])
+        pos = self._pos("one", SOL, spot)
+        pos["client_id"] = "client-http"
+        self._book([pos])
         armed = self.client.get("/api/game/tick?mint=" + SOL + "&qa_tick=down")
         self.assertEqual(armed.status_code, 200)
         for _ in range(59):
@@ -141,7 +144,7 @@ class LiveHttpPathTests(unittest.TestCase):
 
     def test_health_reports_stream_attachment(self):
         data = self.client.get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 88)
+        self.assertEqual(data["panel_v"], 89)
         stream = data["stream"]
         self.assertIn("why", stream)
         self.assertIn("ws_state", stream)
@@ -152,7 +155,7 @@ class LiveHttpPathTests(unittest.TestCase):
 
     def test_version_labels_share_one_constant_and_score_is_its_own_cell(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
-        self.assertIn("const PANEL_V = 88", html)
+        self.assertIn("const PANEL_V = 89", html)
         self.assertGreaterEqual(html.count("data-panel-v"), 2)
         self.assertIn("function paintPanelVersion()", html)
         self.assertIn("/* w31-score-cell", html)
