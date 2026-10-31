@@ -280,7 +280,7 @@ class FixtureRouteTests(unittest.TestCase):
 
     def test_health_is_v77_with_gold_scar(self):
         data = self.client.get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 86)
+        self.assertEqual(data["panel_v"], 87)
         self.assertIn("gold_scar", data["features"])
         for feature in (
             "game_ai_review",
@@ -380,9 +380,11 @@ class FixtureRouteTests(unittest.TestCase):
 class PanelTests(unittest.TestCase):
     def test_gold_section_is_separate_and_versioned(self):
         html = _panel()
-        self.assertIn("const PANEL_V = 86", html)
-        self.assertIn("paper only · v85", html)
-        self.assertIn("?v=86", html)
+        self.assertIn("const PANEL_V = 87", html)
+        self.assertIn("data-panel-v", html)
+        self.assertIn("paintPanelVersion", html)
+        self.assertIn("paintPanelVersion", html)
+        self.assertIn("data-panel-v", html)
         self.assertLess(html.index('id="goldScar"'), html.index("<h2>Token flow</h2>"))
         self.assertIn('data-feature="gold_scar"', html)
         self.assertIn("No gold picks yet — rare on purpose", html)

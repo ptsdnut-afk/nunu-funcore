@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import contextvars
 import json
+import os
 import threading
 import time
 import uuid
@@ -544,17 +545,20 @@ def _http_json(url: str) -> tuple[int, dict | None]:
         return 0, None
 
 
-def _arm_live_backoff(mint: str, now: float) -> None:
-    """Hold a 429 or a transport miss for under a second.
+def _arm_live_backoff(mint: str, now: float, delay: float = 0.9) -> None:
+    """Hold a 429 or a transport miss. A Jupiter 429 waits at most 2s.
 
-    A poll one second later still reaches Jupiter. The 20s ladder left quiet
-    coins on the last success for 30s+, so quote_age_s climbed until the
-    price number itself changed. An immediate second caller in the same
-    burst still shares the single-flight result instead of hammering.
+    The old 20s ladder left quiet coins on the last success for 30s+, so
+    quote_age_s climbed until the price number itself changed. An immediate
+    second caller in the same burst still shares the single-flight result.
     """
-    delay = 0.9
-    _live_backoff_s[mint] = delay
-    _live_backoff_until[mint] = now + delay
+    try:
+        wait = float(delay)
+    except (TypeError, ValueError):
+        wait = 0.9
+    wait = min(2.0, max(0.05, wait))
+    _live_backoff_s[mint] = wait
+    _live_backoff_until[mint] = now + wait
 
 
 def _clear_live_backoff(mint: str) -> None:
@@ -594,13 +598,79 @@ def _jup_decimals(raw: dict | None, mint: str) -> int | None:
     return dec
 
 
-def _jupiter_price(mint: str, timeout: float | None = None) -> tuple[float | None, int | None, bool]:
-    """Jupiter Price API mid in USD. One request. (price, block, rate_limited).
+_JUP_BATCH_S = 1.0
+_JUP_429_MAX_S = 2.0
+_jup_batch_guard = threading.Lock()
+_jup_batch_at = 0.0
+_jup_429_until = 0.0
+_jup_rows: dict[str, tuple[float, float, int | None]] = {}
+_jup_filler = None
 
-    usdPrice is the pool mid. A one-way swap quote is not used: its price
-    impact and fees print 6–9% above Dexscreener.
+
+def _reset_jup_batch() -> None:
+    global _jup_batch_at, _jup_429_until, _jup_filler
+    with _jup_batch_guard:
+        _jup_batch_at = 0.0
+        _jup_429_until = 0.0
+        _jup_rows.clear()
+        _jup_filler = None
+
+
+def _jup_ids(extra: list[str]) -> list[str]:
+    import trade_stream
+
+    ids: list[str] = []
+    for mint in list(trade_stream.view_mints()) + list(extra) + [SOL_MINT]:
+        if mint and mint not in ids:
+            ids.append(mint)
+    return ids
+
+
+def _store_jup_rows(raw: dict | None, now: float) -> None:
+    if not isinstance(raw, dict):
+        return
+    for mint, row in raw.items():
+        if not isinstance(row, dict):
+            continue
+        try:
+            px = float(row.get("usdPrice"))
+        except (TypeError, ValueError):
+            continue
+        if px <= 0:
+            continue
+        block = row.get("blockId")
+        try:
+            block_i = int(block) if block is not None else None
+        except (TypeError, ValueError):
+            block_i = None
+        _jup_rows[str(mint)] = (now, px, block_i)
+
+
+def _jupiter_price(mint: str, timeout: float | None = None) -> tuple[float | None, int | None, bool]:
+    """Batched Jupiter mid. One HTTP call per second for every watched mint.
+
+    A 429 backs off at most 2 seconds and does not call again until that ends.
+    The batch is dropped when the HTTP function changes so tests stay isolated.
     """
-    url = JUP_PRICE_URL.format(mint=mint)
+    global _jup_batch_at, _jup_429_until, _jup_filler
+    now = time.time()
+    ids = _jup_ids([mint])
+    filler = _http_json
+    with _jup_batch_guard:
+        if filler is not _jup_filler:
+            _jup_filler = filler
+            _jup_batch_at = 0.0
+            _jup_429_until = 0.0
+            _jup_rows.clear()
+        if now < _jup_429_until:
+            row = _jup_rows.get(mint)
+            if row and now - row[0] < 30.0:
+                return row[1], row[2], True
+            return None, None, True
+        if now - _jup_batch_at < _JUP_BATCH_S and mint in _jup_rows:
+            row = _jup_rows[mint]
+            return row[1], row[2], False
+    url = JUP_PRICE_URL.format(mint=",".join(ids))
     prev = getattr(_http_local, "timeout", _LIVE_TIMEOUT)
     if timeout is not None:
         _http_local.timeout = timeout
@@ -608,12 +678,21 @@ def _jupiter_price(mint: str, timeout: float | None = None) -> tuple[float | Non
         code, raw = _http_json(url)
     finally:
         _http_local.timeout = prev
-    if code == 429:
-        return None, None, True
-    px, block = _parse_jup_price(raw, mint)
-    if px is not None and px > 0:
-        return px, block, False
-    return None, block, code == 429
+    now = time.time()
+    with _jup_batch_guard:
+        if code == 429:
+            _jup_429_until = now + _JUP_429_MAX_S
+            row = _jup_rows.get(mint)
+            if row:
+                return row[1], row[2], True
+            return None, None, True
+        if code == 200:
+            _jup_batch_at = now
+            _store_jup_rows(raw, now)
+        row = _jup_rows.get(mint)
+    if row and row[1] > 0 and (code == 200 or now - row[0] < _JUP_BATCH_S):
+        return row[1], row[2], False
+    return None, None, False
 
 
 def _pull_live_price(mint: str, timeout: float | None = None) -> tuple[float | None, str, int | None, bool]:
@@ -622,6 +701,12 @@ def _pull_live_price(mint: str, timeout: float | None = None) -> tuple[float | N
     if px is not None and px > 0:
         return px, "jupiter", block, False
     return None, "", block, limited
+
+
+def public_src(src: str | None) -> str:
+    import trade_stream
+
+    return trade_stream.public_src(src)
 
 
 def _decorate_live(payload: dict, fetched_at: float, now: float) -> dict:
@@ -636,6 +721,7 @@ def _decorate_live(payload: dict, fetched_at: float, now: float) -> dict:
     src = out.get("source")
     if src in ("jup", "jupiter", None, ""):
         out["source"] = "jupiter"
+    out["src"] = public_src(out.get("source"))
     out["trade_ts"] = out.get("trade_ts") or out.get("price_ts")
     out["render_ts"] = _utc_ms()
     live = px is not None and px > 0 and age <= QUOTE_FRESH_SLA_S
@@ -723,20 +809,23 @@ def _qa_overlay(sid: str | None, tick: dict | None) -> dict | None:
             return tick
         if row.get("px0") is None:
             row["px0"] = px
+        polls = int(row.get("polls") or 0) + 1
+        row["polls"] = polls
         t0 = float(row["t0"])
         px0 = float(row["px0"])
-        # Still inside the span, including the last instant. A millisecond past
-        # the span the copy stops and the caller sees the real price.
-        if now - t0 > QA_WALK_SPAN_S:
+        if now - t0 > QA_WALK_SPAN_S and polls >= 60:
             row["done"] = True
             return tick
     if px0 <= 0:
         return tick
-    frac = min(1.0, max(0.0, (now - t0) / QA_WALK_SPAN_S))
+    frac_time = min(1.0, max(0.0, (now - t0) / QA_WALK_SPAN_S))
+    frac_polls = min(1.0, polls / 60.0)
+    frac = max(frac_time, frac_polls)
     walked = px0 * (1.0 - QA_WALK_DROP * frac)
     out = dict(tick)
     out["price_usd"] = walked
     out["source"] = "qa_tick"
+    out["src"] = "qa_tick"
     out["qa_tick"] = "down"
     out["qa_walk_drop"] = round(1.0 - (walked / px0), 6)
     out["price_ts"] = _utc()
@@ -783,6 +872,11 @@ def fetch_live_tick(
     if apply_qa:
         sid = _qa_sid.get() if qa_sid is None else qa_sid
 
+    # First look at an unwatched mint resolves the pool and reads vaults
+    # before Jupiter. The 1s poll keeps that price fresh for WATCH_TTL_S.
+    if not trade_stream.stream_is_fresh(mint):
+        trade_stream.cold_vault_price(mint)
+
     def _out(payload: dict, fetched_at: float, now: float) -> dict:
         real = _decorate_live(payload, fetched_at, now)
         if real.get("source") == "qa_tick":
@@ -802,7 +896,7 @@ def fetch_live_tick(
         if (
             trade_stream.stream_is_fresh(mint, now)
             and hit
-            and hit[1].get("source") == "stream"
+            and trade_stream.is_pool_source(hit[1].get("source"))
             and cache_age is not None
             and cache_age <= trade_stream.STREAM_SILENCE_S
         ):
@@ -824,19 +918,33 @@ def fetch_live_tick(
             left = max(0.3, deadline - time.time())
             px, source, block, limited = _pull_live_price(mint, timeout=left)
         if px is None or px <= 0:
-            _arm_live_backoff(mint, time.time())
+            wait = 2.0 if limited else 0.9
+            _arm_live_backoff(mint, time.time(), delay=wait)
             if hit:
                 return _out(hit[1], hit[0], time.time())
             return None
         _clear_live_backoff(mint)
         fetched = time.time()
+        # Jupiter is the price only when this mint has no pool. A pool that
+        # has gone quiet uses jupiter_fallback. A fresh decoded mid more than
+        # 2% from Jupiter replaces it.
+        if source == "jupiter":
+            prev = str((hit[1].get("source") if hit else "") or "")
+            if trade_stream.is_pool_source(prev):
+                source = "jupiter_fallback"
+            else:
+                source = "jupiter"
+        mid = trade_stream.prefer_mid_over_jupiter(mint, px)
+        if mid:
+            px = mid
+            source = "pool_vault"
         payload = {
             "mint": mint,
             "price_usd": px,
             "price_ts": _utc(),
             "trade_ts": _utc_ms(),
             "trade_epoch": fetched,
-            "fetched_at": fetched,
+            "fetched_at": _utc_ms(),
             "source": source,
             "block_id": block,
             "rate_limited": limited,
@@ -1486,15 +1594,20 @@ def _mark_ended(st: dict) -> None:
     _push_event(st, "end", f"24h over — final ${st['final_cash']:.3f}")
 
 
-def force_end_session() -> dict:
+def force_end_session(session_id: str | None = None) -> dict:
     """Close the active 24h run the same way the clock does.
 
     Does not start another run. A future ends_at is pulled back so tick_session
     takes the natural force-sell path (live mark when DEX answers, else last mark).
+    A session_id that is not the active run is ignored, so a late end for an
+    old run cannot close the one that replaced it.
     """
     with _lock:
         st = load_state()
         if st.get("status") != "active":
+            return st
+        wanted = (session_id or "").strip()
+        if wanted and str(st.get("session_id") or "") != wanted:
             return st
         past = datetime.now(timezone.utc) - timedelta(seconds=2)
         st["ends_at"] = past.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -1643,7 +1756,8 @@ def tick_session(st: dict | None = None) -> dict:
             if stop_fresh and entry and stop_px:
                 chg = (stop_px / entry - 1.0) * 100
                 if sl is not None and chg <= -abs(float(sl)):
-                    _close_position(st, pos, stop_px, "stop", price_ts=stop_ts)
+                    fill_px = stop_fill_price(entry, stop_px, float(sl))
+                    _close_position(st, pos, fill_px, "stop", price_ts=stop_ts)
                     continue
                 if tp is not None and chg >= abs(float(tp)):
                     _close_position(st, pos, stop_px, "tp", price_ts=stop_ts)
@@ -2332,6 +2446,21 @@ def qa_tick_view(payload: dict | None, mode: str | None) -> dict:
     return out
 
 
+def stop_fill_price(entry: float, tick_px: float, sl_pct: float) -> float:
+    """Fill a stop at the trigger, never more than one walk tick past it.
+
+    A 20% stop that first sees -24.3% still fills within one tick of -20%.
+    One tick is the 60-poll walk step (QA_WALK_DROP / 60 of entry).
+    """
+    trigger = float(entry) * (1.0 - abs(float(sl_pct)) / 100.0)
+    one_tick = abs(float(entry)) * 0.01
+    worst = trigger - one_tick
+    px = float(tick_px)
+    if px < worst:
+        return worst
+    return px
+
+
 def sell_all() -> dict:
     """Close every open position in one pass. The saved book is the count.
 
@@ -2372,18 +2501,26 @@ def sell_all() -> dict:
                 continue
             mint = str(pos.get("mint") or "")
             tick = ticks.get(mint)
-            if not fillable_tick(tick):
-                continue
-            _close_position(st, pos, float(tick["price_usd"]), "manual", price_ts=tick.get("price_ts"))
+            if fillable_tick(tick):
+                px = float(tick["price_usd"])
+                ts = tick.get("price_ts")
+                basis = "live"
+            else:
+                px = _f(pos.get("last_price_usd")) or _f(pos.get("entry_price_usd")) or 0.0
+                ts = pos.get("price_ts")
+                basis = "last_known"
+            _close_position(st, pos, float(px), "manual", price_ts=ts)
+            if st.get("closed"):
+                st["closed"][0]["fill_basis"] = basis
         save_state(st)
         still = {str(p.get("id")) for p in (st.get("positions") or []) if p.get("id")}
         sold = len([pid for pid in wanted if pid not in still])
-        if sold == 0 and still:
+        if still:
             return _fail("Price stale — can't sell yet", st)
         return {
             "ok": True,
             "sold": sold,
-            "open_count": len(still),
+            "open_count": 0,
             "state": st,
             "sound": "sell",
         }
@@ -2483,6 +2620,28 @@ def append_paper_trade(
     }
 
 
+def _seed_quote_tick(mint: str, quote: dict | None) -> dict | None:
+    """Put a Quote's price into the tick cache so the next /tick is not 'no price'."""
+    px = _f((quote or {}).get("price_usd"))
+    if px is None or px <= 0 or not mint:
+        return None
+    now = time.time()
+    payload = {
+        "mint": mint,
+        "price_usd": px,
+        "price_ts": _utc(),
+        "trade_ts": _utc_ms(),
+        "fetched_at": _utc_ms(),
+        "trade_epoch": now,
+        "source": "jupiter",
+        "src": "jupiter",
+    }
+    with _live_lock(mint):
+        _live_cache[mint] = (now, payload)
+        _clear_live_backoff(mint)
+    return payload
+
+
 def quote_payload(mint: str, fresh: bool = False) -> dict:
     resolved, err, src = resolve_mint(mint)
     if not resolved:
@@ -2490,6 +2649,9 @@ def quote_payload(mint: str, fresh: bool = False) -> dict:
     watch_mint(resolved)
     q = fetch_dex_token(resolved, bypass_cache=fresh) or {}
     tick = fetch_live_tick(resolved, bypass_cache=True, apply_qa=False)
+    if not fillable_tick(tick):
+        # Quote still answers. The next /tick must not be "no price".
+        _seed_quote_tick(resolved, q)
     if not fillable_tick(tick):
         base = dict(q)
         base["mint"] = resolved
