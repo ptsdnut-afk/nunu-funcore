@@ -12,10 +12,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from flask import Flask, Response, jsonify, make_response, request, send_from_directory
+from flask import Flask, Response, g, jsonify, make_response, request, send_from_directory
 from flask_cors import CORS
 
 import game as game_mod
@@ -36,6 +37,27 @@ RUNS_LOG = DIR / "runs.log"
 
 app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="")
 CORS(app)
+
+_QA_ARM_PATHS = ("/api/game/tick", "/api/game/buy", "/api/game/sell", "/api/game/quote")
+
+
+@app.before_request
+def _bind_qa_walk():
+    """Arm a session price walk only from ?qa_tick=down on tick and fill routes.
+
+    /api/game/state?qa_tick=down stays the display-only equity nudge. A cookie
+    from an earlier arm still applies on later fills from this browser.
+    """
+    cookie = (request.cookies.get(game_mod.QA_WALK_COOKIE) or "").strip()
+    query = (request.args.get("qa_tick") or "").strip().lower()
+    path = request.path or ""
+    sid = None
+    if query == "down" and path in _QA_ARM_PATHS:
+        sid = cookie or uuid.uuid4().hex
+        g.qa_walk_set_cookie = sid
+    elif cookie and game_mod.qa_walk_armed(cookie):
+        sid = cookie
+    game_mod.set_qa_walk_sid(sid)
 
 _json_cache: dict[str, tuple[int, object]] = {}
 # Gold annotate is pure CPU. Pollers hit /api/flagged often. Keyed by the
@@ -201,7 +223,7 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 83,
+            "panel_v": 84,
             "time": _utc(),
             "qa_tick": "page ?qa_tick=both|up|down",
             "qa_end": "page ?qa_end=1 (one-shot) or POST /api/game/end",
@@ -246,11 +268,19 @@ def api_health():
                 "A rejected profile file cannot flip the avatar to Star."
             ),
             "live_tick": (
-                "Game price and the rocket chart share one tick: a Jupiter SOL-to-token quote "
-                "(GeckoTerminal's latest pool trade, then Gecko's simple price, if Jupiter is down). "
-                "DexScreener priceUsd is not read. Server cache is 1s so a 2s poll refetches. "
-                "A 429 or a timeout backs off and, past 5s, the panel shows stale Ns and will not "
-                "buy, sell, or stop on that print. Buy, sell, and stop fill at that tick and store price_ts."
+                "Game price and the rocket chart share one Jupiter Price API mid (usdPrice). "
+                "No swap quote and no GeckoTerminal fallback. DexScreener priceUsd is not the fill. "
+                "The server fetches Jupiter at most once per second per mint, single-flight, shared cache. "
+                "Browsers poll /api/game/tick every 1s and never call Jupiter. "
+                "A 429 or a timeout backs off and serves the last good tick with its true age. "
+                "stale is true exactly when quote_age_s > quote_sla_s (5s). Past that, Buy, Sell, and stops "
+                "will not fill. A fresh tick stores price_ts."
+            ),
+            "qa_tick_down": (
+                "Server ?qa_tick=down on /api/game/tick (also buy, sell, and quote) walks this browser "
+                "session's tick down 27% over about 20s so a 20% stop can fire. Off unless that query "
+                "armed the session cookie. /api/game/state?qa_tick=down stays the display-only equity nudge. "
+                "The shared Jupiter cache and other browsers are not changed."
             ),
             "qa_stale": (
                 "Page ?qa_stale=1 is this browser only. The client treats live ticks as older than "
@@ -296,7 +326,7 @@ def api_gold():
     return jsonify(
         {
             "ok": True,
-            "panel_v": 83,
+            "panel_v": 84,
             "feature": "gold_scar",
             "count": len(picks),
             "empty_ok": True,
@@ -742,28 +772,36 @@ def api_game_tick():
             "ok": False,
             "mint": mint,
             "quote_live": False,
+            "stale": False,
             "quote_sla_s": game_mod.QUOTE_FRESH_SLA_S,
             "error": "no price",
         })
+    age = tick.get("quote_age_s")
+    sla = game_mod.QUOTE_FRESH_SLA_S
+    # stale is exactly age > quote_sla_s, even if a caller marked quote_live.
+    stale = game_mod.tick_is_stale(age, sla)
+    px = tick.get("price_usd")
+    try:
+        px_ok = px is not None and float(px) > 0
+    except (TypeError, ValueError):
+        px_ok = False
     body = {
         "ok": True,
         "mint": mint,
-        "price_usd": tick.get("price_usd"),
+        "price_usd": px,
         "price_ts": tick.get("price_ts"),
         "quoted_at": tick.get("quoted_at") or tick.get("price_ts"),
         "quoted_epoch": tick.get("quoted_epoch"),
-        "quote_age_s": tick.get("quote_age_s"),
-        "quote_live": bool(tick.get("quote_live")),
-        "quote_sla_s": game_mod.QUOTE_FRESH_SLA_S,
+        "quote_age_s": age,
+        "quote_live": bool(px_ok and not stale and age is not None),
+        "quote_sla_s": sla,
         "source": tick.get("source"),
+        "stale": stale,
+        "stale_label": ("stale %ss" % int(round(float(age)))) if stale else "",
     }
-    if not body["quote_live"]:
-        age = tick.get("quote_age_s")
-        body["stale"] = True
-        body["stale_label"] = ("stale %ss" % (int(round(float(age))) if age is not None else "?"))
-    else:
-        body["stale"] = False
-        body["stale_label"] = ""
+    if tick.get("qa_tick"):
+        body["qa_tick"] = tick.get("qa_tick")
+        body["qa_walk_drop"] = tick.get("qa_walk_drop")
     return jsonify(body)
 
 
@@ -826,6 +864,20 @@ def api_game_shop():
     if result.get("ok"):
         result["state"] = game_mod.public_state()
     return jsonify(result), code
+
+
+@app.after_request
+def _qa_walk_cookie(resp: Response):
+    sid = getattr(g, "qa_walk_set_cookie", None)
+    if sid:
+        resp.set_cookie(
+            game_mod.QA_WALK_COOKIE,
+            sid,
+            httponly=True,
+            samesite="Lax",
+            path="/",
+        )
+    return resp
 
 
 @app.after_request
