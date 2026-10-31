@@ -5156,6 +5156,10 @@
       if (r.qa_max_fixture) {
         badge = '<span class="badge qa-max" title="' + esc(r.qa_label || "QA Max fixture") + '">QA MAX</span>' + badge;
       }
+      if (r.qa_x_fixture) {
+        const vName = r.checklist_verdict || "QA";
+        badge = '<span class="badge qa-max" title="' + esc(r.qa_label || "QA checklist fixture") + '">' + esc(vName) + "</span>" + badge;
+      }
       const chgCls = chg == null ? "" : (Number(chg) >= 0 ? "chg-up" : "chg-dn");
       const bsMain = (buys != null || sells != null)
         ? (fmtCount(buys) + "/" + fmtCount(sells))
@@ -5460,6 +5464,16 @@
 
     function wantsQaGold() {
       return !!qaGoldMode();
+    }
+
+    function qaXMode() {
+      let raw = "";
+      try { raw = new URLSearchParams(location.search).get("qa_x") || ""; }
+      catch (e) { raw = ""; }
+      raw = String(raw).trim().toLowerCase().replace(/_/g, "-");
+      if (raw === "buy" || raw === "buywatch" || raw === "buy-watch") return "buy-watch";
+      if (raw === "watch" || raw === "skip") return raw;
+      return "";
     }
 
     function flaggedFeedUrl() {
@@ -5767,7 +5781,12 @@
       }
       const tweetsPromise = loadOne("/api/tweets", "etagTweets");
       const [fRes, lRes, sRes] = await Promise.all([
-        loadOne(flaggedFeedUrl(), "etagFlagged"),
+        loadOne((function () {
+          const base = flaggedFeedUrl();
+          const mode = qaXMode();
+          if (!mode) return base;
+          return base + (base.indexOf("?") >= 0 ? "&" : "?") + "qa_x=" + encodeURIComponent(mode);
+        })(), "etagFlagged"),
         loadOne("/api/latest", "etagLatest"),
         fetch("/api/status", { cache: "no-store" }).then(async (r) => (
           r.ok ? { ok: true, data: await r.json() } : { ok: false, error: "HTTP " + r.status }
@@ -10552,8 +10571,10 @@
         "</section>" +
         '<section class="ck-card" id="ck-list"><h2>Checklist · ' + passN + "/" + total + ' pass <span class="ck-pill ' + pillCls + '">' + esc(verdictName) + "</span></h2>" +
           bar + '<ul class="ck-check">' + rows + "</ul>" +
-          '<div class="ck-paper">8/8 = BUY-WATCH · 6–7 = WATCH · 5 or lower = SKIP. Unknown does not pass. ' +
-          "A rug-history dev or a linked cluster ≥10% forces SKIP. Paper research only — not financial advice.</div>" +
+          '<div class="ck-paper">' + esc((checklist.rules && checklist.rules.legend) || "") +
+          ". Unknown does not pass. A rug-history dev or a linked cluster ≥" +
+          esc(String((checklist.rules && checklist.rules.cluster_bundle_at) || 10)) +
+          "% forces SKIP. Paper research only — not financial advice.</div>" +
         "</section></div>";
     }
 
@@ -10696,7 +10717,9 @@
       sheet.setAttribute("data-coin-ms", openMs.toFixed(2));
       const freshQ = opts.fresh ? "&fresh=1" : "";
       const qaQ = (row.qa_max_fixture && wantsQaMax()) ? "&qa_max=1" : "";
-      fetch("/api/coin/checklist?mint=" + encodeURIComponent(mint) + freshQ + qaQ, { cache: "no-store" })
+      const qaX = qaXMode();
+      const qaXQ = qaX ? ("&qa_x=" + encodeURIComponent(qaX)) : "";
+      fetch("/api/coin/checklist?mint=" + encodeURIComponent(mint) + freshQ + qaQ + qaXQ, { cache: "no-store" })
         .then((res) => res.json().then((data) => data).catch(() => ({ ok: false, error: "Bad JSON" })))
         .then((data) => {
           if (state.coinSeq !== seq || state.coinMint !== mint) return;

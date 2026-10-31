@@ -1,4 +1,4 @@
-"""SHIP X — coin checklist verdicts (AC-X01…X06) and panel_v 84.
+"""SHIP X — coin checklist verdicts (AC-X01…X06) and panel_v 83.
 
 Unknown is not a pass. Bands live in VERDICT_BANDS so a later 10-row sheet
 can retune them without hunting through the UI. The API verdict name is the
@@ -72,6 +72,12 @@ def _clean_sources(**overrides):
             {"owner": WALLET_C, "pct": 5, "funder": "solo-c", "source": "public RPC"},
         ],
         "organic": {"known": True, "unique_traders": 140, "max_wallet_pct": 4.0, "source": "Helius"},
+        "social_checks": {
+            "status": "pass",
+            "detail": "X + website loaded · X is older than the coin",
+            "source": "X + Dexscreener",
+        },
+        "live_narratives": ["nomatch"],
         "bubblemaps": "paid_key_required",
     }
     base.update(overrides)
@@ -94,13 +100,20 @@ class VerdictBandTests(unittest.TestCase):
             "lp", "mint_freeze", "dev_history", "not_bundled", "top10", "socials", "organic", "narrative",
         ])
 
-    def test_watch_is_the_best_honest_score_while_narrative_is_unwired(self):
+    def test_narrative_miss_is_a_real_fail_and_a_match_can_buy_watch(self):
         out = cc.assemble(MINT, _clean_sources(), now=1_700_000_500)
         by_id = {row["id"]: row for row in out["checks"]}
-        self.assertEqual(by_id["narrative"]["status"], "unknown")
-        self.assertEqual(by_id["narrative"]["source"], "not wired")
+        self.assertEqual(by_id["narrative"]["status"], "fail")
+        self.assertEqual(by_id["narrative"]["source"], "Dexscreener")
         self.assertEqual(out["pass_count"], 7)
         self.assertEqual(out["verdict"], "WATCH")
+        matched = cc.assemble(MINT, _clean_sources(live_narratives=["real"]), now=1_700_000_500)
+        self.assertEqual(matched["verdict"], "BUY-WATCH")
+        self.assertEqual(matched["pass_count"], 8)
+        self.assertIn("legend", matched["rules"])
+        self.assertIn(str(matched["check_count"]), matched["rules"]["legend"])
+        self.assertNotIn("8/8 =", "hardcoded")
+        self.assertIn("8/8", matched["rules"]["legend"])
         self.assertEqual(out["count_verdict"], "WATCH")
         self.assertFalse(out["forced_skip"])
         self.assertEqual(len(out["checks"]), 8)
@@ -224,14 +237,16 @@ class ThresholdTests(unittest.TestCase):
         ok_row = next(item for item in ok["checks"] if item["id"] == "organic")
         self.assertEqual(ok_row["status"], "pass")
 
-    def test_socials_need_a_site_and_one_chat_link(self):
-        x_only = cc.assemble(MINT, _clean_sources(pump={
-            "mint": MINT, "creator": CREATOR, "created_timestamp": 1_700_000_000_000,
-            "complete": False, "twitter": "https://x.com/example",
-        }, dex={"priceUsd": "0.1", "txns": {"h1": {"buys": 1, "sells": 0}}, "info": {"socials": [{"type": "twitter", "url": "https://x.com/example"}], "websites": []}}))
-        row = next(item for item in x_only["checks"] if item["id"] == "socials")
+    def test_socials_fail_when_the_x_account_is_not_older_than_the_coin(self):
+        out = cc.assemble(MINT, _clean_sources(social_checks={
+            "status": "fail",
+            "detail": "X @example is not older than the coin",
+            "source": "X",
+        }))
+        row = next(item for item in out["checks"] if item["id"] == "socials")
         self.assertEqual(row["status"], "fail")
-        self.assertIn("website not listed", row["detail"])
+        self.assertIn("not older", row["detail"])
+        self.assertEqual(row["source"], "X")
 
     def test_mint_and_lp_do_not_invent_a_pass(self):
         out = cc.assemble(MINT, _clean_sources(rug={"totalHolders": 3}, authorities={"known": False}))
@@ -247,6 +262,7 @@ class ThresholdTests(unittest.TestCase):
         self.assertEqual(dev["status"], "pass")
         self.assertEqual(out["dev"]["wallet"], CREATOR)
         self.assertEqual(out["dev"]["launched"], 1)
+        self.assertEqual(out["dev"]["launched_source"], "Pump.fun")
         self.assertIsNone(out["dev"]["sold"])
         self.assertIn("no API key", out["dev"]["sold_note"])
 
@@ -276,7 +292,9 @@ class CacheAndApiTests(unittest.TestCase):
 
     def test_health_and_checklist_route_expose_the_verdict_name(self):
         health = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(health["panel_v"], 84)
+        self.assertEqual(health["panel_v"], 83)
+        self.assertIn("qa_stale", health)
+        self.assertIn("live_tick", health["features"])
         self.assertIn("coin_checklist", health["features"])
         self.assertIn("usd_price", health["features"])
         self.assertIn("live_tick", health["features"])
@@ -290,6 +308,73 @@ class CacheAndApiTests(unittest.TestCase):
         self.assertEqual(data["check_count"], 8)
         self.assertEqual([row["id"] for row in data["checks"]], [row[0] for row in cc.CHECKS])
         self.assertNotIn("EXAMPLE", res.get_data(as_text=True))
+
+
+class QaXFixtureTests(unittest.TestCase):
+    def test_buy_maps_to_buy_watch_and_skip_covers_both_reasons(self):
+        import qa_x
+
+        self.assertEqual(qa_x.mode_from_query("buy"), "buy-watch")
+        self.assertEqual(qa_x.mode_from_query("buy-watch"), "buy-watch")
+        self.assertIsNone(qa_x.mode_from_query(""))
+        buy = qa_x.checklist_for(qa_x.QA_BUY_MINT)
+        watch = qa_x.checklist_for(qa_x.QA_WATCH_MINT)
+        rug = qa_x.checklist_for(qa_x.QA_RUG_MINT)
+        bundled = qa_x.checklist_for(qa_x.QA_BUNDLE_MINT)
+        self.assertEqual(buy["verdict"], "BUY-WATCH")
+        self.assertFalse(buy["forced_skip"])
+        self.assertEqual(watch["verdict"], "WATCH")
+        self.assertFalse(watch["forced_skip"])
+        self.assertEqual(rug["verdict"], "SKIP")
+        self.assertIn("rug-history dev", rug["forced_reasons"])
+        self.assertEqual(bundled["verdict"], "SKIP")
+        self.assertIn("linked cluster ≥10%", bundled["forced_reasons"])
+        self.assertEqual([row["mint"] for row in qa_x.rows_for("skip")], [qa_x.QA_RUG_MINT, qa_x.QA_BUNDLE_MINT])
+        self.assertEqual(qa_x.rows_for(None), [])
+
+        client = server.app.test_client()
+        absent = client.get("/api/flagged").get_json()
+        self.assertFalse(any(isinstance(row, dict) and row.get("qa_x_fixture") for row in absent))
+        listed = client.get("/api/flagged?qa_x=skip").get_json()
+        flags = [row for row in listed if isinstance(row, dict) and row.get("qa_x_fixture")]
+        self.assertEqual(len(flags), 2)
+        self.assertEqual({row["checklist_verdict"] for row in flags}, {"SKIP"})
+        sheet = client.get("/api/coin/checklist?mint=" + qa_x.QA_BUNDLE_MINT + "&qa_x=skip").get_json()
+        self.assertEqual(sheet["verdict"], "SKIP")
+        self.assertTrue(sheet["forced_skip"])
+        blocked = client.get("/api/coin/checklist?mint=" + qa_x.QA_RUG_MINT)
+        self.assertEqual(blocked.status_code, 400)
+
+    def test_lp_fallback_counts_and_unknown_does_not_force_skip(self):
+        out = cc.assemble(MINT, _clean_sources(
+            rug={"totalHolders": 3},
+            lp_fallback={"status": "pass", "detail": "PumpSwap LP supply is 0 (burned)", "source": "Solana RPC"},
+        ))
+        lp = next(row for row in out["checks"] if row["id"] == "lp")
+        self.assertEqual(lp["status"], "pass")
+        self.assertEqual(lp["source"], "Solana RPC")
+        self.assertFalse(out["forced_skip"])
+
+    def test_dead_prior_within_one_hour_is_a_rug_dev(self):
+        out = cc.assemble(MINT, _clean_sources(
+            creator_coins={
+                "count": 2,
+                "coins": [
+                    {"mint": MINT},
+                    {
+                        "mint": "OtherMintxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                        "created_timestamp": 1_600_000_000_000,
+                        "last_trade_timestamp": 1_600_000_600_000,
+                        "complete": False,
+                    },
+                ],
+            },
+        ), now=1_700_000_500)
+        dev = next(row for row in out["checks"] if row["id"] == "dev_history")
+        self.assertEqual(dev["status"], "fail")
+        self.assertIn("dead within 1h", dev["detail"])
+        self.assertEqual(out["verdict"], "SKIP")
+        self.assertIn("rug-history dev", out["forced_reasons"])
 
 
 if __name__ == "__main__":

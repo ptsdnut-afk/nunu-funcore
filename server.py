@@ -24,6 +24,7 @@ import gold_scar
 import manual_update
 import qa_gold
 import qa_max
+import qa_x
 import viral as viral_mod
 from mcap_progress import apply_mcap
 
@@ -176,14 +177,20 @@ def _wants_qa_gold() -> bool:
     return raw in {"1", "true", "yes", "on", "arrive"}
 
 
+def _qa_x_mode() -> str | None:
+    """Opt-in checklist fixture. Absent leaves live rows alone."""
+    return qa_x.mode_from_query(request.args.get("qa_x"))
+
+
 def _prepare_cache_key() -> tuple:
     qa_max = _wants_qa_max()
     qa_gold = _wants_qa_gold()
+    qa_mode = _qa_x_mode()
     try:
         st = FLAGGED_PATH.stat()
-        return (st.st_mtime_ns, st.st_size, qa_max, qa_gold)
+        return (st.st_mtime_ns, st.st_size, qa_max, qa_gold, qa_mode)
     except OSError:
-        return (None, 0, qa_max, qa_gold)
+        return (None, 0, qa_max, qa_gold, qa_mode)
 
 
 def _prepare_flagged(data):
@@ -203,6 +210,10 @@ def _prepare_flagged(data):
     if _wants_qa_max():
         kept = [row for row in rows if not (isinstance(row, dict) and row.get("qa_max_fixture"))]
         rows = [qa_max.prepared_row()] + kept
+    mode = _qa_x_mode()
+    if mode:
+        kept = [row for row in rows if not (isinstance(row, dict) and row.get("qa_x_fixture"))]
+        rows = qa_x.rows_for(mode) + kept
     rows = gold_scar.annotate(rows)
     if _wants_qa_gold():
         rows = qa_gold.prepend(rows)
@@ -217,6 +228,9 @@ def _flagged_etag_suffix() -> str:
         parts.append("qa_max")
     if _wants_qa_gold():
         parts.append("qa_gold")
+    mode = _qa_x_mode()
+    if mode:
+        parts.append("qa_x:" + mode)
     return ":" + "+".join(parts)
 
 
@@ -647,6 +661,18 @@ def api_coin():
     mint = (request.args.get("mint") or request.args.get("ca") or request.args.get("q") or "").strip()
     if not mint:
         return jsonify({"ok": False, "error": "mint required"}), 400
+    if qa_x.is_fixture_mint(mint):
+        mode = _qa_x_mode()
+        if not mode or not any(isinstance(row, dict) and row.get("mint") == mint for row in qa_x.rows_for(mode)):
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": "QA checklist fixture is opt-in. Open the panel with ?qa_x=buy|watch|skip.",
+                    "mint": mint,
+                }
+            ), 400
+        row = next(row for row in qa_x.rows_for(mode) if row.get("mint") == mint)
+        return jsonify({"ok": True, "mint": mint, "source": "qa_x_fixture", "qa_x_fixture": True, "row": row})
     if game_mod.looks_like_mint(mint):
         game_mod.watch_mint(mint)
     if qa_gold.is_fixture_mint(mint):
@@ -707,6 +733,22 @@ def api_coin_checklist():
     mint = (request.args.get("mint") or request.args.get("ca") or "").strip()
     if not mint:
         return jsonify({"ok": False, "error": "mint required", "verdict": None}), 400
+    if qa_x.is_fixture_mint(mint):
+        mode = _qa_x_mode()
+        payload = qa_x.checklist_for(mint) if mode else None
+        allowed = payload is not None and any(
+            isinstance(row, dict) and row.get("mint") == mint for row in qa_x.rows_for(mode)
+        )
+        if not allowed or payload is None:
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": "QA checklist fixture is opt-in. Open the panel with ?qa_x=buy|watch|skip.",
+                    "mint": mint,
+                    "verdict": None,
+                }
+            ), 400
+        return jsonify(payload)
     if qa_gold.is_fixture_mint(mint) or qa_max.is_fixture_mint(mint):
         payload = coin_checklist.assemble(mint, {})
         payload["fixture"] = True
