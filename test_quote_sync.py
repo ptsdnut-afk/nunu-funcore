@@ -121,12 +121,19 @@ class FetchFreshnessTests(unittest.TestCase):
             "quoted_at": "2026-10-26T16:00:00Z",
         }
         game._quote_cache[MINT] = (time.time() - 60, stale)
-        with mock.patch.object(game, "urlopen", side_effect=URLError("down")):
+        game._live_cache.pop(MINT, None)
+        game._live_backoff_until.pop(MINT, None)
+        with mock.patch.object(game, "urlopen", side_effect=URLError("down")), mock.patch.object(
+            game, "_http_json", return_value=(0, None)
+        ):
             res = server.app.test_client().get("/api/game/quote?fresh=1&mint=" + MINT)
         body = res.get_json()
         blob = json.dumps(body)
-        self.assertFalse(body.get("ok"))
-        self.assertNotIn("quote", body)
+        self.assertTrue(body.get("ok"))
+        self.assertTrue(body.get("stale"))
+        self.assertEqual(body.get("stale_label"), "STALE")
+        self.assertFalse(body.get("quote", {}).get("quote_live"))
+        self.assertNotIn("No fresh price", blob)
         self.assertNotIn("591100", blob)
         self.assertNotIn("0.00061", blob)
 
