@@ -407,6 +407,28 @@ class HealthAndChartTests(unittest.TestCase):
         self.assertIn("stale", body["stale_label"])
         self.assertIn("9", body["stale_label"])
 
+    def test_stale_trade_buttons_say_waiting_for_live_price(self):
+        html = Path("static/index.html").read_text(encoding="utf-8")
+        start = html.index("function tradeButtonLabel")
+        end = html.index("function tradeMarkHint")
+        script = html[start:end] + """
+const label = "Waiting for live price";
+if (tradeButtonLabel("buy", true) !== label) process.exit(2);
+if (tradeButtonLabel("sell", true) !== label) process.exit(3);
+if (tradeButtonLabel("sellall", true) !== label) process.exit(4);
+if (tradeButtonLabel("quote", true) !== label) process.exit(5);
+if (tradeButtonLabel("buy", false) !== "▲ BUY") process.exit(6);
+if (tradeButtonLabel("sell", false) !== "Sell this") process.exit(7);
+if (tradeButtonLabel("sellall", false) !== "▼ SELL ALL") process.exit(8);
+if (tradeButtonLabel("buy", false).indexOf("Waiting") >= 0) process.exit(9);
+"""
+        proc = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=False)
+        self.assertEqual(proc.returncode, 0, proc.stderr or proc.stdout)
+        self.assertIn('tradeButtonLabel("buy", stale)', html)
+        self.assertIn('tradeButtonLabel("sell", stale)', html)
+        self.assertIn('tradeButtonLabel("sellall", stale)', html)
+        self.assertIn("function staleLabel", html)
+
     def test_panel_chart_ignores_zero_and_rocket_keeps_moving(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
         self.assertIn('data-feature="live_tick"', html)
