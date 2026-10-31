@@ -56,7 +56,7 @@ class HealthTests(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         data = res.get_json()
         self.assertTrue(data["ok"])
-        self.assertEqual(data["panel_v"], 88)
+        self.assertEqual(data["panel_v"], 89)
         self.assertIn("hide_max_unknown", data["features"])
         self.assertIn("trade_chart", data["features"])
         self.assertIn("sitting_keep", data["features"])
@@ -65,7 +65,7 @@ class HealthTests(unittest.TestCase):
 
     def test_panel_advertises_v77_and_drops_the_unknown_chip(self):
         html = _panel()
-        self.assertIn("const PANEL_V = 88", html)
+        self.assertIn("const PANEL_V = 89", html)
         self.assertIn("data-panel-v", html)
         self.assertIn("paintPanelVersion", html)
         self.assertNotIn("?v=76", html)

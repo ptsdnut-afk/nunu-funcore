@@ -268,7 +268,7 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 88,
+            "panel_v": 89,
             "time": _utc(),
             "qa_tick": "page ?qa_tick=both|up|down",
             "qa_end": "page ?qa_end=1 (one-shot) or POST /api/game/end",
@@ -406,7 +406,7 @@ def api_gold():
     return jsonify(
         {
             "ok": True,
-            "panel_v": 88,
+            "panel_v": 89,
             "feature": "gold_scar",
             "count": len(picks),
             "empty_ok": True,
