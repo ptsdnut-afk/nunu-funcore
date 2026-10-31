@@ -667,7 +667,7 @@ def api_coin():
             return jsonify(
                 {
                     "ok": False,
-                    "error": "QA checklist fixture is opt-in. Open the panel with ?qa_x=buy|watch|skip.",
+                    "error": "QA checklist fixture is opt-in. Open the panel with ?qa_x=buywatch|watch|skip.",
                     "mint": mint,
                 }
             ), 400
@@ -743,7 +743,7 @@ def api_coin_checklist():
             return jsonify(
                 {
                     "ok": False,
-                    "error": "QA checklist fixture is opt-in. Open the panel with ?qa_x=buy|watch|skip.",
+                    "error": "QA checklist fixture is opt-in. Open the panel with ?qa_x=buywatch|watch|skip.",
                     "mint": mint,
                     "verdict": None,
                 }

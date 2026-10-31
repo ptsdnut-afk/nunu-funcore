@@ -5470,8 +5470,8 @@
       let raw = "";
       try { raw = new URLSearchParams(location.search).get("qa_x") || ""; }
       catch (e) { raw = ""; }
-      raw = String(raw).trim().toLowerCase().replace(/_/g, "-");
-      if (raw === "buy" || raw === "buywatch" || raw === "buy-watch") return "buy-watch";
+      raw = String(raw).trim().toLowerCase().replace(/[_-]/g, "");
+      if (raw === "buy" || raw === "buywatch") return "buywatch";
       if (raw === "watch" || raw === "skip") return raw;
       return "";
     }

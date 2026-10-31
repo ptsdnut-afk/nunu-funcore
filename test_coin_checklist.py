@@ -314,15 +314,22 @@ class QaXFixtureTests(unittest.TestCase):
     def test_buy_maps_to_buy_watch_and_skip_covers_both_reasons(self):
         import qa_x
 
-        self.assertEqual(qa_x.mode_from_query("buy"), "buy-watch")
-        self.assertEqual(qa_x.mode_from_query("buy-watch"), "buy-watch")
+        self.assertEqual(qa_x.mode_from_query("buy"), "buywatch")
+        self.assertEqual(qa_x.mode_from_query("buywatch"), "buywatch")
+        self.assertEqual(qa_x.mode_from_query("buy-watch"), "buywatch")
         self.assertIsNone(qa_x.mode_from_query(""))
+        self.assertNotEqual(qa_x.mode_from_query("buy"), "buy")
         buy = qa_x.checklist_for(qa_x.QA_BUY_MINT)
         watch = qa_x.checklist_for(qa_x.QA_WATCH_MINT)
         rug = qa_x.checklist_for(qa_x.QA_RUG_MINT)
         bundled = qa_x.checklist_for(qa_x.QA_BUNDLE_MINT)
         self.assertEqual(buy["verdict"], "BUY-WATCH")
+        self.assertNotEqual(buy["verdict"], "BUY")
         self.assertFalse(buy["forced_skip"])
+        shown = qa_x.rows_for("buywatch")[0]
+        self.assertEqual(shown["ticker"], "QAXBW")
+        self.assertEqual(shown["checklist_verdict"], "BUY-WATCH")
+        self.assertNotIn("BUY", shown["ticker"])
         self.assertEqual(watch["verdict"], "WATCH")
         self.assertFalse(watch["forced_skip"])
         self.assertEqual(rug["verdict"], "SKIP")
@@ -344,6 +351,12 @@ class QaXFixtureTests(unittest.TestCase):
         self.assertTrue(sheet["forced_skip"])
         blocked = client.get("/api/coin/checklist?mint=" + qa_x.QA_RUG_MINT)
         self.assertEqual(blocked.status_code, 400)
+        aliased = client.get("/api/flagged?qa_x=buy").get_json()
+        bw = [row for row in aliased if isinstance(row, dict) and row.get("qa_x_fixture")]
+        self.assertEqual(len(bw), 1)
+        self.assertEqual(bw[0]["checklist_verdict"], "BUY-WATCH")
+        self.assertNotEqual(bw[0]["checklist_verdict"], "BUY")
+        self.assertEqual(bw[0]["ticker"], "QAXBW")
 
     def test_lp_fallback_counts_and_unknown_does_not_force_skip(self):
         out = cc.assemble(MINT, _clean_sources(

@@ -1,8 +1,8 @@
 """Session-scoped checklist fixtures. Off unless ``?qa_x=`` is set.
 
-``buy`` maps to BUY-WATCH. ``skip`` prepends two coins: one rug-history dev
-and one bundled coin. Both are forced SKIP for that reason. Live rows are
-not rewritten.
+Query values are ``buywatch``, ``watch``, and ``skip``. ``buy`` is an alias
+for ``buywatch`` and is never shown as a BUY label. ``skip`` prepends two
+coins: one rug-history dev and one bundled coin. Live rows are not rewritten.
 """
 
 from __future__ import annotations
@@ -16,17 +16,14 @@ QA_WATCH_MINT = "QAXWatch1111111111111111111111111111111"
 QA_RUG_MINT = "QAXRugDev11111111111111111111111111111111"
 QA_BUNDLE_MINT = "QAXBundled111111111111111111111111111111"
 
-_MODES = {
-    "buy": "buy-watch",
-    "buy-watch": "buy-watch",
-    "buywatch": "buy-watch",
-    "watch": "watch",
-    "skip": "skip",
-}
-
-
 def mode_from_query(raw: str | None) -> str | None:
-    return _MODES.get((raw or "").strip().lower().replace("_", "-"))
+    """``buy`` aliases to ``buywatch``. The stored mode is never ``buy``."""
+    key = (raw or "").strip().lower().replace("_", "").replace("-", "")
+    if key == "buy":
+        return "buywatch"
+    if key in {"buywatch", "watch", "skip"}:
+        return key
+    return None
 
 
 def is_fixture_mint(mint: str | None) -> bool:
@@ -172,8 +169,8 @@ def _list_row(mint: str, ticker: str, name: str, checklist: dict[str, Any]) -> d
 
 
 def rows_for(mode: str | None) -> list[dict[str, Any]]:
-    if mode == "buy-watch":
-        specs = [(QA_BUY_MINT, "QAXBUY", "QA buy maps to BUY-WATCH")]
+    if mode == "buywatch":
+        specs = [(QA_BUY_MINT, "QAXBW", "QA buywatch")]
     elif mode == "watch":
         specs = [(QA_WATCH_MINT, "QAXWATCH", "QA WATCH")]
     elif mode == "skip":

@@ -57,6 +57,7 @@ FUNDER_MISS_TTL_S = 90.0
 TRACE_BUDGET_S = 10.0
 CACHE_VERSION = "x-rows"
 PUMP_AMM = "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"
+RAYDIUM_AMM = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
 _NARRATIVE_STOP = {
     "the", "and", "for", "with", "your", "this", "that", "from", "have", "just",
     "into", "about", "coin", "token", "sol", "solana", "pump", "https", "http",
@@ -222,6 +223,16 @@ def top10_pct(holders: list[dict[str, Any]] | None) -> float | None:
     return round(sum(pcts[:10]), 4)
 
 
+def _trace_unresolved(row: dict[str, Any]) -> bool:
+    """A finished look with no funder is resolved. A timeout or a long history is not."""
+    reason = row.get("reason")
+    if reason in {"timeout", "rpc_error", "long_history"}:
+        return True
+    if reason in {"traced", "no_funder_in_oldest"}:
+        return False
+    return not (isinstance(row.get("funder"), str) and row.get("funder"))
+
+
 def cluster_from_traces(traces: list[dict[str, Any]] | None) -> dict[str, Any]:
     """Largest funding-source cluster among traced top holders.
 
@@ -234,10 +245,10 @@ def cluster_from_traces(traces: list[dict[str, Any]] | None) -> dict[str, Any]:
     untraced = 0
     for row in rows:
         funder = row.get("funder") if isinstance(row.get("funder"), str) and row.get("funder") else None
-        if funder:
-            groups[funder].append(row)
-        else:
+        if _trace_unresolved(row):
             untraced += 1
+        elif funder:
+            groups[funder].append(row)
     best_pct = 0.0
     best_n = 0
     best_funder = None
@@ -527,7 +538,11 @@ def assemble(mint: str, sources: dict[str, Any] | None, now: float | None = None
 
     creator = None
     if isinstance(pump, dict) and not pump.get("missing") and not pump.get("error"):
-        creator = _present(pump.get("creator"))
+        for key in ("creator", "creator_address", "dev", "user"):
+            creator = _present(pump.get(key))
+            if creator and len(creator) >= 32:
+                break
+            creator = None
 
     launched, prior_total = _launch_counts(mint, creator_coins)
     prior_coins = []
@@ -710,7 +725,7 @@ def assemble(mint: str, sources: dict[str, Any] | None, now: float | None = None
     else:
         untraced_pct = 0.0
         for row in traces:
-            if isinstance(row, dict) and not row.get("funder"):
+            if isinstance(row, dict) and _trace_unresolved(row):
                 untraced_pct += _num(row.get("pct")) or 0.0
         traced_pct = float(cluster.get("traced_pct") or 0.0)
         worst = traced_pct + untraced_pct
@@ -1397,7 +1412,7 @@ def _lp_from_pool_account(pool: str) -> dict[str, Any] | None:
     if not isinstance(result, dict):
         return None
     value = result.get("value") if isinstance(result.get("value"), dict) else None
-    if not value or value.get("owner") != PUMP_AMM:
+    if not value or value.get("owner") not in {PUMP_AMM, RAYDIUM_AMM}:
         return None
     raw_field = value.get("data")
     if not (isinstance(raw_field, list) and raw_field):
@@ -1407,9 +1422,13 @@ def _lp_from_pool_account(pool: str) -> dict[str, Any] | None:
         raw = base64.b64decode(raw_field[0])
     except (ValueError, TypeError):
         return None
-    if len(raw) < 139:
+    lp_mint = None
+    if value.get("owner") == PUMP_AMM and len(raw) >= 139:
+        lp_mint = _b58(raw[107:139])
+    elif value.get("owner") == RAYDIUM_AMM and len(raw) >= 496:
+        lp_mint = _b58(raw[464:496])
+    if not lp_mint:
         return None
-    lp_mint = _b58(raw[107:139])
     supply_res, _supply_label = _rpc("getTokenSupply", [lp_mint])
     supply_value = (supply_res or {}).get("value") if isinstance(supply_res, dict) else None
     supply = _num((supply_value or {}).get("uiAmountString") if isinstance(supply_value, dict) else None)
@@ -1419,7 +1438,7 @@ def _lp_from_pool_account(pool: str) -> dict[str, Any] | None:
     if supply == 0:
         return {
             "status": "pass",
-            "detail": "PumpSwap LP supply is 0 (burned)",
+            "detail": "LP supply is 0 (burned)",
             "source": source,
         }
     if supply is None:
@@ -1447,7 +1466,7 @@ def _lp_from_pool_account(pool: str) -> dict[str, Any] | None:
 
 def fetch_lp_fallback(pump: dict[str, Any] | None, dex: dict[str, Any] | None) -> dict[str, Any] | None:
     if isinstance(pump, dict) and not pump.get("error") and not pump.get("missing"):
-        if pump.get("complete") is False and pump.get("bonding_curve"):
+        if pump.get("complete") is not True:
             return {
                 "status": "pass",
                 "detail": "locked in the Pump.fun bonding curve",
@@ -1490,17 +1509,40 @@ def fetch_organic(mint: str, dex: dict[str, Any] | None) -> dict[str, Any]:
         timeout=8,
     )
     pool_rows = pools.get("data") if isinstance(pools, dict) else None
-    address = None
-    if isinstance(pool_rows, list) and pool_rows:
-        address = ((pool_rows[0].get("attributes") or {}).get("address")) if isinstance(pool_rows[0], dict) else None
-    if not address:
+    addresses = []
+    if isinstance(pool_rows, list):
+        for pool_row in pool_rows[:3]:
+            if isinstance(pool_row, dict):
+                address = (pool_row.get("attributes") or {}).get("address")
+                if isinstance(address, str) and address:
+                    addresses.append(address)
+    if not addresses:
         return {"known": False, "source": "GeckoTerminal"}
-    _trade_status, payload = _http_json(
-        f"https://api.geckoterminal.com/api/v2/networks/solana/pools/{address}/trades",
-        timeout=8,
-    )
-    rows = payload.get("data") if isinstance(payload, dict) else None
-    if not isinstance(rows, list):
+    rows = []
+    truncated = False
+    fetched_at = time.time()
+    for address in addresses:
+        _trade_status, payload = _http_json(
+            f"https://api.geckoterminal.com/api/v2/networks/solana/pools/{address}/trades",
+            timeout=8,
+        )
+        page = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(page, list):
+            continue
+        rows.extend(page)
+        if len(page) >= 300:
+            stamps = []
+            for item in page:
+                attrs = item.get("attributes") if isinstance(item, dict) else None
+                stamp = attrs.get("block_timestamp") if isinstance(attrs, dict) else None
+                if isinstance(stamp, str):
+                    try:
+                        stamps.append(datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp())
+                    except ValueError:
+                        pass
+            if stamps and fetched_at - min(stamps) <= 3600:
+                truncated = True
+    if not rows:
         return {"known": False, "source": "GeckoTerminal"}
     now = time.time()
     volume: dict[str, float] = {}
@@ -1538,7 +1580,7 @@ def fetch_organic(mint: str, dex: dict[str, Any] | None) -> dict[str, Any]:
     total = sum(volume.values())
     max_usd = max(volume.values()) if volume else 0.0
     max_pct = (max_usd / total * 100.0) if total else None
-    complete = len(rows) < 300 or (oldest is not None and now - oldest > 3600)
+    complete = not truncated
     vol_h1 = None
     volume_block = dex.get("volume") if isinstance(dex.get("volume"), dict) else {}
     vol_h1 = _num(volume_block.get("h1"))
