@@ -72,6 +72,10 @@ def _utc() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _utc_ms() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
 def _parse_utc(s: str | None) -> datetime | None:
     if not s:
         return None
@@ -601,7 +605,7 @@ def _pull_live_price(mint: str) -> tuple[float | None, str, int | None, bool]:
     """Return (price, source, block_id, rate_limited). Jupiter only."""
     px, block, limited = _jupiter_price(mint)
     if px is not None and px > 0:
-        return px, "jup", block, False
+        return px, "jupiter", block, False
     return None, "", block, limited
 
 
@@ -614,6 +618,11 @@ def _decorate_live(payload: dict, fetched_at: float, now: float) -> dict:
     out["quote_sla_s"] = QUOTE_FRESH_SLA_S
     out["price_ts"] = out.get("price_ts") or _utc()
     out["quoted_at"] = out["price_ts"]
+    src = out.get("source")
+    if src in ("jup", "jupiter", None, ""):
+        out["source"] = "jupiter"
+    out["trade_ts"] = out.get("trade_ts") or out.get("price_ts")
+    out["render_ts"] = _utc_ms()
     live = px is not None and px > 0 and age <= QUOTE_FRESH_SLA_S
     out["quote_live"] = live
     if not live:
@@ -655,8 +664,34 @@ def qa_walk_armed(sid: str | None) -> bool:
         return sid in _qa_walks
 
 
+def arm_qa_walk(sid: str | None, mint: str | None) -> None:
+    """Arm the walk for one mint. A second mint is ignored. A finished walk stays finished."""
+    if not sid:
+        return
+    mint = (mint or "").strip()
+    if not looks_like_mint(mint):
+        return
+    with _qa_walk_guard:
+        book = _qa_walks.setdefault(sid, {})
+        if book:
+            return
+        book[mint] = {"t0": time.time(), "px0": None, "done": False}
+
+
+def clear_qa_walk(sid: str | None) -> None:
+    """Drop the session walk so the next fill is the real feed."""
+    if not sid:
+        return
+    with _qa_walk_guard:
+        _qa_walks.pop(sid, None)
+
+
 def _qa_overlay(sid: str | None, tick: dict | None) -> dict | None:
-    """Copy of tick, walked down for this QA session. The shared cache is not written."""
+    """Copy of tick, walked down for the one armed mint. The shared cache is not written.
+
+    Other mints are the real feed. After QA_WALK_SPAN_S the armed mint is too:
+    the walk does not stay at the bottom, so a later buy fills at the real price.
+    """
     if not sid or not isinstance(tick, dict):
         return tick
     px = _f(tick.get("price_usd"))
@@ -665,13 +700,21 @@ def _qa_overlay(sid: str | None, tick: dict | None) -> dict | None:
         return tick
     now = time.time()
     with _qa_walk_guard:
-        book = _qa_walks.setdefault(sid, {})
+        book = _qa_walks.get(sid)
+        if not book:
+            return tick
         row = book.get(mint)
-        if row is None:
-            row = {"t0": now, "px0": px}
-            book[mint] = row
+        if not isinstance(row, dict) or row.get("done"):
+            return tick
+        if row.get("px0") is None:
+            row["px0"] = px
         t0 = float(row["t0"])
         px0 = float(row["px0"])
+        # Still inside the span, including the last instant. A millisecond past
+        # the span the copy stops and the caller sees the real price.
+        if now - t0 > QA_WALK_SPAN_S:
+            row["done"] = True
+            return tick
     if px0 <= 0:
         return tick
     frac = min(1.0, max(0.0, (now - t0) / QA_WALK_SPAN_S))
@@ -683,46 +726,90 @@ def _qa_overlay(sid: str | None, tick: dict | None) -> dict | None:
     out["qa_walk_drop"] = round(1.0 - (walked / px0), 6)
     out["price_ts"] = _utc()
     out["quoted_at"] = out["price_ts"]
+    out["trade_ts"] = out["price_ts"]
     return out
 
 
-def fetch_live_tick(mint: str, bypass_cache: bool = False, qa_sid: str | None = None) -> dict | None:
+def fetch_live_tick(
+    mint: str,
+    bypass_cache: bool = False,
+    qa_sid: str | None = None,
+    apply_qa: bool = True,
+) -> dict | None:
     """Fresh USD price for one mint.
 
     Cache hits younger than LIVE_TICK_TTL_S do not call upstream. A 429 or a
     transport error backs off and may reuse the last tick only while it is
     still inside QUOTE_FRESH_SLA_S. Older than that, quote_live is false.
+
+    The shared cache stores only the real price. apply_qa copies a walked
+    price for this session's display. Stops, TP, buy, and sell pass
+    apply_qa=False so a walked price cannot fill or leak into another session.
+    quote_age_s is the time since this successful fetch or trade, not since
+    the price number last changed.
     """
     mint = (mint or "").strip()
     if not mint or len(mint) < 32:
         return None
+    import trade_stream
+
+    trade_stream.note_view(mint)
+    sid = None
+    if apply_qa:
+        sid = _qa_sid.get() if qa_sid is None else qa_sid
+
+    def _out(payload: dict, fetched_at: float, now: float) -> dict:
+        real = _decorate_live(payload, fetched_at, now)
+        if real.get("source") == "qa_tick":
+            real["source"] = "jupiter"
+        if not sid:
+            return real
+        return _qa_overlay(sid, real)
+
     with _live_lock(mint):
         now = time.time()
         hit = _live_cache.get(mint)
+        if hit and str((hit[1] or {}).get("source") or "") in ("qa_tick", "qa"):
+            # A walked price must never sit in the shared cache. Drop it.
+            _live_cache.pop(mint, None)
+            hit = None
+        if (
+            trade_stream.stream_is_fresh(mint, now)
+            and hit
+            and hit[1].get("source") == "stream"
+        ):
+            return _out(hit[1], hit[0], now)
         if now < _live_backoff_until.get(mint, 0):
             if hit:
-                return _qa_overlay(qa_sid or _qa_sid.get(), _decorate_live(hit[1], hit[0], now))
+                return _out(hit[1], hit[0], now)
             return None
         if not bypass_cache and hit and now - hit[0] < LIVE_TICK_TTL_S:
-            return _qa_overlay(qa_sid or _qa_sid.get(), _decorate_live(hit[1], hit[0], now))
+            return _out(hit[1], hit[0], now)
         px, source, block, limited = _pull_live_price(mint)
         if px is None or px <= 0:
             _arm_live_backoff(mint, now)
             if hit:
-                return _qa_overlay(qa_sid or _qa_sid.get(), _decorate_live(hit[1], hit[0], now))
+                return _out(hit[1], hit[0], now)
             return None
         _clear_live_backoff(mint)
         payload = {
             "mint": mint,
             "price_usd": px,
             "price_ts": _utc(),
+            "trade_ts": _utc_ms(),
+            "trade_epoch": now,
             "source": source,
             "block_id": block,
             "rate_limited": limited,
         }
-        _live_cache[mint] = (now, payload)
-        fresh = _decorate_live(payload, now, now)
-        return _qa_overlay(qa_sid or _qa_sid.get(), fresh)
+        if payload.get("source") in ("qa_tick", "qa") or payload.get("qa_tick"):
+            payload = dict(payload)
+            payload.pop("qa_tick", None)
+            payload.pop("qa_walk_drop", None)
+            payload["source"] = "jupiter"
+        _live_cache[mint] = (now, dict(payload))
+        trade_stream.note_anchor(mint, px, now)
+        return _out(payload, now, now)
 
 
 def _apply_live_tick(quote: dict, tick: dict) -> dict:
@@ -1448,9 +1535,9 @@ def tick_session(st: dict | None = None) -> dict:
 
         mints = list({p.get("mint") for p in (st.get("positions") or []) if p.get("mint")})
         ticks: dict[str, dict] = {}
-        qa_sid = _qa_sid.get()
         if mints:
-            futs = {_fetch_pool.submit(fetch_live_tick, m, False, qa_sid): m for m in mints}
+            # Real tick only. A qa walk must not close another session's position.
+            futs = {_fetch_pool.submit(fetch_live_tick, m, False, None, False): m for m in mints}
             try:
                 for fut in as_completed(futs, timeout=max(4.0, _LIVE_TIMEOUT + 1)):
                     m = futs[fut]
@@ -1584,10 +1671,10 @@ def buy(
             return _fail(err or "mint required", st)
         mint = resolved
         q = fetch_dex_token(mint, bypass_cache=True) or {}
-        tick = fetch_live_tick(mint)
+        tick = fetch_live_tick(mint, apply_qa=False)
         if not fillable_tick(tick):
             return _fail(
-                "No fresh price within 5s — not buying at a stale quote. Try again.",
+                "STALE — no fill until a live price lands.",
                 st,
                 resolved_mint=mint,
                 resolve_source=src,
@@ -1646,9 +1733,9 @@ def sell(position_id: str) -> dict:
         pos = next((p for p in (st.get("positions") or []) if p.get("id") == position_id), None)
         if not pos:
             return _fail("Position not found", st)
-        tick = fetch_live_tick(str(pos.get("mint") or ""))
+        tick = fetch_live_tick(str(pos.get("mint") or ""), apply_qa=False)
         if not fillable_tick(tick):
-            return _fail("Price is older than 5s — not selling at a stale quote", st)
+            return _fail("Price stale — can't sell yet", st)
         px = float(tick["price_usd"])
         ts = tick.get("price_ts")
         # Same tick the stop would use. If it already crossed, the fill is that price.
@@ -2210,7 +2297,7 @@ def sell_all() -> dict:
         for pos in positions:
             mint = str(pos.get("mint") or "")
             if mint and mint not in ticks:
-                tick = fetch_live_tick(mint)
+                tick = fetch_live_tick(mint, apply_qa=False)
                 if isinstance(tick, dict):
                     ticks[mint] = tick
         for pos in positions:
@@ -2225,7 +2312,7 @@ def sell_all() -> dict:
         still = {p.get("id") for p in (st.get("positions") or []) if p.get("id")}
         sold = len([pid for pid in wanted if pid not in still])
         if sold == 0 and still:
-            return _fail("Price is older than 5s — not selling at a stale quote", st)
+            return _fail("Price stale — can't sell yet", st)
         return {
             "ok": True,
             "sold": sold,
@@ -2333,15 +2420,30 @@ def quote_payload(mint: str, fresh: bool = False) -> dict:
     resolved, err, src = resolve_mint(mint)
     if not resolved:
         return _fail(err or "No quote")
-    q = fetch_dex_token(resolved, bypass_cache=fresh)
-    tick = fetch_live_tick(resolved, bypass_cache=fresh)
-    if not q or not fillable_tick(tick):
-        return _fail(
-            "No fresh price within 5s — not quoting a stale feed. Try again or paste the CA from Filter.",
-            resolved_mint=resolved,
-            resolve_source=src,
-            quote_age_s=(tick or {}).get("quote_age_s") if isinstance(tick, dict) else None,
-        )
+    q = fetch_dex_token(resolved, bypass_cache=fresh) or {}
+    tick = fetch_live_tick(resolved, bypass_cache=True, apply_qa=False)
+    if not fillable_tick(tick):
+        base = dict(q)
+        base["mint"] = resolved
+        base["quote_live"] = False
+        base["quote_sla_s"] = QUOTE_FRESH_SLA_S
+        if isinstance(tick, dict):
+            base["quote_age_s"] = tick.get("quote_age_s")
+            base["quoted_at"] = tick.get("quoted_at") or tick.get("price_ts")
+            if tick.get("price_usd"):
+                base["price_usd"] = tick.get("price_usd")
+        return {
+            "ok": True,
+            "stale": True,
+            "quote_live": False,
+            "stale_label": "STALE",
+            "quote": base,
+            "resolved_mint": resolved,
+            "resolve_source": src,
+            "red_flags": flags_for_mint(resolved),
+            "quote_sla_s": QUOTE_FRESH_SLA_S,
+            "disclaimer": "Paper research only.",
+        }
     q = _apply_live_tick(q, tick)
     note = None
     qsym = (q.get("symbol") or "").strip()

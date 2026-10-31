@@ -39,22 +39,51 @@ app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="")
 CORS(app)
 
 _QA_ARM_PATHS = ("/api/game/tick", "/api/game/buy", "/api/game/sell", "/api/game/quote")
+_QA_CLEAR = ("off", "0", "up")
+
+
+def _qa_walk_mint() -> str:
+    """Mint this arming request is about. Sell resolves the open position."""
+    mint = (request.args.get("mint") or request.args.get("ca") or "").strip()
+    if game_mod.looks_like_mint(mint):
+        return mint
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        body = {}
+    mint = str(body.get("mint") or body.get("ca") or "").strip()
+    if game_mod.looks_like_mint(mint):
+        return mint
+    pid = str(body.get("position_id") or body.get("id") or "").strip()
+    if not pid:
+        return ""
+    st = game_mod.load_state()
+    for pos in st.get("positions") or []:
+        if isinstance(pos, dict) and pos.get("id") == pid:
+            found = str(pos.get("mint") or "")
+            return found if game_mod.looks_like_mint(found) else ""
+    return ""
 
 
 @app.before_request
 def _bind_qa_walk():
-    """Arm a session price walk only from ?qa_tick=down on tick and fill routes.
+    """Arm a one-mint price walk from ?qa_tick=down. off, 0, and up clear it.
 
-    /api/game/state?qa_tick=down stays the display-only equity nudge. A cookie
-    from an earlier arm still applies on later fills from this browser.
+    /api/game/state?qa_tick=down stays the display-only equity nudge. up on
+    that route still clears a walk cookie so a later buy is not the walked price.
+    The walk covers only the mint it was armed on, and it stops after the span.
     """
     cookie = (request.cookies.get(game_mod.QA_WALK_COOKIE) or "").strip()
     query = (request.args.get("qa_tick") or "").strip().lower()
     path = request.path or ""
     sid = None
-    if query == "down" and path in _QA_ARM_PATHS:
+    if query in _QA_CLEAR:
+        g.qa_walk_clear_cookie = True
+        if cookie:
+            game_mod.clear_qa_walk(cookie)
+    elif query == "down" and path in _QA_ARM_PATHS:
         sid = cookie or uuid.uuid4().hex
         g.qa_walk_set_cookie = sid
+        game_mod.arm_qa_walk(sid, _qa_walk_mint())
     elif cookie and game_mod.qa_walk_armed(cookie):
         sid = cookie
     game_mod.set_qa_walk_sid(sid)
@@ -223,7 +252,7 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 84,
+            "panel_v": 85,
             "time": _utc(),
             "qa_tick": "page ?qa_tick=both|up|down",
             "qa_end": "page ?qa_end=1 (one-shot) or POST /api/game/end",
@@ -268,19 +297,24 @@ def api_health():
                 "A rejected profile file cannot flip the avatar to Star."
             ),
             "live_tick": (
-                "Game price and the rocket chart share one Jupiter Price API mid (usdPrice). "
-                "No swap quote and no GeckoTerminal fallback. DexScreener priceUsd is not the fill. "
-                "The server fetches Jupiter at most once per second per mint, single-flight, shared cache. "
-                "Browsers poll /api/game/tick every 1s and never call Jupiter. "
+                "Game price and the rocket chart share one tick cache. "
+                "Watched mints (an open position or an open Game/drawer) get post-swap prices from "
+                "Solana RPC accountSubscribe on the main pool. PumpPortal trade sockets are not used: "
+                "they require a funded API key. Jupiter Price API usdPrice is the anchor and the fallback "
+                "when that stream is silent for more than 5s. A swap more than 3% from the anchor is rejected. "
+                "Browsers poll /api/game/tick every 1s and never call Jupiter or RPC. "
                 "A 429 or a timeout backs off and serves the last good tick with its true age. "
                 "stale is true exactly when quote_age_s > quote_sla_s (5s). Past that, Buy, Sell, and stops "
-                "will not fill. A fresh tick stores price_ts."
+                "will not fill. A fresh tick stores price_ts, trade_ts, and render_ts. "
+                "source is stream or jupiter."
             ),
             "qa_tick_down": (
                 "Server ?qa_tick=down on /api/game/tick (also buy, sell, and quote) walks this browser "
-                "session's tick down 27% over about 20s so a 20% stop can fire. Off unless that query "
-                "armed the session cookie. /api/game/state?qa_tick=down stays the display-only equity nudge. "
-                "The shared Jupiter cache and other browsers are not changed."
+                "session's one armed mint down 27% over about 20s so a 20% stop can fire. Other mints stay "
+                "on the real feed. When the 20s ends the walk stops and a later buy fills at the real price. "
+                "?qa_tick=off, ?qa_tick=0, and ?qa_tick=up clear the walk cookie. "
+                "/api/game/state?qa_tick=down stays the display-only equity nudge. "
+                "The shared tick cache and other browsers are not changed."
             ),
             "qa_stale": (
                 "Page ?qa_stale=1 is this browser only. The client treats live ticks as older than "
@@ -288,7 +322,7 @@ def api_health():
                 "Absent the query, ticks behave normally."
             ),
             "live_tick_ttl_s": game_mod.LIVE_TICK_TTL_S,
-            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture", "game_ai_review", "gold_scar", "game_follow_tab", "filter_smart", "profile_custom_pic", "final_polish", "live_tick"],
+            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture", "game_ai_review", "gold_scar", "game_follow_tab", "filter_smart", "profile_custom_pic", "final_polish", "live_tick", "trade_stream"],
             "sitting_drop_min": 5.0,
             "sitting_aged_min": 180.0,
             "sitting_keep": True,
@@ -326,7 +360,7 @@ def api_gold():
     return jsonify(
         {
             "ok": True,
-            "panel_v": 84,
+            "panel_v": 85,
             "feature": "gold_scar",
             "count": len(picks),
             "empty_ok": True,
@@ -766,6 +800,8 @@ def api_game_tick():
         if not resolved:
             return jsonify({"ok": False, "error": err or "mint required", "quote_live": False}), 400
         mint = resolved
+    import trade_stream
+    trade_stream.note_view(mint)
     tick = game_mod.fetch_live_tick(mint)
     if not isinstance(tick, dict):
         return jsonify({
@@ -796,6 +832,8 @@ def api_game_tick():
         "quote_live": bool(px_ok and not stale and age is not None),
         "quote_sla_s": sla,
         "source": tick.get("source"),
+        "trade_ts": tick.get("trade_ts") or tick.get("price_ts"),
+        "render_ts": tick.get("render_ts") or _utc(),
         "stale": stale,
         "stale_label": ("stale %ss" % int(round(float(age)))) if stale else "",
     }
@@ -868,6 +906,18 @@ def api_game_shop():
 
 @app.after_request
 def _qa_walk_cookie(resp: Response):
+    if getattr(g, "qa_walk_clear_cookie", False):
+        # Max-Age=0 so the browser drops nunu_qa_walk. Same path and flags as the set.
+        resp.set_cookie(
+            game_mod.QA_WALK_COOKIE,
+            "",
+            max_age=0,
+            expires=0,
+            path="/",
+            httponly=True,
+            samesite="Lax",
+        )
+        return resp
     sid = getattr(g, "qa_walk_set_cookie", None)
     if sid:
         resp.set_cookie(
@@ -935,6 +985,8 @@ def main() -> None:
     debug = os.environ.get("FLASK_DEBUG", "").lower() in ("1", "true", "yes")
     print(f"nunu-filter server on http://{host}:{port}/ (panel + /api/*)", flush=True)
     print("Paper research only — no wallets, no order execution.", flush=True)
+    import trade_stream
+    trade_stream.ensure_started()
     app.run(host=host, port=port, debug=debug, use_reloader=False)
 
 
