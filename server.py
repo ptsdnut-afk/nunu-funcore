@@ -337,9 +337,24 @@ def api_health():
                 "quote_sla_s, shows stale Ns, and blocks Buy and Sell. It does not change the server feed. "
                 "Absent the query, ticks behave normally."
             ),
+            "coin_checklist": (
+                "Coin sheet checklist. GET /api/coin/checklist?mint= returns verdict "
+                "(BUY-WATCH, WATCH, or SKIP) plus 8 rows. Unknown is not a pass. "
+                "BUY-WATCH is 8/8, WATCH is 6–7, SKIP is 5 or lower. A rug-history dev "
+                "or a linked cluster at or above 10% forces SKIP. Top-10 under 30% passes. "
+                "Organic volume needs 100 unique traders in 1h and no wallet over 10% of "
+                "that volume. Narrative fit stays Unknown until a source exists. "
+                "Lookups are cached on the server. Strict Filter and AI traders should "
+                "key off the verdict name."
+            ),
+            "usd_price": (
+                "Token prices, entries, exits, and P/L render in USD. "
+                "Filter and the coin sheet use the Dexscreener USD price. "
+                "Game fills stay on the live USD tick."
+            ),
             "live_tick_ttl_s": game_mod.LIVE_TICK_TTL_S,
             "stream": trade_stream_mod.stream_health(),
-            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture", "game_ai_review", "gold_scar", "game_follow_tab", "filter_smart", "profile_custom_pic", "final_polish", "live_tick", "trade_stream"],
+            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture", "game_ai_review", "gold_scar", "game_follow_tab", "filter_smart", "profile_custom_pic", "final_polish", "live_tick", "trade_stream", "coin_checklist", "usd_price"],
             "sitting_drop_min": 5.0,
             "sitting_aged_min": 180.0,
             "sitting_keep": True,
@@ -682,6 +697,24 @@ def api_coin():
     result = filter_mod.coin_payload(mint, bypass_cache=fresh)
     code = 200 if result.get("ok") else 400
     return jsonify(result), code
+
+
+@app.get("/api/coin/checklist")
+def api_coin_checklist():
+    """SHIP X checklist. Verdict name is BUY-WATCH, WATCH, or SKIP."""
+    import coin_checklist
+
+    mint = (request.args.get("mint") or request.args.get("ca") or "").strip()
+    if not mint:
+        return jsonify({"ok": False, "error": "mint required", "verdict": None}), 400
+    if qa_gold.is_fixture_mint(mint) or qa_max.is_fixture_mint(mint):
+        payload = coin_checklist.assemble(mint, {})
+        payload["fixture"] = True
+        return jsonify(payload)
+    fresh = (request.args.get("fresh") or "").lower() in ("1", "true", "yes")
+    payload = coin_checklist.for_mint(mint, bypass=fresh)
+    code = 200 if payload.get("ok") else 400
+    return jsonify(payload)
 
 
 # —— Paper log (research CSV) ——
