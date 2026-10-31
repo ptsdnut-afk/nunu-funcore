@@ -227,7 +227,7 @@ class HealthAndPanelTests(unittest.TestCase):
         res = server.app.test_client().get("/api/health")
         self.assertEqual(res.status_code, 200)
         data = res.get_json()
-        self.assertEqual(data["panel_v"], 81)
+        self.assertEqual(data["panel_v"], 82)
         self.assertIn("delay_warning", data["features"])
         self.assertIn("game_polish", data["features"])
         self.assertEqual(data["sitting_drop_min"], filter.SITTING_DROP_MIN)
@@ -242,7 +242,7 @@ class HealthAndPanelTests(unittest.TestCase):
         self.assertIn("social_tap_fresh", data["features"])
         self.assertIn("game_finish", data["features"])
         self.assertIn("quote_sync", data["features"])
-        self.assertEqual(data["quote_sla_s"], 15.0)
+        self.assertEqual(data["quote_sla_s"], 5.0)
         self.assertEqual(data["qa_tick"], "page ?qa_tick=both|up|down")
 
     def test_panel_shows_sitting_and_honest_social_tap(self):

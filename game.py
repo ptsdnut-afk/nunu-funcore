@@ -36,13 +36,25 @@ _UA = "nunu-filter-paper/1.0"
 
 _lock = threading.RLock()
 _quote_cache: dict[str, tuple[float, dict | None]] = {}
-_QUOTE_TTL = 2.5  # seconds — happy-path cache so 2s polls do not refetch every tick
-# Labeled "DEX Screener" / Live USD may only show a quote fetched inside this window.
+_QUOTE_TTL = 2.0  # seconds — happy-path cache so polls do not refetch every tick
+# Labeled live USD may only show a quote fetched inside this window.
 # A failed refresh may reuse the cache while it is still inside the SLA.
-# Older than the SLA: Unknown / — . Never keep that print under a live DEX label.
-QUOTE_FRESH_SLA_S = 15.0
+# Older than the SLA: not a fill price. The panel shows "stale Ns".
+QUOTE_FRESH_SLA_S = 5.0
 QUOTE_BAND = 0.05  # ±5% vs the same-path DexScreener quote, else not a live DEX print
 _DEX_TIMEOUT = 3.5
+# SHIP W — execution price. DexScreener's token priceUsd can sit still for
+# half a minute while the chart moves. Jupiter (then GeckoTerminal) is the
+# lightweight tick. Many clients share one fetch for LIVE_TICK_TTL_S.
+LIVE_TICK_TTL_S = 2.0
+_LIVE_TIMEOUT = 2.0
+JUP_PRICE_URL = "https://lite-api.jup.ag/price/v3?ids={mint}"
+GECKO_PRICE_URL = "https://api.geckoterminal.com/api/v2/simple/networks/solana/token_price/{mint}"
+_live_cache: dict[str, tuple[float, dict]] = {}
+_live_backoff_until: dict[str, float] = {}
+_live_backoff_s: dict[str, float] = {}
+_live_guard = threading.Lock()
+_live_locks: dict[str, threading.Lock] = {}
 _fetch_pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="dexq")
 
 
@@ -484,6 +496,174 @@ def fetch_dex_token(mint: str, bypass_cache: bool = False) -> dict | None:
             quote["symbol"] = fr.get("ticker") or fr.get("symbol")
     _quote_cache[mint] = (now, quote)
     return _decorate_quote(quote, now, now)
+
+
+def _live_lock(mint: str) -> threading.Lock:
+    with _live_guard:
+        lk = _live_locks.get(mint)
+        if lk is None:
+            lk = threading.Lock()
+            _live_locks[mint] = lk
+        return lk
+
+
+def _http_json(url: str) -> tuple[int, dict | None]:
+    """GET JSON. 429 is returned as a status so the caller can back off."""
+    req = Request(url, headers={"User-Agent": _UA, "Accept": "application/json"})
+    try:
+        with urlopen(req, timeout=_LIVE_TIMEOUT) as resp:
+            raw = json.loads(resp.read().decode("utf-8"))
+            code = int(getattr(resp, "status", 200) or 200)
+            return code, raw if isinstance(raw, dict) else None
+    except HTTPError as exc:
+        return int(exc.code or 0), None
+    except (URLError, TimeoutError, json.JSONDecodeError, OSError):
+        return 0, None
+
+
+def _arm_live_backoff(mint: str, now: float) -> None:
+    delay = _live_backoff_s.get(mint, 1.0)
+    delay = min(20.0, max(2.0, delay * 2))
+    _live_backoff_s[mint] = delay
+    _live_backoff_until[mint] = now + delay
+
+
+def _clear_live_backoff(mint: str) -> None:
+    _live_backoff_s.pop(mint, None)
+    _live_backoff_until.pop(mint, None)
+
+
+def _parse_jup_price(raw: dict | None, mint: str) -> tuple[float | None, int | None]:
+    if not isinstance(raw, dict):
+        return None, None
+    row = raw.get(mint)
+    if not isinstance(row, dict):
+        return None, None
+    block = row.get("blockId")
+    try:
+        block_i = int(block) if block is not None else None
+    except (TypeError, ValueError):
+        block_i = None
+    return _f(row.get("usdPrice")), block_i
+
+
+def _parse_gecko_price(raw: dict | None, mint: str) -> float | None:
+    if not isinstance(raw, dict):
+        return None
+    data = raw.get("data")
+    attrs = data.get("attributes") if isinstance(data, dict) else None
+    prices = attrs.get("token_prices") if isinstance(attrs, dict) else None
+    if not isinstance(prices, dict):
+        return None
+    return _f(prices.get(mint))
+
+
+def _pull_live_price(mint: str) -> tuple[float | None, str, int | None, bool]:
+    """Return (price, source, block_id, rate_limited). Does not read the cache."""
+    code, raw = _http_json(JUP_PRICE_URL.format(mint=mint))
+    if code == 429:
+        return None, "", None, True
+    px, block = _parse_jup_price(raw, mint)
+    if px is not None and px > 0:
+        return px, "jup", block, False
+    code, raw = _http_json(GECKO_PRICE_URL.format(mint=mint))
+    if code == 429:
+        return None, "", None, True
+    px = _parse_gecko_price(raw, mint)
+    if px is not None and px > 0:
+        return px, "gecko", None, False
+    return None, "", None, False
+
+
+def _decorate_live(payload: dict, fetched_at: float, now: float) -> dict:
+    out = dict(payload)
+    age = max(0.0, now - fetched_at)
+    px = _f(out.get("price_usd"))
+    out["quoted_epoch"] = fetched_at
+    out["quote_age_s"] = round(age, 3)
+    out["quote_sla_s"] = QUOTE_FRESH_SLA_S
+    out["price_ts"] = out.get("price_ts") or _utc()
+    out["quoted_at"] = out["price_ts"]
+    live = px is not None and px > 0 and age <= QUOTE_FRESH_SLA_S
+    out["quote_live"] = live
+    if not live:
+        out["price_usd"] = px if px is not None and px > 0 else None
+    return out
+
+
+def fillable_tick(tick: dict | None) -> bool:
+    """True when this tick may be a buy, sell, or stop fill."""
+    if not isinstance(tick, dict) or not tick.get("quote_live"):
+        return False
+    px = _f(tick.get("price_usd"))
+    age = _f(tick.get("quote_age_s"))
+    return px is not None and px > 0 and age is not None and age <= QUOTE_FRESH_SLA_S
+
+
+def fetch_live_tick(mint: str, bypass_cache: bool = False) -> dict | None:
+    """Fresh USD price for one mint.
+
+    Cache hits younger than LIVE_TICK_TTL_S do not call upstream. A 429 or a
+    transport error backs off and may reuse the last tick only while it is
+    still inside QUOTE_FRESH_SLA_S. Older than that, quote_live is false.
+    """
+    mint = (mint or "").strip()
+    if not mint or len(mint) < 32:
+        return None
+    with _live_lock(mint):
+        now = time.time()
+        hit = _live_cache.get(mint)
+        if now < _live_backoff_until.get(mint, 0):
+            if hit:
+                return _decorate_live(hit[1], hit[0], now)
+            return None
+        if not bypass_cache and hit and now - hit[0] < LIVE_TICK_TTL_S:
+            return _decorate_live(hit[1], hit[0], now)
+        px, source, block, limited = _pull_live_price(mint)
+        if px is None or px <= 0:
+            _arm_live_backoff(mint, now)
+            if hit:
+                return _decorate_live(hit[1], hit[0], now)
+            return None
+        _clear_live_backoff(mint)
+        payload = {
+            "mint": mint,
+            "price_usd": px,
+            "price_ts": _utc(),
+            "source": source,
+            "block_id": block,
+            "rate_limited": limited,
+        }
+        _live_cache[mint] = (now, payload)
+        return _decorate_live(payload, now, now)
+
+
+def _apply_live_tick(quote: dict, tick: dict) -> dict:
+    """Use the live tick as the price. Scale mcap so the card matches that price."""
+    out = dict(quote)
+    px = float(tick["price_usd"])
+    dex_px = _f(out.get("price_usd"))
+    out["price_usd"] = px
+    out["price_ts"] = tick.get("price_ts")
+    out["quoted_at"] = tick.get("price_ts")
+    out["quoted_epoch"] = tick.get("quoted_epoch")
+    out["quote_age_s"] = tick.get("quote_age_s")
+    out["quote_sla_s"] = QUOTE_FRESH_SLA_S
+    out["quote_live"] = True
+    out["price_source"] = tick.get("source")
+    if dex_px and dex_px > 0:
+        ratio = px / dex_px
+        if 0.05 <= ratio <= 20:
+            mcap = _f(out.get("market_cap_usd"))
+            if mcap is not None and mcap > 0:
+                out["market_cap_usd"] = mcap * ratio
+            prog = out.get("mcap_progress")
+            if isinstance(prog, dict) and _f(prog.get("market_cap_usd")):
+                prog = dict(prog)
+                prog["market_cap_usd"] = float(prog["market_cap_usd"]) * ratio
+                out["mcap_progress"] = prog
+                out["market_cap_usd"] = prog["market_cap_usd"]
+    return out
 
 
 def _f(v) -> float | None:
@@ -1138,17 +1318,20 @@ def start_session(force: bool = False) -> dict:
         return st
 
 
-def _close_position(st: dict, pos: dict, price: float, reason: str) -> None:
+def _close_position(st: dict, pos: dict, price: float, reason: str, price_ts: str | None = None) -> None:
     qty = float(pos.get("qty_tokens") or 0)
     proceeds = round(price * qty, 6)
     entry = float(pos.get("entry_price_usd") or 0)
     stake = float(pos.get("stake_usd") or 0)
     pnl = round(proceeds - stake, 6)
     pnl_pct = round((price / entry - 1.0) * 100, 2) if entry else 0.0
+    ts = price_ts or pos.get("price_ts") or _utc()
     st["cash_usd"] = round(float(st.get("cash_usd") or 0) + proceeds, 6)
     closed = {
         **pos,
         "exit_price_usd": price,
+        "exit_price_ts": ts,
+        "price_ts": ts,
         "exit_usd": proceeds,
         "pnl_usd": pnl,
         "pnl_pct": pnl_pct,
@@ -1179,68 +1362,68 @@ def tick_session(st: dict | None = None) -> dict:
         timed_out = _run_expired(st, now)
 
         mints = list({p.get("mint") for p in (st.get("positions") or []) if p.get("mint")})
-        quotes: dict[str, dict] = {}
+        ticks: dict[str, dict] = {}
         if mints:
-            futs = {_fetch_pool.submit(fetch_dex_token, m): m for m in mints}
+            futs = {_fetch_pool.submit(fetch_live_tick, m): m for m in mints}
             try:
-                for fut in as_completed(futs, timeout=max(6.0, _DEX_TIMEOUT + 1)):
+                for fut in as_completed(futs, timeout=max(4.0, _LIVE_TIMEOUT + 1)):
                     m = futs[fut]
                     try:
-                        q = fut.result()
+                        tick = fut.result()
                     except Exception:
-                        q = None
-                    if q and q.get("price_usd"):
-                        quotes[m] = q
+                        tick = None
+                    if isinstance(tick, dict):
+                        ticks[m] = tick
             except TimeoutError:
                 pass
 
         still = []
         for pos in list(st.get("positions") or []):
             mint = pos.get("mint")
-            q = quotes.get(mint) if mint else None
-            px = _f(q.get("price_usd")) if q else None
-            if px is None or not (q and q.get("quote_live")):
-                px = _f(pos.get("last_price_usd")) or _f(pos.get("entry_price_usd"))
-            else:
+            tick = ticks.get(mint) if mint else None
+            fresh = fillable_tick(tick)
+            px = _f(tick.get("price_usd")) if fresh and tick else None
+            entry = float(pos.get("entry_price_usd") or 0)
+            if fresh and px is not None:
+                prev = _f(pos.get("last_price_usd"))
+                prev_mcap = _f(pos.get("market_cap_usd"))
+                if prev and prev > 0 and prev_mcap and prev_mcap > 0:
+                    ratio = px / prev
+                    if 0.05 <= ratio <= 20:
+                        pos["market_cap_usd"] = prev_mcap * ratio
                 pos["last_price_usd"] = px
-                pos["quote_epoch"] = q.get("quoted_epoch")
-                pos["quoted_at"] = q.get("quoted_at")
-                if q.get("pair_url"):
-                    pos["pair_url"] = q.get("pair_url")
-                prog = q.get("mcap_progress")
-                if isinstance(prog, dict) and prog.get("now_source") == "dex" and prog.get("now_available"):
-                    # Price and NOW are this same pair. A previous print is not kept.
-                    pos["mcap_progress"] = dict(prog)
-                    pos["market_cap_usd"] = prog.get("market_cap_usd")
-                else:
-                    pos["mcap_progress"] = hide_live_now(
-                        pos.get("mcap_progress") if isinstance(pos.get("mcap_progress"), dict) else None
-                    )
-                    pos["market_cap_usd"] = None
-            if q and q.get("quote_live"):
-                if q.get("image_url") and not pos.get("image_url"):
-                    pos["image_url"] = q.get("image_url")
-                if q.get("name") and (not pos.get("name") or pos.get("name") == "?"):
-                    pos["name"] = q.get("name")
-                if q.get("symbol") and (not pos.get("symbol") or pos.get("symbol") == "?"):
-                    pos["symbol"] = q.get("symbol")
+                pos["quote_epoch"] = tick.get("quoted_epoch")
+                pos["quoted_at"] = tick.get("price_ts")
+                pos["price_ts"] = tick.get("price_ts")
+                pos["price_source"] = tick.get("source")
+            else:
+                # Do not fire a stop on a stale print, and do not zero the mark.
+                px = _f(pos.get("last_price_usd")) or (entry if entry else None)
             if not pos.get("image_url") and mint:
                 img = image_for_mint(mint)
                 if img:
                     pos["image_url"] = img
-            entry = float(pos.get("entry_price_usd") or 0)
             if timed_out:
-                _close_position(st, pos, float(px or entry or 0), "force_24h")
+                _close_position(
+                    st,
+                    pos,
+                    float(px or entry or 0),
+                    "force_24h",
+                    price_ts=(tick.get("price_ts") if fresh and tick else None),
+                )
                 continue
             sl = pos.get("sl_pct")
             tp = pos.get("tp_pct")
-            if entry and px:
+            # Stops and targets fill at this tick's price, and only when that
+            # tick is still inside the 5s window. A frozen cache must not gap
+            # the fill past the mark the player was shown.
+            if fresh and entry and px:
                 chg = (px / entry - 1.0) * 100
                 if sl is not None and chg <= -abs(float(sl)):
-                    _close_position(st, pos, px, "stop")
+                    _close_position(st, pos, px, "stop", price_ts=tick.get("price_ts") if tick else None)
                     continue
                 if tp is not None and chg >= abs(float(tp)):
-                    _close_position(st, pos, px, "tp")
+                    _close_position(st, pos, px, "tp", price_ts=tick.get("price_ts") if tick else None)
                     continue
             still.append(pos)
         st["positions"] = still
@@ -1296,38 +1479,45 @@ def buy(mint: str, stake_usd: float, sl_pct: float | None = None, tp_pct: float 
         if not resolved:
             return _fail(err or "mint required", st)
         mint = resolved
-        q = fetch_dex_token(mint, bypass_cache=True)
-        if not q or not q.get("price_usd"):
+        q = fetch_dex_token(mint, bypass_cache=True) or {}
+        tick = fetch_live_tick(mint)
+        if not fillable_tick(tick):
             return _fail(
-                "No DEX Screener quote for that mint — try again or paste CA from Filter",
+                "No fresh price within 5s — not buying at a stale quote. Try again.",
                 st,
                 resolved_mint=mint,
                 resolve_source=src,
             )
-        px = float(q["price_usd"])
+        if q:
+            q = _apply_live_tick(q, tick)
+        px = float(tick["price_usd"])
         if px <= 0:
             return _fail("Bad price", st)
         qty = stake / px
+        price_ts = tick.get("price_ts")
         pos = {
             "id": uuid.uuid4().hex[:10],
             "mint": mint,
-            "symbol": q.get("symbol") or "?",
-            "name": q.get("name") or "?",
+            "symbol": (q or {}).get("symbol") or "?",
+            "name": (q or {}).get("name") or "?",
             "stake_usd": round(stake, 6),
             "entry_price_usd": px,
+            "entry_price_ts": price_ts,
+            "price_ts": price_ts,
             "qty_tokens": qty,
             "sl_pct": float(sl_pct) if sl_pct is not None else None,
             "tp_pct": float(tp_pct) if tp_pct is not None else None,
             "opened_at": _utc(),
-            "pair_url": q.get("pair_url"),
-            "image_url": image_for_mint(mint, q.get("image_url") or None),
+            "pair_url": (q or {}).get("pair_url"),
+            "image_url": image_for_mint(mint, (q or {}).get("image_url") or None),
             "last_price_usd": px,
-            "quote_epoch": q.get("quoted_epoch"),
-            "quoted_at": q.get("quoted_at"),
+            "quote_epoch": tick.get("quoted_epoch"),
+            "quoted_at": price_ts,
+            "price_source": tick.get("source"),
             "red_flags": flags_for_mint(mint),
             "ca_short": (mint[:4] + "…" + mint[-4:]) if len(mint) > 10 else mint,
-            "market_cap_usd": q.get("market_cap_usd"),
-            "mcap_progress": q.get("mcap_progress"),
+            "market_cap_usd": (q or {}).get("market_cap_usd"),
+            "mcap_progress": (q or {}).get("mcap_progress"),
         }
         st["cash_usd"] = round(cash - stake, 6)
         st.setdefault("positions", []).append(pos)
@@ -1345,19 +1535,26 @@ def buy(mint: str, stake_usd: float, sl_pct: float | None = None, tp_pct: float 
 
 def sell(position_id: str) -> dict:
     with _lock:
-        st = tick_session()
+        st = load_state()
         if st.get("status") != "active":
             return _fail("No active session", st)
         pos = next((p for p in (st.get("positions") or []) if p.get("id") == position_id), None)
         if not pos:
             return _fail("Position not found", st)
-        q = fetch_dex_token(pos["mint"])
-        px = _f(q.get("price_usd")) if q else None
-        if px is None:
-            px = _f(pos.get("last_price_usd")) or _f(pos.get("entry_price_usd")) or 0
-        _close_position(st, pos, float(px), "manual")
+        tick = fetch_live_tick(str(pos.get("mint") or ""))
+        if not fillable_tick(tick):
+            return _fail("Price is older than 5s — not selling at a stale quote", st)
+        px = float(tick["price_usd"])
+        ts = tick.get("price_ts")
+        # Same tick the stop would use. If it already crossed, the fill is that price.
+        st = tick_session(st)
+        pos = next((p for p in (st.get("positions") or []) if p.get("id") == position_id), None)
+        if not pos:
+            save_state(st)
+            return {"ok": True, "state": st, "sound": "sell", "closed_by": "stop", "price_usd": px, "price_ts": ts}
+        _close_position(st, pos, px, "manual", price_ts=ts)
         save_state(st)
-        return {"ok": True, "state": st, "sound": "sell"}
+        return {"ok": True, "state": st, "sound": "sell", "price_usd": px, "price_ts": ts}
 
 
 def present_open_position(pos: dict, now: float | None = None) -> dict:
@@ -1908,13 +2105,14 @@ def sell_all() -> dict:
             pos = next((p for p in (st.get("positions") or []) if p.get("id") == pid), None)
             if not pos:
                 continue
-            q = fetch_dex_token(pos["mint"], bypass_cache=True)
-            px = _f(q.get("price_usd")) if q else None
-            if px is None:
-                px = _f(pos.get("last_price_usd")) or _f(pos.get("entry_price_usd")) or 0
-            _close_position(st, pos, float(px), "manual")
+            tick = fetch_live_tick(str(pos.get("mint") or ""))
+            if not fillable_tick(tick):
+                continue
+            _close_position(st, pos, float(tick["price_usd"]), "manual", price_ts=tick.get("price_ts"))
             sold += 1
         save_state(st)
+        if sold == 0 and st.get("positions"):
+            return _fail("Price is older than 5s — not selling at a stale quote", st)
         return {"ok": True, "sold": sold, "state": st, "sound": "sell"}
 
 
@@ -2017,12 +2215,15 @@ def quote_payload(mint: str, fresh: bool = False) -> dict:
     if not resolved:
         return _fail(err or "No quote")
     q = fetch_dex_token(resolved, bypass_cache=fresh)
-    if not q or not q.get("quote_live") or not q.get("price_usd"):
+    tick = fetch_live_tick(resolved, bypass_cache=fresh)
+    if not q or not fillable_tick(tick):
         return _fail(
-            "No live USD price on DEX Screener — token may be too new, illiquid, or delisted. Paste CA from Filter Play.",
+            "No fresh price within 5s — not quoting a stale feed. Try again or paste the CA from Filter.",
             resolved_mint=resolved,
             resolve_source=src,
+            quote_age_s=(tick or {}).get("quote_age_s") if isinstance(tick, dict) else None,
         )
+    q = _apply_live_tick(q, tick)
     note = None
     qsym = (q.get("symbol") or "").strip()
     raw_q = (mint or "").strip()

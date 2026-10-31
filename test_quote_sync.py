@@ -87,7 +87,7 @@ class FetchFreshnessTests(unittest.TestCase):
         self.assertTrue(game.within_quote_band(quote["price_usd"], 0.000585))
 
     def test_failed_refresh_keeps_a_quote_only_inside_the_sla(self):
-        game._quote_cache[MINT] = (time.time() - 5, {"price_usd": 0.000585, "market_cap_usd": 566_000, "mcap_progress": {"now_source": "dex", "now_available": True, "market_cap_usd": 566_000}, "quoted_at": "2026-10-26T16:28:00Z", "pair_url": "https://dexscreener.com/solana/deep"})
+        game._quote_cache[MINT] = (time.time() - 2, {"price_usd": 0.000585, "market_cap_usd": 566_000, "mcap_progress": {"now_source": "dex", "now_available": True, "market_cap_usd": 566_000}, "quoted_at": "2026-10-26T16:28:00Z", "pair_url": "https://dexscreener.com/solana/deep"})
         with mock.patch.object(game, "urlopen", side_effect=URLError("down")):
             quote = game.fetch_dex_token(MINT, bypass_cache=True)
         self.assertIsNotNone(quote)
