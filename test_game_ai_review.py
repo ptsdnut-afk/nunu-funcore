@@ -104,6 +104,7 @@ class ShipPReviewTests(unittest.TestCase):
             mock.patch.object(game, "SCORES_PATH", root / "scores.json"),
             mock.patch.object(game, "STATE_PATH", root / "state.json"),
             mock.patch.object(game, "fetch_dex_token", return_value=None),
+            mock.patch.object(game, "fetch_live_tick", return_value=None),
         ):
             patch.start()
             self.addCleanup(patch.stop)
@@ -304,7 +305,7 @@ class ShipPReviewTests(unittest.TestCase):
 
         data = server.app.test_client().get("/api/health").get_json()
         self.assertTrue(data["ok"])
-        self.assertEqual(data["panel_v"], 81)
+        self.assertEqual(data["panel_v"], 82)
         for feature in (
             "game_ai_review",
             "game_24h_restart",
@@ -323,10 +324,10 @@ class ShipPReviewTests(unittest.TestCase):
 class ShipPPanelTests(unittest.TestCase):
     def test_panel_offers_review_without_trapping_restart(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
-        self.assertIn("const PANEL_V = 81", html)
-        self.assertIn("paper only · v81", html)
+        self.assertIn("const PANEL_V = 82", html)
+        self.assertIn("paper only · v82", html)
         self.assertNotIn("?v=76", html)
-        self.assertIn("?v=81", html)
+        self.assertIn("?v=82", html)
         self.assertIn('id="gReview"', html)
         self.assertIn('id="gReviewSheet"', html)
         self.assertIn('data-feature="game_ai_review"', html)

@@ -2167,12 +2167,14 @@
     .rocket-live[data-mood="tick"] .chart-stage { opacity: .85; animation: chartpulse 1.4s ease-in-out infinite; }
     .rocket-live[data-mood="down"] .chart-stage { opacity: .7; }
     .rocket-live[data-stage="demo"] .chart-stage { opacity: .5; }
-    .rocket-wrap { position: absolute; left: 6%; top: 42%; width: 230px; height: 96px; transform: translateY(-50%); z-index: 2; }
-    .rocket-live[data-mood="idle"] .rocket-wrap,
-    .rocket-live[data-mood="up"] .rocket-wrap { animation: rocket-float 3.2s ease-in-out infinite; }
+    .rocket-wrap {
+      position: absolute; left: 6%; top: 42%; width: 230px; height: 96px; z-index: 2;
+      transform: translateY(calc(-50% + var(--rocket-lift, 0px))) rotate(var(--rocket-tilt, -4deg));
+      animation: rocket-float 2.8s ease-in-out infinite;
+    }
     .rocket-live[data-stage="demo"][data-mood="idle"] .rocket-wrap { animation: craft-cruise 4.2s ease-in-out infinite; }
     .rocket-live[data-mood="tick"] .rocket-wrap { animation: rocket-lift .7s ease-in-out infinite; left: 8%; }
-    .rocket-live[data-mood="down"] .rocket-wrap { transform: translateY(-32%) rotate(28deg); animation: none; left: 14%; }
+    .rocket-live[data-mood="down"] .rocket-wrap { animation: rocket-sink 2.2s ease-in-out infinite; left: 10%; }
     .rocket-svg { width: 230px; height: 96px; display: block; overflow: visible; }
     .rocket-live .flame { transform-origin: 36px 48px; }
     .rocket-live .flame-hot { display: none; }
@@ -2181,7 +2183,7 @@
     .rocket-live[data-mood="tick"] .flame { animation: thruster-hot .28s ease-in-out infinite; }
     .rocket-live[data-mood="tick"] .flame-dim { display: none; }
     .rocket-live[data-mood="tick"] .flame-hot { display: inline; }
-    .rocket-live[data-mood="down"] .flame { display: none; }
+    .rocket-live[data-mood="down"] .flame { animation: thruster-dim 1.1s ease-in-out infinite; opacity: .4; }
     .rocket-live .smoke-puffs { display: none; }
     .rocket-live[data-mood="down"] .smoke-puffs { display: block; }
     .rocket-live .smoke-puffs circle { animation: rocket-smoke 1.25s ease-out infinite; }
@@ -2190,9 +2192,29 @@
     .canopy-glow { animation: canopy 2.4s ease-in-out infinite; }
     @keyframes thruster-dim { 0%,100% { opacity: .45; transform: scaleX(1); } 50% { opacity: .7; transform: scaleX(1.08); } }
     @keyframes thruster-hot { 0%,100% { opacity: .92; transform: scaleX(1) translateX(0); } 50% { opacity: 1; transform: scaleX(1.22) translateX(-4px); } }
-    @keyframes rocket-lift { 0%,100% { transform: translateY(-50%) rotate(-8deg); } 50% { transform: translateY(calc(-50% - 11px)) rotate(-12deg); } }
-    @keyframes rocket-float { 0%,100% { transform: translateY(-50%); } 50% { transform: translateY(calc(-50% - 4px)); } }
-    @keyframes craft-cruise { 0%,100% { transform: translateY(-50%) translateX(0); } 50% { transform: translateY(calc(-50% - 4px)) translateX(12px); } }
+    @keyframes rocket-lift {
+      0%,100% { transform: translateY(calc(-50% + var(--rocket-lift, 0px))) rotate(var(--rocket-tilt, -8deg)); }
+      50% { transform: translateY(calc(-50% + var(--rocket-lift, 0px) - 11px)) rotate(calc(var(--rocket-tilt, -8deg) - 4deg)); }
+    }
+    @keyframes rocket-float {
+      0%,100% { transform: translateY(calc(-50% + var(--rocket-lift, 0px))) rotate(var(--rocket-tilt, -4deg)); }
+      50% { transform: translateY(calc(-50% + var(--rocket-lift, 0px) - 6px)) rotate(calc(var(--rocket-tilt, -4deg) - 2deg)); }
+    }
+    @keyframes rocket-sink {
+      0%,100% { transform: translateY(calc(-50% + var(--rocket-lift, 0px))) rotate(calc(var(--rocket-tilt, 8deg))); }
+      50% { transform: translateY(calc(-50% + var(--rocket-lift, 0px) + 6px)) rotate(calc(var(--rocket-tilt, 8deg) + 4deg)); }
+    }
+    @keyframes craft-cruise {
+      0%,100% { transform: translateY(calc(-50% + var(--rocket-lift, 0px))) translateX(0) rotate(var(--rocket-tilt, -4deg)); }
+      50% { transform: translateY(calc(-50% + var(--rocket-lift, 0px) - 4px)) translateX(10px) rotate(var(--rocket-tilt, -4deg)); }
+    }
+    .tick-stale {
+      display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px;
+      border: 1px solid #6a5320; background: #241e10; color: var(--warn);
+      font-family: var(--mono); font-size: 0.62rem; font-weight: 800; letter-spacing: 0.03em;
+      vertical-align: middle;
+    }
+    .tick-stale[hidden] { display: none !important; }
     @keyframes rocket-smoke { 0% { opacity: .55; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(16px) scale(1.5); } }
     @keyframes rocket-pop { 0% { opacity: 0; transform: translateY(8px); } 20% { opacity: 1; transform: translateY(0); } 80% { opacity: 1; transform: translateY(-10px); } 100% { opacity: 0; transform: translateY(-18px); } }
     @keyframes rocket-bank { 0%,100% { color: var(--good); } 50% { color: #b8f5d0; } }
@@ -2418,15 +2440,17 @@
 
     /* ship-r-follow-start */
     /* Narrow bottom-edge chip. Clicks pass through around it so Token Flow stays usable. */
+    /* SHIP V — follow chip is fixed. Do not shrink the app or leave an empty black strip. */
     body.follow-live {
-      height: 100%;
-      overflow: hidden;
+      height: auto;
+      min-height: 100%;
+      overflow: auto;
     }
     body.follow-live .app {
-      height: calc(100vh - 56px);
-      min-height: 0;
-      overflow: auto;
-      padding-bottom: var(--follow-clearance, 72px);
+      height: auto;
+      min-height: 100%;
+      overflow: visible;
+      padding-bottom: 12px;
     }
     #gameFollow.game-follow {
       position: fixed;
@@ -2596,7 +2620,7 @@
         <div class="logo">N</div>
         <div>
           <h1>Nunu Filter</h1>
-          <p class="sub">Solana Research Panel · paper only · v81</p>
+          <p class="sub">Solana Research Panel · paper only · v82</p>
         </div>
       </div>
       <div class="mode-tabs" role="tablist">
@@ -2799,9 +2823,10 @@
           <button type="button" class="gbtn" id="gReviewDismiss">Dismiss</button>
         </div>
       </div>
-      <section class="rocket-live" id="gRocket" data-mood="idle" data-skin="nebula" data-stage="demo" data-sfx="off" data-stage-hook="chart-v1" data-sfx-hook="casino-cues" aria-label="Rocket">
+      <section class="rocket-live" id="gRocket" data-mood="idle" data-skin="nebula" data-stage="demo" data-sfx="off" data-stage-hook="chart-v1" data-sfx-hook="casino-cues" data-feature="live_tick" aria-label="Rocket">
         <div class="rocket-head">
           <span class="state" id="gRocketState">Idle / flat</span>
+          <span class="tick-stale" id="gTickStale" hidden>stale 0s</span>
           <span class="sound-pill" id="gRocketSound">Sound on</span>
         </div>
         <div class="rocket-strip">
@@ -3013,7 +3038,7 @@
     </div>
 
     <footer class="app-foot">
-      <div class="foot-live">Paper only · no wallets. <code>?v=81</code></div>
+      <div class="foot-live">Paper only · no wallets. <code>?v=82</code></div>
       <details class="qa-foot">
         <summary>QA fixtures</summary>
         <div>APIs: <code>/api/flagged</code> · <code>/api/update-now</code> · <code>/api/tweets</code> · <code>/api/search</code> · <code>/api/scan</code> · <code>/api/game/*</code>. Social Tap is coin, meme, and crypto viral from public sources — nothing invented. Checks: <code>?fixture=tweets-empty</code> · <code>flagged-loading</code> · <code>flagged-empty</code> · <code>flagged-error</code> · <code>tweets-loading</code> · <code>tweets-error</code> · <code>game-loading</code> · <code>game-empty</code> · <code>game-error</code> · <code>game-idle</code> · <code>game-ended</code>. Game: <code>&amp;mode=game</code>. Equity tick proof: <code>?qa_tick=both</code>, <code>?qa_tick=up</code>, <code>?qa_tick=down</code>. Display offset only. Do not combine with <code>?fixture=</code>. 24h end proof: <code>?qa_end=1</code> (one-shot, then Start 24h). Does not auto-start. An ended run opens a paper Review (dismiss, or Start next 24h — same restart as the main button). Mute silences the soft review cue. Max fixture proof: <code>?qa_max=1</code> (one synthetic bonding row, badge QA MAX). Absent query leaves the live feed unchanged. Do not combine with <code>?fixture=</code>. Gold fixture proof: <code>?qa_gold=1</code> (one synthetic rare card in Gold picks, no chime on the seeded load) or <code>?qa_gold=arrive</code> (same card, one ♪ GOLD). Mute silences the gold cue. It is not the Token Flow new-token chime. Absent query leaves Gold empty unless a live row clears the stricter 7-gate stack. Do not combine with <code>?fixture=</code>.</div>
@@ -3074,7 +3099,7 @@
 
   <script>
 
-    const PANEL_V = 81;
+    const PANEL_V = 82;
     const QA_MAX_NOTE = "QA Max fixture — synthetic bonding row QAMAX. Live unknown rows stay Max-empty. Not a real mint.";
     const QA_GOLD_NOTE = "QA Gold fixture — synthetic rare card QAGOLD in Gold picks. Not a live mint. The normal page stays empty unless the 7-gate stack clears.";
     const QA_GOLD_ARRIVE_NOTE = "QA Gold arrive — one ♪ GOLD for the synthetic card. Mute silences it. This cue is not the Token Flow new-token chime. ?qa_gold=1 seeds quietly.";
@@ -3083,7 +3108,7 @@
     const SITTING_NEAR_LEAD_MIN = 1;
     const SITTING_FRESH_MIN = 2;
     const SOCIAL_TAP_FRESH_MIN = 5;
-    const QUOTE_SLA_S = 15;
+    const QUOTE_SLA_S = 5;
     const FEED_LOOP_MIN = 5;
     const NEAR_LIVE_SEC = 60;
     const LOUD_LAG_SEC = 4 * 60;
@@ -3234,6 +3259,12 @@
       pfpPickerGotFile: false,
       pfpPickerSnap: null,
       GAME_POLL_MS: 2000,
+      LIVE_TICK_MS: 2000,
+      tickSeries: {},
+      tickMint: "",
+      rocketLift: 0,
+      rocketAim: 0,
+      rocketRaf: 0,
       filterScanBusy: false,
       scoreOpenMint: "",
       quoteSeq: 0,
@@ -3484,16 +3515,11 @@
       const dock = live ? follow.querySelector(".game-follow-dock") : null;
       if (!dock) {
         root.style.removeProperty("--toast-bottom");
-        root.style.removeProperty("--follow-clearance");
         return;
       }
-      const chip = follow.querySelector(".game-follow-chip");
       const dockTop = dock.getBoundingClientRect().top;
-      const chipTop = (chip || dock).getBoundingClientRect().top;
       const toastLift = Math.max(18, Math.round(window.innerHeight - dockTop + 10));
-      const clearance = Math.max(56, Math.round(window.innerHeight - chipTop + 8));
       root.style.setProperty("--toast-bottom", toastLift + "px");
-      root.style.setProperty("--follow-clearance", clearance + "px");
     }
 
     function toast(msg, bad) {
@@ -4136,6 +4162,7 @@
         if (state.game) renderGame();
         loadGame(true);
         if (!state.gameTimer) state.gameTimer = setInterval(() => loadGame(true), state.GAME_POLL_MS || 2000);
+        ensureLiveTick();
       }
       if (typeof paintFollowTab === "function") paintFollowTab();
     }
@@ -4644,8 +4671,8 @@
       const slaMs = (Number.isFinite(sla) && sla > 0 ? sla : QUOTE_SLA_S) * 1000;
       const age = Date.now() - at;
       if (age < -5000) return false;
-      // Extra seconds cover the UTC stamp's 1s resolution and the request in flight.
-      return age <= slaMs + 5000;
+      // One second covers the UTC stamp's resolution and the request in flight.
+      return age <= slaMs + 1500;
     }
 
     function blankLiveNow(st) {
@@ -5762,6 +5789,50 @@
     }
     /* ship-g-pure-end */
 
+    /* ship-w-pure-start */
+    function seriesPoints(values) {
+      const nums = [];
+      (values || []).forEach((v) => {
+        const n = Number(v);
+        if (n > 0 && Number.isFinite(n)) nums.push(n);
+      });
+      if (nums.length < 2) return "";
+      let lo = nums[0];
+      let hi = nums[0];
+      nums.forEach((n) => {
+        if (n < lo) lo = n;
+        if (n > hi) hi = n;
+      });
+      const span = hi - lo;
+      const pad = span > 0 ? span * 0.12 : (hi * 0.01 || 1);
+      lo -= pad;
+      hi += pad;
+      const height = hi - lo;
+      if (!(height > 0)) return "";
+      const pts = nums.map((n, i) => {
+        const x = nums.length === 1 ? 320 : (i / (nums.length - 1)) * 320;
+        const y = 8 + (1 - (n - lo) / height) * 56;
+        return x.toFixed(1) + "," + y.toFixed(1);
+      });
+      return pts.join(" ");
+    }
+
+    function rocketLiftPx(px, base) {
+      const p = Number(px);
+      const b = Number(base);
+      if (!(p > 0) || !(b > 0)) return 0;
+      const pct = (p / b - 1) * 100;
+      const clamped = Math.max(-35, Math.min(35, pct));
+      return Math.round(-clamped * 0.65 * 10) / 10;
+    }
+
+    function staleLabel(ageS) {
+      const n = Number(ageS);
+      if (!Number.isFinite(n) || n <= 5) return "";
+      return "stale " + Math.max(1, Math.round(n)) + "s";
+    }
+    /* ship-w-pure-end */
+
     // QA force-tick. DexScreener marks often sit inside TICK_EPS for minutes,
     // so a Game poll never crosses tick+ / nose-down. ?qa_tick=both|up|down
     // sequences a display offset on /api/game/state. The paper book is not written.
@@ -6267,8 +6338,9 @@
       return "+" + fmtPts(n);
     }
 
-    function paintChart(mood) {
-      const pts = chartPointsFor(mood);
+    function paintChart(mood, series) {
+      const pts = seriesPoints(series) || chartPointsFor(mood);
+      if (!pts) return;
       const color = mood === "down" ? "#f07178" : "#3ecf8e";
       const line = document.getElementById("gChartLine");
       const fill = document.getElementById("gChartFill");
@@ -6384,7 +6456,89 @@
       set("gLastTickHint", tickHint);
       const eqCard = document.getElementById("gEquityCard");
       if (eqCard) eqCard.classList.toggle("gain-flash", mood === "tick");
-      paintChart(mood);
+      const series = (state.tickSeries && state.tickMint) ? state.tickSeries[state.tickMint] : null;
+      paintChart(mood, series);
+    }
+
+    function aimRocket(target) {
+      state.rocketAim = Number(target) || 0;
+      if (state.rocketRaf) return;
+      const step = () => {
+        const cur = Number(state.rocketLift) || 0;
+        const aim = Number(state.rocketAim) || 0;
+        const next = cur + (aim - cur) * 0.22;
+        state.rocketLift = Math.abs(aim - next) < 0.4 ? aim : next;
+        const el = document.getElementById("gRocket");
+        if (el) {
+          el.style.setProperty("--rocket-lift", state.rocketLift.toFixed(2) + "px");
+          const tilt = Math.max(-14, Math.min(16, state.rocketLift * 0.35));
+          el.style.setProperty("--rocket-tilt", tilt.toFixed(1) + "deg");
+        }
+        if (state.rocketLift !== aim) state.rocketRaf = requestAnimationFrame(step);
+        else state.rocketRaf = 0;
+      };
+      state.rocketRaf = requestAnimationFrame(step);
+    }
+
+    function paintStaleBadge(ageS, live) {
+      const badge = document.getElementById("gTickStale");
+      if (!badge) return;
+      const label = live ? "" : (staleLabel(ageS) || (ageS == null ? "" : "stale"));
+      badge.hidden = !label;
+      badge.textContent = label || "";
+    }
+
+    function noteLiveTick(tick) {
+      tick = tick || {};
+      const mint = tick.mint || state.tickMint || "";
+      const px = Number(tick.price_usd);
+      const age = Number(tick.quote_age_s);
+      const live = !!(tick.quote_live && px > 0 && Number.isFinite(age) && age <= 5);
+      paintStaleBadge(Number.isFinite(age) ? age : null, live);
+      if (!(px > 0) || !mint) return;
+      const series = state.tickSeries[mint] || (state.tickSeries[mint] = []);
+      const nowMs = Date.now();
+      const unchanged = series.length && series[series.length - 1] === px && (nowMs - (state.tickPushedAt || 0) < 800);
+      if (!unchanged) {
+        series.push(px);
+        state.tickPushedAt = nowMs;
+      }
+      if (series.length > 120) series.splice(0, series.length - 120);
+      state.tickMint = mint;
+      aimRocket(rocketLiftPx(px, series[0]));
+      const rocket = document.getElementById("gRocket");
+      const mood = rocket ? (rocket.getAttribute("data-mood") || "idle") : "idle";
+      paintChart(mood, series);
+    }
+
+    function activeTickMint() {
+      let target = null;
+      try { target = resolveChartTarget(); } catch (e) { target = null; }
+      if (target && target.mint) return target.mint;
+      const positions = openPositions();
+      if (positions[0] && positions[0].mint) return positions[0].mint;
+      return state.lastQuoteMint || "";
+    }
+
+    async function pollLiveTick() {
+      if (state.mode !== "game") return;
+      if (typeof gameFixtureOn === "function" && gameFixtureOn()) return;
+      const mint = activeTickMint();
+      if (!mint) return;
+      const gen = state.liveTickGen || 0;
+      try {
+        const res = await fetch("/api/game/tick?mint=" + encodeURIComponent(mint), { cache: "no-store" });
+        const data = await res.json();
+        if (gen !== (state.liveTickGen || 0)) return;
+        if (!data || data.mint && data.mint !== mint) return;
+        noteLiveTick(data);
+      } catch (e) {}
+    }
+
+    function ensureLiveTick() {
+      if (state.liveTickTimer) return;
+      state.liveTickTimer = setInterval(pollLiveTick, state.LIVE_TICK_MS || 2000);
+      pollLiveTick();
     }
 
     function clearRocketCue() {
@@ -7453,7 +7607,13 @@
           const mark = p.mark_usd != null ? Number(p.mark_usd) : Number(p.stake_usd || 0);
           const liveOn = p.quote_live === true && p.live_price_usd != null && Number.isFinite(Number(p.live_price_usd)) && quoteAgeOk(p.quoted_at, p.quote_sla_s);
           const last = liveOn ? Number(p.live_price_usd) : NaN;
-          if (liveOn) nextPx[p.id] = last;
+          const ageN = Number(p.quote_age_s);
+          const staleTxt = liveOn ? "" : (Number.isFinite(ageN) ? staleLabel(ageN) : "stale");
+          const held = Number(p.last_price_usd);
+          const priceShown = liveOn ? last : (held > 0 ? held : NaN);
+          const priceHtml = Number.isFinite(priceShown) && priceShown > 0 ? fmtPx(priceShown) : "—";
+          const staleHtml = staleTxt ? ('<span class="tick-stale" data-role="stale">' + esc(staleTxt) + "</span>") : "";
+          if (Number.isFinite(priceShown) && priceShown > 0) nextPx[p.id] = priceShown;
           let flash = "";
           const prev = prevPx[p.id];
           if (prev != null && liveOn && last !== prev) {
@@ -7470,17 +7630,17 @@
             const row = state.flagged.find((r) => r && r.mint === p.mint);
             if (row && row.image_url) imgUrl = row.image_url;
           }
-          return '<div class="pos-card' + heat + '" data-id="' + esc(p.id) + '" data-mint="' + esc(p.mint || "") + '" title="Show this coin on the chart">' +
+          return '<div class="pos-card' + heat + '" data-id="' + esc(p.id) + '" data-mint="' + esc(p.mint || "") + '" data-price-ts="' + esc(p.price_ts || "") + '" title="Show this coin on the chart">' +
             coinHeadHtml(p.symbol, p.name, p.mint, imgUrl, flags) +
             (p.mint ? ('<div class="ca-line"><code class="ca-full">' + esc(p.mint) + "</code></div>") : "") +
-            '<div class="live-px' + flash + (liveOn ? "" : " is-unknown") + '" data-role="live-px" data-family="price" data-quote-live="' + (liveOn ? "1" : "0") + '"><span class="live-lab">' + (liveOn ? "Live USD" : "Unknown") + '</span><span class="unit">token price</span>' + (liveOn ? fmtPx(last) : "—") + "</div>" +
+            '<div class="live-px' + flash + (liveOn ? "" : " is-unknown") + '" data-role="live-px" data-family="price" data-quote-live="' + (liveOn ? "1" : "0") + '"><span class="live-lab">' + (liveOn ? "Live USD" : (staleTxt ? "Last" : "Unknown")) + '</span><span class="unit">token price</span>' + priceHtml + staleHtml + "</div>" +
             '<div class="pnl-big ' + pnlCls + '" data-family="paper"><span class="pnl-k">P&L · paper $</span>' + (pnlUsdP >= 0 ? "+" : "-") + "$" + Math.abs(pnlUsdP).toFixed(2) + " · " + fmtPct(pnlPctP) + "</div>" +
             mcapHeroHtml(p, { trade: true }) +
             '<div class="stats">' +
             tradeStat("paper", "Stake", "paper $", fmtGameUsd(p.stake_usd)) +
             tradeStat("paper", "Mark", "position $", fmtGameUsd(mark)) +
             tradeStat("price", "Entry", "token price", fmtPx(p.entry_price_usd)) +
-            '<div class="stat-cell" data-family="price"><span class="k">Last</span><span class="unit">token price</span><span class="v" data-role="last-px">' + (liveOn ? fmtPx(last) : "—") + "</span></div>" +
+            '<div class="stat-cell" data-family="price"><span class="k">Last</span><span class="unit">token price</span><span class="v" data-role="last-px">' + priceHtml + "</span></div>" +
             (p.sl_pct != null ? '<div class="stat-cell"><span class="k">SL</span><span class="v">' + p.sl_pct + "%</span></div>" : "") +
             (p.tp_pct != null ? '<div class="stat-cell"><span class="k">TP</span><span class="v">' + p.tp_pct + "%</span></div>" : "") +
             "</div>" +
@@ -7496,8 +7656,9 @@
       if (!closed.length) cbox.innerHTML = '<div class="empty">No closed trades this run</div>';
       else {
         cbox.innerHTML = closed.slice(0, 12).map((p) =>
-          '<div class="score-row" data-reason="' + esc(p.close_reason || "") + '"><span>' + esc(p.symbol || "?") +
+          '<div class="score-row" data-reason="' + esc(p.close_reason || "") + '" data-price-ts="' + esc(p.price_ts || "") + '"><span>' + esc(p.symbol || "?") +
           " · " + esc(p.close_reason || "closed") +
+          (p.price_ts ? (" · " + esc(String(p.price_ts).slice(11, 19)) + "Z") : "") +
           (p.mint ? (' · <code class="ca-full">' + esc(p.mint) + "</code>") : "") +
           '</span><span class="' + (Number(p.pnl_usd) >= 0 ? "chg-up" : "chg-dn") + '">' +
           fmtGameUsd(p.pnl_usd) + " (" + fmtPct(p.pnl_pct) + ")</span></div>"
@@ -7534,7 +7695,7 @@
       const mh = document.getElementById("gMarkHint");
       if (mh) {
         const liveHint = status === "active"
-          ? ("Live · " + openN + " open · poll 2s · server " + ((g.server_time || "").slice(11, 19) || "—"))
+          ? ("Live · " + openN + " open · tick 2s · server " + ((g.server_time || "").slice(11, 19) || "—"))
           : (status === "ended"
             ? "Session ended · Start 24h ($5) for a fresh run"
             : "Start a run (or just Buy — auto-starts)");
@@ -7542,6 +7703,18 @@
       }
 
       noteEquityTick(g, eq, status);
+      if (state.mode === "game" && pos.length) {
+        const focusMint = activeTickMint();
+        const focus = pos.find((p) => p && p.mint === focusMint) || pos[0];
+        if (focus) {
+          noteLiveTick({
+            mint: focus.mint,
+            price_usd: focus.quote_live ? focus.live_price_usd : focus.last_price_usd,
+            quote_age_s: focus.quote_age_s,
+            quote_live: focus.quote_live === true,
+          });
+        }
+      }
       paintFinish(g);
       applySessionChrome(g);
       paintTradeChart();

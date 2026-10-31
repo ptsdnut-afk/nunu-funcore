@@ -201,7 +201,7 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 81,
+            "panel_v": 82,
             "time": _utc(),
             "qa_tick": "page ?qa_tick=both|up|down",
             "qa_end": "page ?qa_end=1 (one-shot) or POST /api/game/end",
@@ -245,7 +245,16 @@ def api_health():
                 "Narrow widths keep that chip and Token Flow in frame. "
                 "A rejected profile file cannot flip the avatar to Star."
             ),
-            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture", "game_ai_review", "gold_scar", "game_follow_tab", "filter_smart", "profile_custom_pic", "final_polish"],
+            "live_tick": (
+                "Game price is a fresh Jupiter tick (GeckoTerminal if Jupiter is down), "
+                "not the DexScreener token snapshot. Server cache is at most 2s so many "
+                "clients share one upstream call. A 429 or a timeout backs off and, past "
+                "5s, the panel shows stale Ns and will not buy, sell, or stop on that print. "
+                "Buy, sell, and stop fill at that tick and store price_ts. The rocket chart "
+                "polls /api/game/tick every 2s while Game is open."
+            ),
+            "live_tick_ttl_s": game_mod.LIVE_TICK_TTL_S,
+            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture", "game_ai_review", "gold_scar", "game_follow_tab", "filter_smart", "profile_custom_pic", "final_polish", "live_tick"],
             "sitting_drop_min": 5.0,
             "sitting_aged_min": 180.0,
             "sitting_keep": True,
@@ -283,7 +292,7 @@ def api_gold():
     return jsonify(
         {
             "ok": True,
-            "panel_v": 81,
+            "panel_v": 82,
             "feature": "gold_scar",
             "count": len(picks),
             "empty_ok": True,
@@ -709,6 +718,48 @@ def api_game_sell():
     code = 200 if result.get("ok") else 400
     result["state"] = game_mod.public_state(result.get("state"))
     return jsonify(result), code
+
+
+@app.get("/api/game/tick")
+def api_game_tick():
+    """Lightweight price for the open Game chart. Cached <=2s on the server."""
+    mint = (request.args.get("mint") or request.args.get("ca") or "").strip()
+    if not mint:
+        return jsonify({"ok": False, "error": "mint required", "quote_live": False}), 400
+    if not game_mod.looks_like_mint(mint):
+        resolved, err, _src = game_mod.resolve_mint(mint)
+        if not resolved:
+            return jsonify({"ok": False, "error": err or "mint required", "quote_live": False}), 400
+        mint = resolved
+    tick = game_mod.fetch_live_tick(mint)
+    if not isinstance(tick, dict):
+        return jsonify({
+            "ok": False,
+            "mint": mint,
+            "quote_live": False,
+            "quote_sla_s": game_mod.QUOTE_FRESH_SLA_S,
+            "error": "no price",
+        })
+    body = {
+        "ok": True,
+        "mint": mint,
+        "price_usd": tick.get("price_usd"),
+        "price_ts": tick.get("price_ts"),
+        "quoted_at": tick.get("quoted_at") or tick.get("price_ts"),
+        "quoted_epoch": tick.get("quoted_epoch"),
+        "quote_age_s": tick.get("quote_age_s"),
+        "quote_live": bool(tick.get("quote_live")),
+        "quote_sla_s": game_mod.QUOTE_FRESH_SLA_S,
+        "source": tick.get("source"),
+    }
+    if not body["quote_live"]:
+        age = tick.get("quote_age_s")
+        body["stale"] = True
+        body["stale_label"] = ("stale %ss" % (int(round(float(age))) if age is not None else "?"))
+    else:
+        body["stale"] = False
+        body["stale_label"] = ""
+    return jsonify(body)
 
 
 @app.get("/api/game/quote")

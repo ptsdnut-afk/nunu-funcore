@@ -40,6 +40,7 @@ class ShipKRestartTests(unittest.TestCase):
             mock.patch.object(game, "SCORES_PATH", root / "scores.json"),
             mock.patch.object(game, "STATE_PATH", root / "state.json"),
             mock.patch.object(game, "fetch_dex_token", return_value=None),
+            mock.patch.object(game, "fetch_live_tick", return_value=None),
         ):
             patch.start()
             self.addCleanup(patch.stop)
@@ -207,7 +208,7 @@ class ShipKRestartTests(unittest.TestCase):
         res = server.app.test_client().get("/api/health")
         data = res.get_json()
         self.assertTrue(data["ok"])
-        self.assertEqual(data["panel_v"], 81)
+        self.assertEqual(data["panel_v"], 82)
         self.assertIn("game_24h_restart", data["features"])
         self.assertIn("dismiss_back", data["features"])
         self.assertIn("game_polish", data["features"])
@@ -219,10 +220,10 @@ class ShipKRestartTests(unittest.TestCase):
 class ShipKPanelTests(unittest.TestCase):
     def test_panel_resets_rocket_and_hides_ghost_open(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
-        self.assertIn("const PANEL_V = 81", html)
-        self.assertIn("paper only · v81", html)
+        self.assertIn("const PANEL_V = 82", html)
+        self.assertIn("paper only · v82", html)
         self.assertNotIn("?v=76", html)
-        self.assertIn("?v=81", html)
+        self.assertIn("?v=82", html)
         self.assertIn("function sessionEndView(", html)
         self.assertIn("function freshRunBaseline(", html)
         self.assertIn("function rocketResetDecision(", html)

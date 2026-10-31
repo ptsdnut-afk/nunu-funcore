@@ -20,7 +20,7 @@ class FollowHealthTests(unittest.TestCase):
     def test_health_is_v78_with_game_follow_tab(self):
         data = server.app.test_client().get("/api/health").get_json()
         self.assertTrue(data["ok"])
-        self.assertEqual(data["panel_v"], 81)
+        self.assertEqual(data["panel_v"], 82)
         for feature in (
             "game_follow_tab",
             "gold_scar",
@@ -39,9 +39,9 @@ class FollowHealthTests(unittest.TestCase):
 class FollowPanelTests(unittest.TestCase):
     def test_panel_advertises_v78_and_follow_chrome(self):
         html = _panel()
-        self.assertIn("const PANEL_V = 81", html)
-        self.assertIn("paper only · v81", html)
-        self.assertIn("?v=81", html)
+        self.assertIn("const PANEL_V = 82", html)
+        self.assertIn("paper only · v82", html)
+        self.assertIn("?v=82", html)
         self.assertIn('id="gameFollow"', html)
         self.assertIn('data-feature="game_follow_tab"', html)
         self.assertIn('data-covers-flow="0"', html)
@@ -57,7 +57,8 @@ class FollowPanelTests(unittest.TestCase):
         self.assertIn("max-width: min(260px, 100%)", css)
         self.assertIn("syncToastOffset", html)
         self.assertIn("--toast-bottom", html)
-        self.assertIn("--follow-clearance", html)
+        self.assertNotIn("--follow-clearance", html)
+        self.assertNotIn("height: calc(100vh - 56px)", html)
         block = html[html.index('id="gameFollow"'):html.index('id="modeGame"')]
         self.assertNotIn('id="table-wrap"', block)
         self.assertNotIn('id="gChartPane"', block)
