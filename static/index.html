@@ -5741,12 +5741,27 @@
     }
 
     function paintTradeLocks() {
-      const lock = !!(state.gameBusy || state.buyInFlight || feedIsStale());
-      ["gBuy", "gSellAll", "gBuyQuoted"].forEach((id) => {
-        const el = document.getElementById(id);
-        if (el) el.disabled = lock;
+      const stale = feedIsStale();
+      const lock = !!(state.gameBusy || state.buyInFlight || stale);
+      const buy = document.getElementById("gBuy");
+      if (buy) {
+        buy.disabled = lock;
+        buy.textContent = tradeButtonLabel("buy", stale);
+      }
+      const sellAll = document.getElementById("gSellAll");
+      if (sellAll) {
+        sellAll.disabled = lock;
+        sellAll.textContent = tradeButtonLabel("sellall", stale);
+      }
+      const quoted = document.getElementById("gBuyQuoted");
+      if (quoted) {
+        quoted.disabled = lock;
+        quoted.textContent = tradeButtonLabel("quote", stale);
+      }
+      document.querySelectorAll(".g-sell, [data-follow-sell]").forEach((el) => {
+        el.disabled = lock;
+        el.textContent = tradeButtonLabel("sell", stale);
       });
-      document.querySelectorAll(".g-sell, [data-follow-sell]").forEach((el) => { el.disabled = lock; });
     }
 
     function setGameBusy(busy) {
@@ -5884,6 +5899,15 @@
       if (mood === "down") tilt = Math.max(8, Math.min(18, Math.abs(pct) * 0.45));
       else if (mood === "up") tilt = -Math.max(4, Math.min(14, pct * 0.35));
       return { mood: mood, pct: pct, tilt: tilt };
+    }
+
+    function tradeButtonLabel(kind, stale) {
+      if (stale) return "Waiting for live price";
+      if (kind === "buy") return "▲ BUY";
+      if (kind === "quote") return "Buy this";
+      if (kind === "sell") return "Sell this";
+      if (kind === "sellall") return "▼ SELL ALL";
+      return "";
     }
 
     function tradeMarkHint(status, openN, serverClock, staleAge) {
@@ -7424,9 +7448,7 @@
             positions.map(followCardHtml).join(""))
           : "";
       }
-      if (state.gameBusy) {
-        root.querySelectorAll("[data-follow-sell]").forEach((el) => { el.disabled = true; });
-      }
+      paintTradeLocks();
       syncToastOffset();
     }
 
@@ -7899,6 +7921,7 @@
       paintTradeChart();
       paintRunReview(g);
       paintFollowTab();
+      paintTradeLocks();
 
       // Keep quote-card live price ticking when a quote is on screen
       if (state.lastQuoteMint && status === "active") {
