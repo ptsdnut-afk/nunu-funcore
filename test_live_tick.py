@@ -534,7 +534,7 @@ class TradeFillTests(unittest.TestCase):
 class HealthAndChartTests(unittest.TestCase):
     def test_health_is_v82_with_live_tick_and_a_five_second_sla(self):
         data = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 90)
+        self.assertEqual(data["panel_v"], 91)
         self.assertIn("live_tick", data["features"])
         self.assertLessEqual(data["quote_sla_s"], 5.0)
         self.assertEqual(data["quote_sla_s"], 5.0)
@@ -1061,7 +1061,7 @@ class ShipW3Tests(unittest.TestCase):
 
     def test_health_documents_the_stream_and_panel_87(self):
         data = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 90)
+        self.assertEqual(data["panel_v"], 91)
         self.assertIn("trade_stream", data["features"])
         self.assertIn("stream", data["live_tick"])
         self.assertIn("PumpPortal", data["live_tick"])
@@ -1073,7 +1073,7 @@ class ShipW3Tests(unittest.TestCase):
 
     def test_w20_w22_w23_w26_w27_w28_panel_contract(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
-        self.assertIn("const PANEL_V = 90", html)
+        self.assertIn("const PANEL_V = 91", html)
         self.assertIn("paintPanelVersion", html)
         self.assertIn("data-panel-v", html)
         pure = html[html.index("/* ship-w-pure-start */"):html.index("/* ship-w-pure-end */")]
@@ -1597,7 +1597,7 @@ class ShipW90Tests(unittest.TestCase):
 
     def test_uncovered_pool_is_polled_even_when_the_mid_is_fresh(self):
         import trade_stream
-        self._seed_pool()
+        pool = self._seed_pool()
         trade_stream.note_mid(MINT, 1.0)
         calls = []
 
@@ -1610,10 +1610,486 @@ class ShipW90Tests(unittest.TestCase):
             trade_stream._refresh_pump_mids("http://unused")
         self.assertEqual(calls, [MINT])
         calls.clear()
+        # A live logs socket may skip the HTTP poll. No logs socket means the
+        # 1s vault poll still runs, even when the vault accountSubscribe is up.
+        with mock.patch.object(trade_stream, "_read_vault_mid", side_effect=_read), \
+             mock.patch.object(trade_stream, "_vault_sub_covered", return_value=True):
+            trade_stream._refresh_pump_mids("http://unused")
+        self.assertEqual(calls, [MINT])
+        calls.clear()
+        trade_stream._ws["subscriptions"] = {"logs:" + pool["address"]: 7}
         with mock.patch.object(trade_stream, "_read_vault_mid", side_effect=_read), \
              mock.patch.object(trade_stream, "_vault_sub_covered", return_value=True):
             trade_stream._refresh_pump_mids("http://unused")
         self.assertEqual(calls, [])
+
+
+def _pk(n: int) -> str:
+    import trade_stream
+    return trade_stream.b58encode(int(n).to_bytes(32, "big"))
+
+
+def _ps_info(base: str, quote: str, base_vault: str, quote_vault: str) -> dict:
+    import base64
+    import trade_stream
+    raw = bytearray(261)
+    raw[:8] = trade_stream.PUMPSWAP_DISC
+    raw[43:75] = trade_stream.b58decode(base)
+    raw[75:107] = trade_stream.b58decode(quote)
+    raw[139:171] = trade_stream.b58decode(base_vault)
+    raw[171:203] = trade_stream.b58decode(quote_vault)
+    return {
+        "owner": trade_stream.PUMPSWAP_OWNER,
+        "data": [base64.b64encode(bytes(raw)).decode(), "base64"],
+    }
+
+
+class ShipW91Tests(unittest.TestCase):
+    def setUp(self):
+        import trade_stream
+        game._live_cache.clear()
+        game._live_backoff_until.clear()
+        game._live_backoff_s.clear()
+        game._qa_walks.clear()
+        game.set_qa_walk_sid(None)
+        game.set_client_sid(None)
+        trade_stream.reset_for_tests()
+
+    def tearDown(self):
+        import trade_stream
+        game._live_cache.clear()
+        game._qa_walks.clear()
+        game.set_qa_walk_sid(None)
+        game.set_client_sid(None)
+        trade_stream.reset_for_tests()
+
+    def test_crash_publishes_on_the_confirming_read_within_3s(self):
+        """A ~98% drop publishes on the vault read that confirms the swap. Max hold is 3s."""
+        import trade_stream
+        self.assertEqual(trade_stream.ingest_swap(MINT, 1.0, seed_ok=True, source="pool_vault"), "ok")
+        started = time.perf_counter()
+        self.assertEqual(
+            trade_stream.ingest_swap(MINT, 0.02, source="pool_swap", signature="dump"),
+            "spike",
+        )
+        self.assertAlmostEqual(game._live_cache[MINT][1]["price_usd"], 1.0)
+        # Vault ratio ~7% under the fill. That gap used to keep the crash unpublished.
+        status = trade_stream.ingest_swap(MINT, 0.0186, source="pool_vault", signature="vault")
+        self.assertEqual(status, "ok")
+        self.assertLess(time.perf_counter() - started, 3.0)
+        self.assertAlmostEqual(game._live_cache[MINT][1]["price_usd"], 0.0186, places=4)
+
+    def test_crash_held_for_31s_publishes_when_the_next_read_confirms(self):
+        import trade_stream
+        self.assertEqual(trade_stream.ingest_swap(MINT, 1.0, seed_ok=True, source="pool_swap"), "ok")
+        self.assertEqual(trade_stream.ingest_swap(MINT, 0.02, source="pool_swap", signature="a"), "spike")
+        trade_stream._pending_spikes[MINT]["at"] = time.time() - 31
+        status = trade_stream.ingest_swap(MINT, 0.019, source="pool_vault", signature="b")
+        self.assertEqual(status, "ok")
+        self.assertAlmostEqual(game._live_cache[MINT][1]["price_usd"], 0.019, places=4)
+
+    def test_moving_crash_publishes_once_the_3s_hold_ends(self):
+        import trade_stream
+        self.assertEqual(trade_stream.ingest_swap(MINT, 1.0, seed_ok=True, source="pool_vault"), "ok")
+        self.assertEqual(trade_stream.ingest_swap(MINT, 0.50, source="pool_vault", signature="a"), "spike")
+        trade_stream._pending_spikes[MINT]["at"] = time.time() - 3.1
+        status = trade_stream.ingest_swap(MINT, 0.20, source="pool_vault", signature="b")
+        self.assertEqual(status, "ok")
+        self.assertAlmostEqual(game._live_cache[MINT][1]["price_usd"], 0.20, places=4)
+
+    def test_one_off_64x_is_rejected(self):
+        import trade_stream
+        self.assertEqual(trade_stream.ingest_swap(MINT, 1.0, seed_ok=True, source="pool_vault"), "ok")
+        self.assertEqual(trade_stream.ingest_swap(MINT, 64.0, source="pool_swap", signature="fake"), "spike")
+        self.assertAlmostEqual(game._live_cache[MINT][1]["price_usd"], 1.0)
+        # A different print inside the hold is not a confirm of the 64x.
+        self.assertEqual(trade_stream.ingest_swap(MINT, 2.0, source="pool_swap", signature="other"), "spike")
+        self.assertAlmostEqual(game._live_cache[MINT][1]["price_usd"], 1.0)
+        trade_stream._pending_spikes[MINT]["at"] = time.time() - 31
+        trade_stream._seen[MINT] = time.time() - 6
+        echo = trade_stream.ingest_swap(MINT, 1.0, source="pool_vault")
+        self.assertEqual(echo, "spike")
+        self.assertAlmostEqual(game._live_cache[MINT][1]["price_usd"], 1.0)
+
+    def test_sis_and_fafa_use_the_quote_sol_or_usdc_pool(self):
+        """SPCX-quoted SIS and 发发 price off the quote token's SOL or USDC pool, not Jupiter."""
+        import trade_stream
+        sis, spcx = _pk(11), _pk(12)
+        fafa, quote = _pk(13), _pk(14)
+        sol, usdc = trade_stream.SOL_MINT, trade_stream.USDC_MINT
+        sis_pair, sol_pair = _pk(21), _pk(22)
+        busy_pair, usdc_pair = _pk(23), _pk(24)
+        spcx_pairs = [
+            {
+                "pairAddress": sis_pair,
+                "liquidity": {"usd": 900000},
+                "baseToken": {"address": spcx},
+                "quoteToken": {"address": sis},
+            },
+            {
+                "pairAddress": sol_pair,
+                "liquidity": {"usd": 40000},
+                "baseToken": {"address": spcx},
+                "quoteToken": {"address": sol},
+            },
+        ]
+        fafa_pairs = [
+            {
+                "pairAddress": busy_pair,
+                "liquidity": {"usd": 700000},
+                "baseToken": {"address": quote},
+                "quoteToken": {"address": fafa},
+            },
+            {
+                "pairAddress": usdc_pair,
+                "liquidity": {"usd": 25000},
+                "baseToken": {"address": quote},
+                "quoteToken": {"address": usdc},
+            },
+        ]
+        accounts = {
+            sis_pair: _ps_info(spcx, sis, _pk(31), _pk(32)),
+            sol_pair: _ps_info(spcx, sol, _pk(33), _pk(34)),
+            busy_pair: _ps_info(quote, fafa, _pk(35), _pk(36)),
+            usdc_pair: _ps_info(quote, usdc, _pk(37), _pk(38)),
+        }
+
+        def dex(mint):
+            if mint == spcx:
+                return spcx_pairs
+            if mint == quote:
+                return fafa_pairs
+            return []
+
+        with mock.patch.object(trade_stream, "_dex_pairs", side_effect=dex), \
+             mock.patch.object(trade_stream, "_account_info", side_effect=lambda http, addr: accounts.get(addr)):
+            spcx_usd = trade_stream._resolve_usd_pool(spcx, "http://rpc")
+            spcx_main = trade_stream._resolve_pool(spcx, "http://rpc")
+            fafa_usd = trade_stream._resolve_usd_pool(quote, "http://rpc")
+            fafa_main = trade_stream._resolve_pool(quote, "http://rpc")
+        self.assertEqual(spcx_main["address"], sis_pair)
+        self.assertEqual(spcx_usd["address"], sol_pair)
+        self.assertEqual(spcx_usd["quote_mint"], sol)
+        self.assertEqual(fafa_main["address"], busy_pair)
+        self.assertEqual(fafa_usd["quote_mint"], usdc)
+
+        sis_pool = {
+            "mint": sis,
+            "kind": "pumpswap",
+            "address": _pk(41),
+            "base_mint": sis,
+            "quote_mint": spcx,
+            "base_vault": _pk(51),
+            "quote_vault": _pk(52),
+            "base_dec": 6,
+            "quote_dec": 6,
+            "virtual_quote": 0,
+        }
+        spcx_pool = {
+            "mint": spcx,
+            "kind": "pumpswap",
+            "address": sol_pair,
+            "base_mint": spcx,
+            "quote_mint": sol,
+            "base_vault": _pk(33),
+            "quote_vault": _pk(34),
+            "base_dec": 6,
+            "quote_dec": 9,
+            "virtual_quote": 0,
+        }
+        fafa_pool = {
+            "mint": fafa,
+            "kind": "pumpswap",
+            "address": _pk(43),
+            "base_mint": fafa,
+            "quote_mint": quote,
+            "base_vault": _pk(55),
+            "quote_vault": _pk(56),
+            "base_dec": 6,
+            "quote_dec": 6,
+            "virtual_quote": 0,
+        }
+        quote_pool = {
+            "mint": quote,
+            "kind": "pumpswap",
+            "address": usdc_pair,
+            "base_mint": quote,
+            "quote_mint": usdc,
+            "base_vault": _pk(37),
+            "quote_vault": _pk(38),
+            "base_dec": 6,
+            "quote_dec": 6,
+            "virtual_quote": 0,
+        }
+        amounts = {
+            (_pk(51), _pk(52)): (1_000_000, 2_000_000),
+            (_pk(33), _pk(34)): (1_000_000, 1_000_000_000),
+            (_pk(55), _pk(56)): (1_000_000, 4_000_000),
+            (_pk(37), _pk(38)): (1_000_000, 2_000_000),
+        }
+        trade_stream._pools[sis] = sis_pool
+        trade_stream._pools[fafa] = fafa_pool
+        trade_stream._quote_pools[spcx] = spcx_pool
+        trade_stream._quote_pools[quote] = quote_pool
+        trade_stream.note_anchor(sol, 100.0, force=True)
+        trade_stream.note_view(sis)
+        trade_stream.note_view(fafa)
+
+        def vaults(http, base, quote_vault):
+            return amounts[(base, quote_vault)]
+
+        def decimals(http, mint):
+            if mint == sol:
+                return 9
+            return 6
+
+        with mock.patch.object(trade_stream, "_vault_amounts", side_effect=vaults), \
+             mock.patch.object(trade_stream, "mint_decimals", side_effect=decimals), \
+             mock.patch.object(game, "_http_json", side_effect=AssertionError("jupiter")):
+            sis_px = trade_stream._read_vault_mid("http://rpc", sis_pool)
+            fafa_px = trade_stream._read_vault_mid("http://rpc", fafa_pool)
+            tick_sis = game.fetch_live_tick(sis, apply_qa=False)
+            tick_fafa = game.fetch_live_tick(fafa, apply_qa=False)
+        self.assertAlmostEqual(sis_px, 200.0)
+        self.assertAlmostEqual(fafa_px, 8.0)
+        self.assertEqual(tick_sis["source"], "pool_vault")
+        self.assertEqual(tick_fafa["source"], "pool_vault")
+        self.assertAlmostEqual(tick_sis["price_usd"], 200.0)
+        self.assertAlmostEqual(tick_fafa["price_usd"], 8.0)
+        logs = trade_stream._wanted_log_ops()
+        self.assertIn("logs:" + sis_pool["address"], logs)
+        self.assertIn("logs:" + spcx_pool["address"], logs)
+        self.assertIn("logs:" + fafa_pool["address"], logs)
+        self.assertIn("logs:" + quote_pool["address"], logs)
+        self.assertEqual(trade_stream._quote_pools[spcx]["quote_mint"], sol)
+        self.assertEqual(trade_stream._quote_pools[quote]["quote_mint"], usdc)
+
+    def test_six_vault_polls_share_one_rpc(self):
+        import base64
+        import struct
+        import trade_stream
+        pools = []
+        for i in range(6):
+            mint = _pk(100 + i)
+            pool = {
+                "mint": mint,
+                "kind": "pumpswap",
+                "address": _pk(200 + i),
+                "base_mint": mint,
+                "quote_mint": trade_stream.SOL_MINT,
+                "base_vault": _pk(300 + i),
+                "quote_vault": _pk(400 + i),
+                "base_dec": 6,
+                "quote_dec": 9,
+                "virtual_quote": 0,
+            }
+            trade_stream._pools[mint] = pool
+            trade_stream.note_view(mint)
+            pools.append(pool)
+        trade_stream.note_anchor(trade_stream.SOL_MINT, 100.0, force=True)
+        calls = []
+
+        def post(http, body, timeout):
+            payload = json.loads(body.decode())
+            calls.append(payload)
+            vals = []
+            for _addr in payload["params"][0]:
+                buf = bytearray(80)
+                struct.pack_into("<Q", buf, 64, 1_000_000_000)
+                vals.append({"data": [base64.b64encode(bytes(buf)).decode(), "base64"]})
+            return {"result": {"value": vals}}
+
+        with mock.patch.object(trade_stream, "_post_rpc", side_effect=post), \
+             mock.patch.object(trade_stream, "mint_decimals", side_effect=lambda http, mint: 9 if mint == trade_stream.SOL_MINT else 6):
+            trade_stream._refresh_pump_mids("http://rpc")
+        self.assertEqual([row["method"] for row in calls], ["getMultipleAccounts"])
+        self.assertEqual(len(calls[0]["params"][0]), 12)
+        for pool in pools:
+            tick = game._live_cache[pool["mint"]][1]
+            self.assertEqual(tick["source"], "pool_vault")
+            self.assertGreater(tick["price_usd"], 0)
+
+    def test_raydium_usdc_pool_prices_a_non_sol_quote(self):
+        """A quote token whose SOL/USDC market is Raydium CLMM still prices the coin. No Jupiter."""
+        import math
+        import trade_stream
+        coin, quote = _pk(71), _pk(72)
+        usdc = trade_stream.USDC_MINT
+        raw = bytearray(280)
+        raw[:8] = trade_stream.CLMM_DISC
+        raw[73:105] = trade_stream.b58decode(quote)
+        raw[105:137] = trade_stream.b58decode(usdc)
+        raw[233] = 6
+        raw[234] = 6
+        sqrt = int(math.sqrt(2.0) * (2 ** 64))
+        raw[253:269] = sqrt.to_bytes(16, "little")
+        px = trade_stream.raydium_clmm_usd(bytes(raw), quote, 100.0)
+        self.assertAlmostEqual(px, 2.0, places=4)
+        view = trade_stream.raydium_clmm_view(bytes(raw))
+        self.assertEqual(view["mint_0"], quote)
+        self.assertEqual(view["mint_1"], usdc)
+        coin_pool = {
+            "mint": coin,
+            "kind": "pumpswap",
+            "address": _pk(81),
+            "base_mint": coin,
+            "quote_mint": quote,
+            "base_vault": _pk(82),
+            "quote_vault": _pk(83),
+            "base_dec": 6,
+            "quote_dec": 6,
+            "virtual_quote": 0,
+        }
+        quote_pool = {
+            "mint": quote,
+            "kind": "raydium",
+            "address": _pk(84),
+            "owner": trade_stream.RAYDIUM_CLMM_OWNER,
+            "base_mint": quote,
+            "quote_mint": usdc,
+            "base_dec": 6,
+            "quote_dec": 6,
+        }
+        trade_stream._pools[coin] = coin_pool
+        trade_stream._quote_pools[quote] = quote_pool
+        trade_stream.note_anchor(trade_stream.SOL_MINT, 100.0, force=True)
+        trade_stream.note_view(coin)
+
+        def acct(http, addr):
+            if addr == quote_pool["address"]:
+                return {"owner": trade_stream.RAYDIUM_CLMM_OWNER, "data": [__import__("base64").b64encode(bytes(raw)).decode(), "base64"]}
+            return None
+
+        with mock.patch.object(trade_stream, "_account_info", side_effect=acct), \
+             mock.patch.object(trade_stream, "_vault_amounts", return_value=(1_000_000, 3_000_000)), \
+             mock.patch.object(trade_stream, "mint_decimals", return_value=6), \
+             mock.patch.object(game, "_http_json", side_effect=AssertionError("jupiter")):
+            got = trade_stream._read_vault_mid("http://rpc", coin_pool)
+        # 3 quote tokens * $2
+        self.assertAlmostEqual(got, 6.0, places=3)
+        ops = trade_stream._ops_for(quote_pool)
+        self.assertIn("acct:" + quote_pool["address"], ops)
+        self.assertEqual(ops["acct:" + quote_pool["address"]]["method"], "accountSubscribe")
+        self.assertTrue(any(key.startswith("logs:" + coin_pool["address"]) for key in trade_stream._wanted_log_ops()))
+
+    def test_sis_uses_spcx_usd_and_log_sockets_stay_capped(self):
+        """SIS/SPCX is the pool ratio times SPCX's SOL or USDC price. Logs stay on one socket."""
+        import struct
+        import trade_stream
+        spcx = "SPCXxcqXj6e5dJDVNovHN8744zkbhM2bYudU45BimGb"
+        sis = "3LgReEUsJxzdJz95zCsBXeMzqs8grMGRoUH34jz1pump"
+        sol = trade_stream.SOL_MINT
+        # Meteora DLMM: active id 0, bin step 10, both 9 decimals → 1 SOL per SPCX.
+        raw = bytearray(160)
+        raw[:8] = trade_stream.DLMM_DISC
+        struct.pack_into("<i", raw, 76, 0)
+        struct.pack_into("<H", raw, 80, 10)
+        raw[88:120] = trade_stream.b58decode(spcx)
+        raw[120:152] = trade_stream.b58decode(sol)
+        px = trade_stream.meteora_dlmm_usd(bytes(raw), spcx, 100.0, {spcx: 9, sol: 9})
+        self.assertAlmostEqual(px, 100.0, places=4)
+        # Raydium CLMM SPCX/USDC at $2, then SIS vault is 4 SPCX per token → $8.
+        clmm = bytearray(280)
+        clmm[:8] = trade_stream.CLMM_DISC
+        clmm[73:105] = trade_stream.b58decode(spcx)
+        clmm[105:137] = trade_stream.b58decode(trade_stream.USDC_MINT)
+        clmm[233] = 6
+        clmm[234] = 6
+        import math
+        clmm[253:269] = int(math.sqrt(2.0) * (2 ** 64)).to_bytes(16, "little")
+        self.assertAlmostEqual(trade_stream.raydium_clmm_usd(bytes(clmm), spcx, 100.0), 2.0, places=3)
+        sis_pool = {
+            "mint": sis,
+            "kind": "pumpswap",
+            "address": _pk(91),
+            "base_mint": sis,
+            "quote_mint": spcx,
+            "base_vault": _pk(92),
+            "quote_vault": _pk(93),
+            "base_dec": 6,
+            "quote_dec": 6,
+            "virtual_quote": 0,
+        }
+        trade_stream._pools[sis] = sis_pool
+        trade_stream._quote_pools[spcx] = {
+            "mint": spcx,
+            "kind": "raydium",
+            "address": _pk(94),
+            "base_mint": spcx,
+            "quote_mint": trade_stream.USDC_MINT,
+        }
+        trade_stream.note_anchor(sol, 100.0, force=True)
+        trade_stream.note_view(sis)
+
+        def acct(http, addr):
+            if addr == _pk(94):
+                import base64
+                return {"data": [base64.b64encode(bytes(clmm)).decode(), "base64"]}
+            return None
+
+        with mock.patch.object(trade_stream, "_account_info", side_effect=acct), \
+             mock.patch.object(trade_stream, "_vault_amounts", return_value=(1_000_000, 4_000_000)), \
+             mock.patch.object(trade_stream, "mint_decimals", return_value=6), \
+             mock.patch.object(game, "_http_json", side_effect=AssertionError("jupiter")):
+            got = trade_stream._read_vault_mid("http://rpc", sis_pool)
+        self.assertAlmostEqual(got, 8.0, places=3)
+        self.assertEqual(game._live_cache[sis][1]["source"], "pool_vault")
+        # Ten watched pools, one of them a position. The socket plan is capped
+        # and the position is first.
+        trade_stream.reset_for_tests()
+        held = _pk(200)
+        for i in range(10):
+            mint = held if i == 7 else _pk(210 + i)
+            trade_stream._pools[mint] = {
+                "mint": mint,
+                "kind": "pumpswap",
+                "address": _pk(300 + i),
+                "base_vault": _pk(400 + i),
+                "quote_vault": _pk(500 + i),
+            }
+            trade_stream.note_view(mint)
+            time.sleep(0.002)
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        patch = mock.patch.object(game, "STATE_PATH", Path(tmp.name) / "state.json")
+        patch.start()
+        self.addCleanup(patch.stop)
+        now = datetime.now(timezone.utc)
+        game.save_state({
+            "status": "active",
+            "positions": [{"mint": held}],
+            "closed": [],
+            "events": [],
+        })
+        plan = trade_stream._priority_log_ops()
+        self.assertLessEqual(len(plan), trade_stream.MAX_LOG_SUBS)
+        self.assertEqual(trade_stream.MAX_LOG_SOCKETS, 1)
+        first = next(iter(plan.values()))
+        self.assertEqual(first["mint"], held)
+        self.assertEqual(len(trade_stream._wanted_log_ops()), 10)
+
+    def test_rpc_urls_come_from_env_and_defaults_stay(self):
+        import os
+        import trade_stream
+        keys = [k for k in os.environ if k.startswith("SOLANA_") or k == "HELIUS_API_KEY"]
+        saved = {k: os.environ.pop(k) for k in keys}
+        try:
+            wss, http, name = trade_stream.endpoints()
+            self.assertEqual(wss, "wss://solana-rpc.publicnode.com")
+            self.assertEqual(http, "https://solana-rpc.publicnode.com")
+            self.assertEqual(name, "public")
+            self.assertIn("mainnet-beta.solana.com", trade_stream.logs_endpoint())
+            with mock.patch.dict(os.environ, {
+                "SOLANA_RPC_URL": "https://rpc.example/sol",
+                "SOLANA_WS_URL": "wss://rpc.example/sol",
+            }):
+                wss, http, name = trade_stream.endpoints()
+                self.assertEqual(http, "https://rpc.example/sol")
+                self.assertEqual(wss, "wss://rpc.example/sol")
+                self.assertEqual(name, "env")
+                self.assertEqual(trade_stream.logs_endpoint(), "wss://rpc.example/sol")
+        finally:
+            os.environ.update(saved)
 
 
 if __name__ == "__main__":

@@ -481,7 +481,7 @@ class PanelRouteTests(unittest.TestCase):
         res = server.app.test_client().get("/api/health")
         self.assertEqual(res.status_code, 200)
         data = res.get_json()
-        self.assertEqual(data["panel_v"], 90)
+        self.assertEqual(data["panel_v"], 91)
         self.assertIn("delay_warning", data["features"])
         self.assertIn("game_polish", data["features"])
         self.assertEqual(data["qa_tick"], "page ?qa_tick=both|up|down")
@@ -536,7 +536,7 @@ class PanelRouteTests(unittest.TestCase):
         with open("static/index.html", encoding="utf-8") as fh:
             html = fh.read()
         self.assertIn(">Social Tap<", html)
-        self.assertIn("const PANEL_V = 90", html)
+        self.assertIn("const PANEL_V = 91", html)
         self.assertIn("data-panel-v", html)
         self.assertIn("paintPanelVersion", html)
         self.assertIn("Mcap · % max", html)

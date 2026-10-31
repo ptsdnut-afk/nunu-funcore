@@ -100,16 +100,23 @@ class W5BrowserTests(unittest.TestCase):
             page.route("**/api/**", fulfill)
             for width in (1280, 1024, 768, 395):
                 page.set_viewport_size({"width": width, "height": 900})
-                page.goto(f"http://127.0.0.1:{port}/?v=89", wait_until="domcontentloaded")
+                page.goto(f"http://127.0.0.1:{port}/?v=91", wait_until="domcontentloaded")
                 page.wait_for_selector("#modeFilter .tok .score-btn", timeout=10000)
                 page.wait_for_timeout(200)
                 found = page.evaluate(
                     """() => {
                       const out = [];
+                      function size(el) {
+                        if (!el) return null;
+                        const b = el.getBoundingClientRect();
+                        return {w: b.width, h: b.height, text: (el.textContent || "").trim().slice(0, 24)};
+                      }
                       document.querySelectorAll("#modeFilter .tok").forEach((tok) => {
                         const pill = tok.querySelector(".score-btn");
                         const ticker = tok.querySelector(".ticker");
                         const name = tok.querySelector(".name");
+                        const ident = tok.querySelector(".ident");
+                        const sym = tok.querySelector(".ticker .sym");
                         function hit(el) {
                           if (!pill || !el) return null;
                           const a = pill.getBoundingClientRect();
@@ -123,7 +130,14 @@ class W5BrowserTests(unittest.TestCase):
                           const box = hit(el);
                           if (box) badges.push(box);
                         });
-                        out.push({ticker: hit(ticker), name: hit(name), badges: badges, texts: (tok.innerText || "").slice(0, 80)});
+                        out.push({
+                          ticker: hit(ticker),
+                          name: hit(name),
+                          badges: badges,
+                          ident: size(ident),
+                          sym: size(sym),
+                          texts: (tok.innerText || "").slice(0, 80),
+                        });
                       });
                       return out;
                     }"""
@@ -132,6 +146,15 @@ class W5BrowserTests(unittest.TestCase):
                 saw_sitting = False
                 saw_holding = False
                 for row in found:
+                    ident = row["ident"]
+                    sym = row["sym"]
+                    self.assertIsNotNone(ident, row)
+                    self.assertGreaterEqual(ident["w"], 60, (width, row))
+                    self.assertGreaterEqual(ident["h"], 1, (width, row))
+                    self.assertIsNotNone(sym, row)
+                    self.assertGreater(sym["w"], 0, (width, row))
+                    self.assertGreater(sym["h"], 0, (width, row))
+                    self.assertTrue(sym["text"], (width, row))
                     for kind in ("ticker", "name"):
                         box = row[kind]
                         self.assertIsNotNone(box)
@@ -213,7 +236,7 @@ class W5BrowserTests(unittest.TestCase):
         with sync_playwright() as pw:
             browser = pw.chromium.launch(channel="chrome", headless=True)
             page = browser.new_page(viewport={"width": 1280, "height": 900})
-            page.goto(f"http://127.0.0.1:{port}/?v=89&mode=game", wait_until="domcontentloaded")
+            page.goto(f"http://127.0.0.1:{port}/?v=91&mode=game", wait_until="domcontentloaded")
             page.wait_for_selector("[data-role=last-px]", timeout=10000)
             page.fill("#gMint", MINT)
             page.click("#gQuote")
