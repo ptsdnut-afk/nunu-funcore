@@ -3259,7 +3259,7 @@
 
   <script>
 
-    const PANEL_V = 93;
+    const PANEL_V = 94;
     function paintPanelVersion() {
       const label = String(PANEL_V);
       document.querySelectorAll("[data-panel-v]").forEach((el) => {
@@ -9360,6 +9360,8 @@
       try {
         if (!(await ensureGameActive(requestedMint))) return;
         const body = { mint: requestedMint, stake_usd: stake, client_request_id: requestId };
+        const seenPx = Number(state.lastQuotePrice);
+        if (seenPx > 0) body.displayed_price = seenPx;
         if (sl !== "") body.sl_pct = Number(sl);
         if (tp !== "") body.tp_pct = Number(tp);
         const res = await fetch(withQaDown("/api/game/buy"), {
@@ -9384,13 +9386,17 @@
         renderGame();
         playResponseSound(data);
         const sym = (data.position && data.position.symbol) || "?";
+        const fillPx = data.fill_price_usd != null
+          ? data.fill_price_usd
+          : (data.position ? data.position.entry_price_usd : null);
+        const fillTxt = fmtPx(fillPx);
         setGameLine(
           mintMismatch
             ? ("Bought " + sym + " but response mint differed — input kept")
-            : ("Bought " + sym + " $" + stake + " — marks update live"),
+            : ("Bought " + sym + " $" + stake + " @ " + fillTxt),
           mintMismatch ? "bad" : "ok"
         );
-        toast("Bought " + sym + " $" + stake);
+        toast("Bought " + sym + " $" + stake + " @ " + fillTxt);
         setTimeout(() => loadGame(true), 1500);
       } catch (e) {
         beep("fail");

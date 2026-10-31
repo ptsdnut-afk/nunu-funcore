@@ -227,7 +227,7 @@ class HealthAndPanelTests(unittest.TestCase):
         res = server.app.test_client().get("/api/health")
         self.assertEqual(res.status_code, 200)
         data = res.get_json()
-        self.assertEqual(data["panel_v"], 93)
+        self.assertEqual(data["panel_v"], 94)
         self.assertIn("delay_warning", data["features"])
         self.assertIn("game_polish", data["features"])
         self.assertEqual(data["sitting_drop_min"], filter.SITTING_DROP_MIN)
