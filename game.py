@@ -1410,6 +1410,8 @@ def start_session(force: bool = False) -> dict:
         now = datetime.now(timezone.utc)
         ends = now + timedelta(hours=SESSION_HOURS)
         kept = st.get("receipts") if isinstance(st.get("receipts"), list) else []
+        import game_ai
+        persisted = game_ai.persisted_slice(st)
         st = {
             "session_id": uuid.uuid4().hex[:12],
             "status": "active",
@@ -1424,6 +1426,7 @@ def start_session(force: bool = False) -> dict:
             "receipts": kept,
             "disclaimer": "Paper research only. Not financial advice. No real trades.",
         }
+        game_ai.attach_fresh_run(st, persisted)
         _push_event(st, "start", f"New 24h run — ${START_BANKROLL:.2f} paper bankroll")
         save_state(st)
         return st
@@ -1555,12 +1558,31 @@ def tick_session(st: dict | None = None) -> dict:
             st["peak_equity"] = eq
             _push_event(st, "high", f"New equity high ${eq:.3f}")
 
+        # SHIP AB books. The price tick above is unchanged.
+        _step_ai_books(st, timed_out)
+
         if timed_out:
             _force_close_opens(st)
             _mark_ended(st)
 
         save_state(st)
         return st
+
+
+def _step_ai_books(st: dict, session_over: bool) -> None:
+    """VECTOR and LEDGER. Does not touch the owner price tick."""
+    import game_ai
+    game_ai.step(st, session_over=session_over)
+
+
+def _ship_ab_scoreboard(st: dict, pnl_pct: float, pnl_usd: float) -> dict:
+    import game_ai
+    return game_ai.scoreboard(st, pnl_pct, pnl_usd)
+
+
+def _ship_ab_study(st: dict) -> dict:
+    import game_ai
+    return game_ai.study(st)
 
 
 def _record_score(st: dict) -> None:
@@ -2526,6 +2548,7 @@ def build_run_review(st: dict | None, equity_usd: float | None = None) -> dict:
         "symbols": [r["symbol"] for r in rows],
         "cited": cited,
         "receipts": _review_receipts(st),
+        "study": _ship_ab_study(st),
     }
 
 
@@ -2568,6 +2591,7 @@ def public_state(st: dict | None = None) -> dict:
     out["server_time"] = _utc()
     out["profile"] = public_profile()
     out["review"] = build_run_review(st, equity_usd=eq)
+    out["scoreboard"] = _ship_ab_scoreboard(st, out["pnl_pct"], out["pnl_usd"])
     return out
 
 

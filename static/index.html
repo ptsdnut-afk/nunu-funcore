@@ -915,6 +915,39 @@
     .review-bullet[data-tag="TIMING"] .tag { color: var(--amber); }
     .review-disclaimer { margin: 0 0 4px; font-size: 0.72rem; font-weight: 750; color: #d5dbe3; }
     .review-humility, .review-open-note { margin: 0 0 8px; font-size: 0.68rem; color: var(--muted); line-height: 1.4; }
+    /* SHIP AB — live % race and the post-game study tabs. panel_v is not bumped. */
+    .race-kicker, .study-kicker {
+      font-size: 0.62rem; font-weight: 800; letter-spacing: .08em;
+      text-transform: uppercase; color: var(--muted); margin: 0 0 6px;
+    }
+    .race-chart {
+      display: block; width: 100%; height: auto; background: #0e1218;
+      border: 1px solid #2a3344; border-radius: 8px;
+    }
+    .race-legend, .study-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0; }
+    .race-key { display: inline-flex; align-items: center; gap: 4px; font-size: 0.68rem; color: var(--muted); }
+    .race-key i { width: 10px; height: 3px; display: inline-block; border-radius: 2px; }
+    .race-row {
+      display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline;
+      font-size: 0.78rem; padding: 6px 0; border-top: 1px solid #2a2a2a;
+    }
+    .race-name { font-weight: 800; min-width: 4.5rem; }
+    .race-dd, .ai-set-why, .ai-set-bt { color: var(--muted); font-size: 0.72rem; }
+    .ai-set, .study-trade {
+      display: flex; flex-direction: column; gap: 2px;
+      font-size: 0.78rem; padding: 6px 0; border-top: 1px solid #2a2a2a;
+    }
+    .study-tabs button {
+      background: transparent; border: 0; color: var(--muted); cursor: pointer;
+      font: inherit; font-weight: 800; padding: 4px 8px; border-radius: 999px;
+    }
+    .study-tabs button[aria-selected="true"] { color: var(--text); background: #1c2433; }
+    .study-sym { font-weight: 800; }
+    .study-trade span {
+      color: var(--muted); font-size: 0.62rem; letter-spacing: .04em;
+      text-transform: uppercase; margin-right: 4px;
+    }
+    #gRaceBoard, #gAiSettings { margin-bottom: 8px; }
     .review-actions { display: flex; flex-wrap: wrap; gap: 8px; }
     .review-bar { height: 3px; border-radius: 99px; margin: 0 0 10px; background: #1c2433; overflow: hidden; }
     .review-sheet[data-phase="cooking"] .review-bar::after {
@@ -3107,10 +3140,13 @@
           <section class="pane game-side score-hero">
           <div class="pane-head">
             <h2>★ High score</h2>
-            <span class="sub">24h cash left · board</span>
+            <span class="sub">% race · then 24h cash</span>
           </div>
           <div class="pane-body">
             <div id="gEndBox" hidden></div>
+            <div id="gRaceBoard" data-feature="ship_ab"><div class="empty">Paper race loads with the 24h run.</div></div>
+            <div class="sec-label">Settings log</div>
+            <div id="gAiSettings" data-feature="ship_ab"><div class="empty">No setting changes yet.</div></div>
             <div id="gScores"><div class="empty">Loading scores…</div></div>
             <div class="sec-label">Event tape</div>
             <div class="events tape" id="gEvents"></div>
@@ -5459,6 +5495,10 @@
     function applyGameFixture() {
       if (!gameFixtureOn()) return;
       hideRunReviewChrome();
+      const raceBoard = document.getElementById("gRaceBoard");
+      if (raceBoard) raceBoard.innerHTML = '<div class="empty">Paper race loads with the 24h run.</div>';
+      const aiSets = document.getElementById("gAiSettings");
+      if (aiSets) aiSets.innerHTML = '<div class="empty">No setting changes yet.</div>';
       const fx = state.fixture;
       const body = document.getElementById("gTradeBody");
       const box = document.getElementById("gPositions");
@@ -6554,7 +6594,140 @@
         (items ? ('<ul class="review-bullets">' + items + "</ul>") : "") +
         '<p class="review-disclaimer">' + esc(review.disclaimer || REVIEW_COOKING.disclaimer) + "</p>" +
         '<p class="review-humility">' + esc(review.humility || "") + "</p>" +
-        '<p class="review-open-note">Closed trades stay on the Trade pane. Sell stays usable. This sheet does not cover them.</p>';
+        '<p class="review-open-note">Closed trades stay on the Trade pane. Sell stays usable. This sheet does not cover them.</p>' +
+        studyHtml(review.study);
+    }
+
+    function fmtBtSide(side) {
+      side = side || {};
+      const cur = Number(side.current_pnl_pct);
+      const pro = Number(side.proposed_pnl_pct);
+      const dd = Number(side.proposed_dd_pct);
+      const n = side.n != null ? side.n : 0;
+      const curTxt = Number.isFinite(cur) ? cur.toFixed(1) + "%" : "n/a";
+      const proTxt = Number.isFinite(pro) ? pro.toFixed(1) + "%" : "n/a";
+      const ddTxt = Number.isFinite(dd) ? dd.toFixed(1) + "%" : "n/a";
+      return "n=" + n + " current " + curTxt + " vs proposed " + proTxt + " dd " + ddTxt;
+    }
+
+    function raceChartSvg(race) {
+      const series = [
+        { key: "you", name: "You", color: "#9bb8e8" },
+        { key: "VECTOR", name: "VECTOR", color: "#3dd68c" },
+        { key: "LEDGER", name: "LEDGER", color: "#f0a33a" },
+      ];
+      const pts = Array.isArray(race) ? race : [];
+      const drawn = pts.length === 1 ? [pts[0], pts[0]] : pts;
+      const w = 320;
+      const h = 92;
+      const pad = 8;
+      let lo = 0;
+      let hi = 0;
+      drawn.forEach((p) => {
+        series.forEach((s) => {
+          const n = Number(p && p[s.key]);
+          if (!Number.isFinite(n)) return;
+          if (n < lo) lo = n;
+          if (n > hi) hi = n;
+        });
+      });
+      if (hi - lo < 0.5) {
+        lo -= 1;
+        hi += 1;
+      }
+      const span = (hi - lo) || 1;
+      const n = Math.max(drawn.length, 2);
+      const xy = (i, val) => {
+        const x = pad + (i / (n - 1)) * (w - pad * 2);
+        const y = pad + (1 - (val - lo) / span) * (h - pad * 2);
+        return x.toFixed(1) + "," + y.toFixed(1);
+      };
+      const lines = series.map((s) => {
+        if (!drawn.length) return "";
+        const coords = drawn.map((p, i) => {
+          const v = Number(p && p[s.key]);
+          return xy(i, Number.isFinite(v) ? v : 0);
+        }).join(" ");
+        return '<polyline fill="none" stroke="' + s.color + '" stroke-width="2" points="' + coords + '"></polyline>';
+      }).join("");
+      const legend = series.map((s) =>
+        '<span class="race-key"><i style="background:' + s.color + '"></i>' + esc(s.name) + "</span>"
+      ).join("");
+      return '<svg class="race-chart" data-points="' + pts.length + '" viewBox="0 0 ' + w + " " + h + '" role="img" aria-label="Live percent P and L race">' +
+        lines + "</svg>" + '<div class="race-legend">' + legend + "</div>";
+    }
+
+    function renderAiBoard(g) {
+      const host = document.getElementById("gRaceBoard");
+      const logHost = document.getElementById("gAiSettings");
+      if (!host) return;
+      g = g || {};
+      const board = g.scoreboard || {};
+      const rows = Array.isArray(board.rows) ? board.rows : [];
+      const rank = rows.map((row) => {
+        const pct = Number(row.pnl_pct);
+        const usd = Number(row.pnl_usd);
+        const dd = Number(row.max_drawdown_pct);
+        const cls = pct >= 0 ? "chg-up" : "chg-dn";
+        return '<div class="race-row" data-ai="' + esc(row.id || "") + '">' +
+          '<span class="race-rank">#' + esc(String(row.rank || "")) + "</span>" +
+          '<span class="race-name">' + esc(row.name || "") + "</span>" +
+          '<span class="' + cls + '">' + esc(fmtPct(pct)) + "</span>" +
+          "<span>" + esc(fmtGameUsd(usd)) + "</span>" +
+          '<span class="race-dd">dd ' + (Number.isFinite(dd) ? dd.toFixed(1) : "0.0") + "%</span>" +
+          "</div>";
+      }).join("");
+      host.innerHTML = '<div class="race-kicker">Paper race · rank by % P/L</div>' +
+        raceChartSvg(board.race) +
+        (rank || '<div class="empty">Race starts with the 24h run.</div>');
+      if (!logHost) return;
+      const logs = Array.isArray(g.ai_settings_log) ? g.ai_settings_log : [];
+      if (!logs.length) {
+        logHost.innerHTML = '<div class="empty">No setting changes yet.</div>';
+        return;
+      }
+      logHost.innerHTML = logs.slice(0, 8).map((row) => {
+        const bt = row.backtest || {};
+        const flag = row.applied ? "kept" : "rejected";
+        return '<div class="ai-set" data-applied="' + (row.applied ? "1" : "0") + '" data-ai="' + esc(row.ai || "") + '">' +
+          "<div><b>" + esc(row.ai || "") + "</b> " + esc(row.field || "") + " " +
+          esc(row.before) + " → " + esc(row.after) + " · " + esc(flag) + "</div>" +
+          '<div class="ai-set-why">' + esc(row.reason || "") + "</div>" +
+          '<div class="ai-set-bt">train ' + fmtBtSide(bt.train) + " · validate " + fmtBtSide(bt.validate) + "</div>" +
+          (bt.note ? '<div class="ai-set-why">' + esc(bt.note) + "</div>" : "") +
+          "</div>";
+      }).join("");
+    }
+
+    function studyHtml(study) {
+      study = study || {};
+      const tabs = [
+        ["you", "You"],
+        ["VECTOR", "VECTOR"],
+        ["LEDGER", "LEDGER"],
+      ];
+      const buttons = tabs.map((pair, i) =>
+        '<button type="button" data-study-tab="' + pair[0] + '" aria-selected="' + (i === 0 ? "true" : "false") + '">' +
+        esc(pair[1]) + "</button>"
+      ).join("");
+      const panels = tabs.map((pair, i) => {
+        const book = study[pair[0]] || {};
+        const trades = Array.isArray(book.trades) ? book.trades : [];
+        const body = trades.length ? trades.map((t) =>
+          '<div class="study-trade" data-verdict="' + esc(t.verdict || "") + '">' +
+          '<div class="study-sym">' + esc(t.symbol || "?") + "</div>" +
+          "<div><span>Entry</span> " + esc(t.entry_reason || "—") + "</div>" +
+          "<div><span>Exit</span> " + esc(t.exit_reason || "—") + "</div>" +
+          "<div><span>Verdict</span> " + esc(t.verdict || "unknown") + "</div>" +
+          '<div class="study-lesson"><span>Lesson</span> ' + esc(t.lesson || "—") + "</div>" +
+          "</div>"
+        ).join("") : '<div class="empty">No paper trades on this tab yet.</div>';
+        return '<div class="study-panel" data-study-panel="' + pair[0] + '"' + (i ? " hidden" : "") + ">" + body + "</div>";
+      }).join("");
+      return '<div class="study-block" data-feature="ship_ab">' +
+        '<div class="study-kicker">Study this run</div>' +
+        '<div class="study-tabs" role="tablist">' + buttons + "</div>" +
+        panels + "</div>";
     }
 
     function reviewCookingHtml() {
@@ -8244,6 +8417,7 @@
       const scores = g.scores_top || [];
       const sbox = document.getElementById("gScores");
       sbox.innerHTML = renderPodium(scores);
+      renderAiBoard(g);
 
       document.getElementById("gEvents").innerHTML = evs.slice(0, 24).map((e) =>
         '<div class="ev ' + tapeClass(e.kind) + '"><span class="t">' + esc(fmtRel(e.at)) + "</span><span class=\"m\">" +
@@ -9820,6 +9994,18 @@
     if (gReviewClose) gReviewClose.addEventListener("click", dismissRunReview);
     const gReviewRestart = document.getElementById("gReviewRestart");
     if (gReviewRestart) gReviewRestart.addEventListener("click", gameStart);
+    const gReviewSheetEl = document.getElementById("gReviewSheet");
+    if (gReviewSheetEl) gReviewSheetEl.addEventListener("click", (ev) => {
+      const btn = ev.target.closest("[data-study-tab]");
+      if (!btn || !gReviewSheetEl.contains(btn)) return;
+      const id = btn.getAttribute("data-study-tab");
+      gReviewSheetEl.querySelectorAll("[data-study-tab]").forEach((el) => {
+        el.setAttribute("aria-selected", el === btn ? "true" : "false");
+      });
+      gReviewSheetEl.querySelectorAll("[data-study-panel]").forEach((el) => {
+        el.hidden = el.getAttribute("data-study-panel") !== id;
+      });
+    });
     document.getElementById("gQuote").addEventListener("click", (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
