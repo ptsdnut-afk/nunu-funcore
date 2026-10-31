@@ -55,10 +55,16 @@ swaps the mark is the vault ratio plus virtual quote, which is the same
 correction. A move through 15% is held until a second independent read
 confirms it. That read publishes immediately: within 2%, or within 12%
 when one read is the fill and the other is the vault (the ~7% virtual-quote
-gap). The hold is at most 3 seconds, so a crash that is still there on the
-next read cannot sit the way a 98% drop did. A one-off bounce with no
-confirming read stays out. A baseline older than 5 seconds does not veto
-agreeing reads, and an echo of that old baseline does not refresh it.
+gap). The hold is at most 3.0 seconds from hold start. A hard timer
+publishes the latest on-chain read then, even if no confirm has arrived,
+so a real crash cannot be held longer. A one-off bounce is rejected when
+a later read disagrees. There is no real baseline when none has been
+accepted, or baseline_age is huge. The guard does not publish an override
+in that case. It publishes only once a swap price and a vault price agree
+within 5%. Until then the tick is stale. Two agreeing on-chain reads
+replace a stuck price. Spike rows log hold_start and publish. A baseline
+older than 5 seconds does not veto agreeing reads, and an echo of that
+old baseline does not refresh it.
 Vault polls for every watched pool share one getMultipleAccounts call.
 RPC URLs come from SOLANA_WS_URL and SOLANA_RPC_URL. The socket runs on a
 daemon thread.
@@ -86,8 +92,10 @@ STREAM_OUTLIER = 0.03  # kept for callers that still name the old band
 SPIKE_MOVE = 0.15  # one print beyond this waits for a second read
 SPIKE_AGREE = 0.02  # two consecutive reads within this override the baseline
 SPIKE_CROSS = 0.12  # vault ratio vs the executed fill on the same crash (~7% + noise)
-SPIKE_HOLD_S = 3.0  # a crash candidate may sit at most this long
+SPIKE_PAIR = 0.05  # swap fill and vault must agree within this when there is no real baseline
+SPIKE_HOLD_S = 3.0  # a crash candidate may sit at most this long, from hold start
 BASELINE_VETO_S = 5.0  # an older baseline cannot veto agreeing fresh reads
+BASELINE_HUGE_S = 1e8  # _baseline_age returns 1e9 when no tick has been accepted
 MID_OVER_JUPITER = 0.02  # PumpSwap mid wins when it disagrees with Jupiter by more than this
 MAX_SUBS = 48
 WATCH_TTL_S = 300.0  # a viewed coin keeps its subscriptions for 5 minutes
@@ -186,6 +194,10 @@ _decimals: dict[str, int] = {SOL_MINT: 9, USDC_MINT: 6, USDT_MINT: 6}
 _rejects: list[dict] = []
 _spike_rejects: list[dict] = []
 _pending_spikes: dict[str, dict] = {}
+_pairs: dict[str, dict[str, dict]] = {}
+_hold_timers: dict[str, threading.Timer] = {}
+_hold_gen: dict[str, int] = {}
+_awaiting_pair: set[str] = set()
 _swap_at: dict[str, float] = {}
 _native: dict[str, float] = {}
 _pools: dict[str, dict] = {}
@@ -473,6 +485,10 @@ def recent_spikes() -> list[dict]:
 def reset_for_tests() -> None:
     global _rate_limits
     with _guard:
+        for mint in list(_hold_gen):
+            _hold_gen[mint] = _hold_gen.get(mint, 0) + 1
+        timers = list(_hold_timers.values())
+        _hold_timers.clear()
         _views.clear()
         _seen.clear()
         _last_px.clear()
@@ -484,6 +500,8 @@ def reset_for_tests() -> None:
         _rejects.clear()
         _spike_rejects.clear()
         _pending_spikes.clear()
+        _pairs.clear()
+        _awaiting_pair.clear()
         _swap_at.clear()
         _native.clear()
         _pools.clear()
@@ -505,6 +523,8 @@ def reset_for_tests() -> None:
             "transport": "down",
             "why": "not started",
         })
+    for timer in timers:
+        timer.cancel()
 
 
 def _remember_reject(row: dict) -> None:
@@ -531,6 +551,14 @@ def _remember_spike(row: dict) -> None:
         extra += f" baseline_age={age}"
     if row.get("agree") is not None:
         extra += f" agree={row.get('agree')}"
+    if row.get("hold_start"):
+        extra += f" hold_start={row.get('hold_start')}"
+    if row.get("publish"):
+        extra += f" publish={row.get('publish')}"
+    if row.get("hold_s") is not None:
+        extra += f" hold_s={row.get('hold_s')}"
+    if row.get("reason"):
+        extra += f" reason={row.get('reason')}"
     print(
         "[trade-stream] spike {kind} {source} mint={mint} px={px} baseline={baseline} move={move}{extra}".format(
             kind=row.get("kind") or "spike",
@@ -560,31 +588,187 @@ def _same_side_move(baseline: float, a: float, b: float) -> bool:
     return abs(da) / baseline > SPIKE_MOVE and abs(db) / baseline > SPIKE_MOVE
 
 
-def _spike_confirmed(mint: str, px: float, source: str, baseline: float, signature: str = "") -> bool:
-    """A second independent read publishes immediately. Max hold is 3s.
+def _move_shrank(baseline: float, held: float, px: float) -> bool:
+    """A later print gave the spike back. That one-off is not the crash."""
+    if baseline <= 0 or held <= 0 or px <= 0:
+        return False
+    held_move = abs(held - baseline) / baseline
+    new_move = abs(px - baseline) / baseline
+    gap = abs(px - held) / held
+    return gap > SPIKE_CROSS and new_move < held_move * 0.5
+
+
+def _remember_pair(mint: str, px: float, source: str, signature: str) -> float | None:
+    """Store the latest swap or vault read. Return agreement with the previous same-source print."""
+    src = public_src(source)
+    if src not in ("pool_swap", "pool_vault"):
+        return None
+    prev_agree = None
+    with _guard:
+        bucket = _pairs.setdefault(mint, {})
+        prev = bucket.get(src)
+        if prev and float(prev.get("px") or 0) > 0:
+            prev_agree = abs(px - float(prev["px"])) / float(prev["px"])
+        bucket[src] = {"px": px, "sig": signature or "", "at": time.time()}
+    return prev_agree
+
+
+def _pair_agreement(mint: str) -> tuple[float, float] | None:
+    """Swap and vault within 5%, from two observations. None otherwise."""
+    with _guard:
+        bucket = _pairs.get(mint) or {}
+        swap = dict(bucket["pool_swap"]) if bucket.get("pool_swap") else None
+        vault = dict(bucket["pool_vault"]) if bucket.get("pool_vault") else None
+    if not swap or not vault:
+        return None
+    if swap.get("sig") and swap.get("sig") == vault.get("sig"):
+        return None
+    try:
+        a = float(swap.get("px") or 0)
+        b = float(vault.get("px") or 0)
+    except (TypeError, ValueError):
+        return None
+    if a <= 0 or b <= 0:
+        return None
+    agree = abs(a - b) / min(a, b)
+    if agree > SPIKE_PAIR:
+        return None
+    px = a if float(swap.get("at") or 0) >= float(vault.get("at") or 0) else b
+    return px, agree
+
+
+def _real_baseline(mint: str, now: float | None = None) -> tuple[float | None, float]:
+    """Accepted price and its age. (None, 1e9) when no tick has been published."""
+    age = _baseline_age(mint, now)
+    with _guard:
+        px = _last_px.get(mint)
+    if not px or float(px) <= 0 or age >= BASELINE_HUGE_S:
+        return None, age
+    return float(px), age
+
+
+def awaiting_baseline(mint: str) -> bool:
+    """True while a pumpswap price is waiting for swap and vault to agree."""
+    with _guard:
+        return mint in _awaiting_pair
+
+
+def _cancel_hold_timer(mint: str) -> None:
+    with _guard:
+        _hold_gen[mint] = _hold_gen.get(mint, 0) + 1
+        timer = _hold_timers.pop(mint, None)
+    if timer is not None:
+        timer.cancel()
+
+
+def _arm_hold_timer(mint: str) -> None:
+    """Publish the held read at 3.0s from hold start, even with no confirm."""
+    with _guard:
+        _hold_gen[mint] = _hold_gen.get(mint, 0) + 1
+        gen = _hold_gen[mint]
+        old = _hold_timers.pop(mint, None)
+    if old is not None:
+        old.cancel()
+    timer = threading.Timer(SPIKE_HOLD_S, _release_hold, args=(mint, gen))
+    timer.daemon = True
+    with _guard:
+        if _hold_gen.get(mint) != gen:
+            return
+        _hold_timers[mint] = timer
+    timer.start()
+
+
+def _release_hold(mint: str, gen: int) -> None:
+    """Hard cap. The latest on-chain read publishes at 3.0s from hold start."""
+    with _guard:
+        if _hold_gen.get(mint) != gen:
+            return
+        pend = _pending_spikes.get(mint)
+        if not pend or pend.get("rejected"):
+            _hold_timers.pop(mint, None)
+            return
+        px = float(pend.get("px") or 0)
+        source = str(pend.get("source") or "pool_swap")
+        baseline = float(pend.get("baseline") or 0)
+        hold_start = float(pend.get("hold_start") or pend.get("at") or 0)
+        sig = str(pend.get("sig") or "")
+        sol = pend.get("sol")
+        _pending_spikes.pop(mint, None)
+        _hold_timers.pop(mint, None)
+    if px <= 0 or hold_start <= 0:
+        return
+    publish_at = time.time()
+    move = abs(px - baseline) / baseline if baseline > 0 else 0.0
+    _remember_spike({
+        "kind": "override",
+        "mint": mint,
+        "px": px,
+        "baseline": baseline,
+        "baseline_age": round(_baseline_age(mint, publish_at), 3),
+        "move": round(move, 6),
+        "source": source,
+        "at": _iso_ms(publish_at),
+        "hold_start": _iso_ms(hold_start),
+        "publish": _iso_ms(publish_at),
+        "hold_s": round(publish_at - hold_start, 3),
+        "reason": "hold-cap",
+    })
+    _commit_price(
+        mint,
+        px,
+        source,
+        sol if isinstance(sol, (int, float)) else None,
+        sig,
+        None,
+        None,
+    )
+    note_mid(mint, px)
+
+
+def _spike_confirmed(
+    mint: str,
+    px: float,
+    source: str,
+    baseline: float,
+    signature: str = "",
+    sol: float | None = None,
+) -> tuple[str, float, bool]:
+    """Return (confirm|spike|reject, hold_start, arm_timer).
 
     Two reads within 2% agree, including when both are far from the baseline.
     A vault read and a swap on the same crash also agree within 12%, because
-    the raw vault sits about 7% under the fill. Once the first print has been
-    held for 3s, a later read that is still that crash publishes too. The
-    same signature twice is one observation. A one-off that never gets a
-    second read stays pending and is not published. The hold clock does not
-    restart while the crash is still printing, which is what left a real
-    ~98% drop unpublished for half a minute.
+    the raw vault sits about 7% under the fill. The hold clock does not
+    restart while the crash is still printing. A later read that gives the
+    move back rejects the one-off so the 3s timer cannot publish it. The
+    same signature twice is one observation.
     """
     now = time.time()
+    arm = False
     with _guard:
         pend = _pending_spikes.get(mint)
-        fresh = {"px": px, "source": source, "baseline": baseline, "at": now, "sig": signature or ""}
+        if pend and pend.get("rejected"):
+            pend = None
+        fresh = {
+            "px": px,
+            "source": source,
+            "baseline": baseline,
+            "at": now,
+            "hold_start": now,
+            "sig": signature or "",
+            "rejected": False,
+            "sol": sol,
+        }
         if not pend:
             _pending_spikes[mint] = fresh
-            return False
+            return "spike", now, True
         sig = signature or ""
+        hold_start = float(pend.get("hold_start") or pend.get("at") or now)
         if sig and sig == str(pend.get("sig") or ""):
-            return False
+            return "spike", hold_start, False
         held = float(pend.get("px") or 0)
-        started = float(pend.get("at") or 0)
-        age = now - started
+        # Tests move ``at`` to age a hold without waiting. The timer uses
+        # wall-clock hold_start; this age is the backdatable clock.
+        age = now - float(pend.get("at") or hold_start)
         base = float(pend.get("baseline") or baseline or 0)
         close = held > 0 and abs(px - held) / held <= SPIKE_AGREE
         cross = (
@@ -595,19 +779,26 @@ def _spike_confirmed(mint: str, px: float, source: str, baseline: float, signatu
         )
         if close or cross or (age >= SPIKE_HOLD_S and _same_side_move(base, held, px)):
             _pending_spikes.pop(mint, None)
-            return True
+            return "confirm", hold_start, False
+        if _move_shrank(base, held, px):
+            pend["rejected"] = True
+            _pending_spikes[mint] = pend
+            return "reject", hold_start, False
         if _same_side_move(base, held, px) and age < SPIKE_HOLD_S:
             # Keep the original clock. Slide to the latest crash print so the
             # next read can agree with it without adding another 3s.
             pend["px"] = px
             pend["source"] = source
             pend["sig"] = sig
+            if sol is not None:
+                pend["sol"] = sol
             _pending_spikes[mint] = pend
-            return False
+            return "spike", hold_start, False
         if age >= SPIKE_HOLD_S:
             _pending_spikes[mint] = fresh
-            return False
-        return False
+            arm = True
+            hold_start = now
+        return "spike", hold_start, arm
 
 
 def _baseline_age(mint: str, now: float | None = None) -> float:
@@ -644,99 +835,19 @@ def _driver_for(mint: str, px: float, sol: float | None) -> str:
     return "swap"
 
 
-def ingest_swap(
+def _commit_price(
     mint: str,
-    price_usd: float,
-    *,
-    anchor: float | None = None,
-    trade_epoch: float | None = None,
-    signature: str = "",
-    slot: int | None = None,
-    seed_ok: bool = False,
-    source: str = "pool_swap",
-    sol: float | None = None,
+    px: float,
+    source: str,
+    sol: float | None,
+    signature: str,
+    slot: int | None,
+    trade_epoch: float | None,
 ) -> str:
-    """Publish one real swap or pool mid into the shared tick cache.
-
-    Returns ok, same, spike, no-anchor, or bad. One print beyond 15% stays
-    out of the cache until a second independent read confirms it. That read
-    publishes immediately. The hold is at most 3s. A baseline older than 5s
-    does not get refreshed by an echo of itself while that pair is still
-    forming.
-    ``seed_ok`` accepts the first pump print when no decoded mid exists yet,
-    so a wrong Jupiter quote cannot block it.
-    """
+    """Write one accepted price into the shared tick cache."""
     import game
 
-    mint = (mint or "").strip()
-    try:
-        px = float(price_usd)
-    except (TypeError, ValueError):
-        return "bad"
-    if not mint or px <= 0:
-        return "bad"
-    anchor_px = anchor
-    if anchor_px is None:
-        anchor_px = anchor_price(mint)
-    seeded = False
-    if anchor_px is None or anchor_px <= 0:
-        if not seed_ok:
-            _remember_reject({"kind": "no-anchor", "mint": mint, "swap": px, "anchor": None, "gap": None})
-            return "no-anchor"
-        note_anchor(mint, px, force=True)
-        anchor_px = px
-        seeded = True
-    with _guard:
-        baseline = _last_px.get(mint)
-    if not baseline or baseline <= 0:
-        baseline = None if seeded else float(anchor_px)
-    move = 0.0
-    if baseline and baseline > 0:
-        move = abs(px - float(baseline)) / float(baseline)
-    now_mono = time.time()
-    baseline_age = _baseline_age(mint, now_mono)
-    if move > SPIKE_MOVE:
-        with _guard:
-            pend_px = (_pending_spikes.get(mint) or {}).get("px")
-        if not _spike_confirmed(mint, px, source, float(baseline), signature):
-            _remember_spike({
-                "kind": "spike",
-                "mint": mint,
-                "px": px,
-                "baseline": float(baseline),
-                "baseline_age": round(baseline_age, 3),
-                "move": round(move, 6),
-                "source": source,
-                "at": _iso_ms(now_mono),
-            })
-            return "spike"
-        agree = None
-        try:
-            if pend_px and float(pend_px) > 0:
-                agree = round(abs(px - float(pend_px)) / float(pend_px), 6)
-        except (TypeError, ValueError):
-            agree = None
-        _remember_spike({
-            "kind": "override",
-            "mint": mint,
-            "px": px,
-            "baseline": float(baseline),
-            "baseline_age": round(baseline_age, 3),
-            "move": round(move, 6),
-            "agree": agree,
-            "source": source,
-            "at": _iso_ms(now_mono),
-        })
-    else:
-        echo = bool(baseline) and baseline > 0 and move <= SPIKE_AGREE
-        with _guard:
-            pend = _pending_spikes.get(mint)
-        # A baseline older than 5s must not refresh itself by echoing, or it
-        # vetoes the fresh reads that already agree with each other.
-        if echo and pend and baseline_age > BASELINE_VETO_S:
-            return "spike"
-        with _guard:
-            _pending_spikes.pop(mint, None)
+    _cancel_hold_timer(mint)
     now = time.time()
     epoch = now if trade_epoch is None else float(trade_epoch)
     with _guard:
@@ -762,8 +873,169 @@ def ingest_swap(
     with _guard:
         _seen[mint] = now
         _last_px[mint] = px
+        _awaiting_pair.discard(mint)
+        _pending_spikes.pop(mint, None)
         _ws["last_event"][mint] = _iso_ms(now)
     return "same" if same else "ok"
+
+
+def _spike_row(
+    mint: str,
+    px: float,
+    baseline: float,
+    baseline_age: float,
+    move: float,
+    source: str,
+    now_mono: float,
+    *,
+    kind: str,
+    agree: float | None = None,
+    hold_start: float | None = None,
+    reason: str = "",
+) -> dict:
+    row = {
+        "kind": kind,
+        "mint": mint,
+        "px": px,
+        "baseline": baseline,
+        "baseline_age": round(baseline_age, 3),
+        "move": round(move, 6),
+        "source": source,
+        "at": _iso_ms(now_mono),
+    }
+    if agree is not None:
+        row["agree"] = round(agree, 6)
+    if hold_start:
+        row["hold_start"] = _iso_ms(hold_start)
+    if reason:
+        row["reason"] = reason
+    if kind == "override" and hold_start:
+        row["publish"] = _iso_ms(now_mono)
+        row["hold_s"] = round(max(0.0, now_mono - hold_start), 3)
+    return row
+
+
+def ingest_swap(
+    mint: str,
+    price_usd: float,
+    *,
+    anchor: float | None = None,
+    trade_epoch: float | None = None,
+    signature: str = "",
+    slot: int | None = None,
+    seed_ok: bool = False,
+    source: str = "pool_swap",
+    sol: float | None = None,
+) -> str:
+    """Publish one real swap or pool mid into the shared tick cache.
+
+    Returns ok, same, spike, no-anchor, or bad. One print beyond 15% stays
+    out of the cache until a second independent read confirms it. That read
+    publishes immediately. The hold is at most 3.0s from hold start: a timer
+    publishes the latest on-chain read then. A baseline older than 5s does
+    not get refreshed by an echo of itself while that pair is still forming.
+    With no real baseline (none accepted, or baseline_age huge) an override
+    is refused. The price publishes only once a swap and a vault agree
+    within 5%, and until then the tick is stale. ``seed_ok`` still accepts
+    an explicit first print so a test can establish a baseline.
+    """
+    mint = (mint or "").strip()
+    try:
+        px = float(price_usd)
+    except (TypeError, ValueError):
+        return "bad"
+    if not mint or px <= 0:
+        return "bad"
+    anchor_px = anchor
+    if anchor_px is None:
+        anchor_px = anchor_price(mint)
+    if anchor_px is None or anchor_px <= 0:
+        if seed_ok:
+            note_anchor(mint, px, force=True)
+            anchor_px = px
+        elif public_src(source) not in ("pool_swap", "pool_vault"):
+            _remember_reject({"kind": "no-anchor", "mint": mint, "swap": px, "anchor": None, "gap": None})
+            return "no-anchor"
+    now_mono = time.time()
+    real_px, baseline_age = _real_baseline(mint, now_mono)
+    same_agree = _remember_pair(mint, px, source, signature)
+    agreed = _pair_agreement(mint)
+
+    if real_px is None:
+        # No accepted tick. Do not publish the guard's own override.
+        if agreed is not None:
+            px, agree = agreed
+            _remember_spike(_spike_row(
+                mint, px, 0.0, baseline_age, 0.0, source, now_mono,
+                kind="pair", agree=agree, reason="swap-vault",
+            ))
+            return _commit_price(mint, px, source, sol, signature, slot, trade_epoch)
+        if seed_ok:
+            return _commit_price(mint, px, source, sol, signature, slot, trade_epoch)
+        with _guard:
+            _awaiting_pair.add(mint)
+        baseline_for_log = float(anchor_px) if anchor_px else 0.0
+        move = 0.0
+        if baseline_for_log > 0:
+            move = abs(px - baseline_for_log) / baseline_for_log
+        _remember_spike(_spike_row(
+            mint, px, baseline_for_log, baseline_age, move, source, now_mono,
+            kind="spike", agree=same_agree, reason="no-baseline",
+        ))
+        return "spike"
+
+    baseline = float(real_px)
+    move = abs(px - baseline) / baseline if baseline > 0 else 0.0
+    # Two on-chain reads that agree replace a stuck price even if an echo
+    # of that price arrived between them.
+    if agreed is not None and baseline > 0 and abs(agreed[0] - baseline) / baseline > SPIKE_MOVE:
+        px, agree = agreed
+        with _guard:
+            hold_start = float((_pending_spikes.get(mint) or {}).get("hold_start") or 0)
+        _remember_spike(_spike_row(
+            mint, px, baseline, baseline_age, abs(px - baseline) / baseline, source, now_mono,
+            kind="override", agree=agree, hold_start=hold_start or None, reason="pair",
+        ))
+        return _commit_price(mint, px, source, sol, signature, slot, trade_epoch)
+
+    if move > SPIKE_MOVE:
+        with _guard:
+            pend_px = (_pending_spikes.get(mint) or {}).get("px")
+        status, hold_start, arm = _spike_confirmed(mint, px, source, baseline, signature, sol)
+        if status == "confirm":
+            _cancel_hold_timer(mint)
+            agree = None
+            try:
+                if pend_px and float(pend_px) > 0:
+                    agree = abs(px - float(pend_px)) / float(pend_px)
+            except (TypeError, ValueError):
+                agree = None
+            _remember_spike(_spike_row(
+                mint, px, baseline, baseline_age, move, source, time.time(),
+                kind="override", agree=agree, hold_start=hold_start, reason="confirm",
+            ))
+            return _commit_price(mint, px, source, sol, signature, slot, trade_epoch)
+        if status == "reject":
+            _cancel_hold_timer(mint)
+        elif arm:
+            _arm_hold_timer(mint)
+        _remember_spike(_spike_row(
+            mint, px, baseline, baseline_age, move, source, now_mono,
+            kind="spike", hold_start=hold_start, reason="reject" if status == "reject" else "hold",
+        ))
+        return "spike"
+
+    echo = baseline > 0 and move <= SPIKE_AGREE
+    with _guard:
+        pend = _pending_spikes.get(mint)
+    # A baseline older than 5s must not refresh itself by echoing, or it
+    # vetoes the fresh reads that already agree with each other.
+    if echo and pend and baseline_age > BASELINE_VETO_S:
+        return "spike"
+    _cancel_hold_timer(mint)
+    with _guard:
+        _pending_spikes.pop(mint, None)
+    return _commit_price(mint, px, source, sol, signature, slot, trade_epoch)
 
 
 def _iso_ms(epoch: float) -> str:
@@ -2142,11 +2414,14 @@ def _publish(
         _touch_live(mint)
         return "held"
     had = mid_price(mint, max_age=120.0)
+    # PumpSwap has a swap fill and a vault. With no accepted baseline the
+    # first print waits until those two agree. A single-source pool still
+    # seeds, because it has nothing else to agree with.
     status = ingest_swap(
         mint,
         px,
         anchor=had,
-        seed_ok=True,
+        seed_ok=pool_kind(mint) != "pumpswap",
         slot=slot,
         signature=signature,
         source=source,

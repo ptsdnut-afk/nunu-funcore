@@ -926,6 +926,23 @@ def fetch_live_tick(
             return real
         return _qa_overlay(sid, real)
 
+    # No accepted baseline yet. Do not serve an unconfirmed override as live.
+    if not trade_stream.stream_is_fresh(mint) and trade_stream.awaiting_baseline(mint):
+        now = time.time()
+        old = now - (QUOTE_FRESH_SLA_S + 0.05)
+        waiting = {
+            "mint": mint,
+            "price_usd": None,
+            "price_ts": _utc(),
+            "trade_ts": _utc_ms(),
+            "trade_epoch": old,
+            "fetched_at": _utc_ms(),
+            "source": "pool_swap",
+            "src": "pool_swap",
+            "driver": "swap",
+        }
+        return _force_stale(_out(waiting, old, now))
+
     with _live_lock(mint):
         now = time.time()
         hit = _live_cache.get(mint)
