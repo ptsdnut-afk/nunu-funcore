@@ -21,7 +21,8 @@ The displayed price is the last real swap on the coin's main pool:
 - pump.fun bonding curve: ``logsSubscribe`` mentions the curve and parses
   TradeEvent virtual reserves. ``accountSubscribe`` on the curve stays.
 
-No ``getTransaction``. ``api.mainnet-beta.solana.com`` accepts subscribe and
+``getTransaction`` is only used to decode the newest swap while a pool is
+still unconfirmed. ``api.mainnet-beta.solana.com`` accepts subscribe and
 then often pushes nothing. ``wss://solana-rpc.publicnode.com`` does push.
 When ``HELIUS_API_KEY`` is set, the same subscribe runs on Helius.
 
@@ -39,7 +40,18 @@ socket, ``processed`` returns a subscription id and then pushes nothing.
 answers 429 once a process opens about 10 of those sockets. Priority coins
 (open positions, then the coin being viewed) share one logs socket, capped
 at 8 subscriptions. A 429 backs off with jitter. Any pool without a live
-logs subscription is priced from the 1s vault poll, so it does not go stale.
+logs subscription, or a silent one, still has to baseline. On first watch,
+in parallel with the vault read, and at most every 10 seconds while the
+price is unconfirmed, the process reads ``getSignaturesForAddress`` (a short
+limit) and decodes the newest swap. The confirming price is that swap's
+post-trade vault state, scaled the same way as the vault mark, including a
+non-SOL quote's own USD. When it agrees with the vault within 5%, that is
+the baseline. An hours-old swap still counts: if nothing traded since, the
+vault and the post-trade balances are the same number. If those signatures
+hold no decodable swap, two vault reads within 1% are the baseline, so a
+working vault is not left blank. After the baseline, the 1s vault poll keeps
+the price fresh. An unconfirmed override is still refused. Jupiter stays a
+labeled fallback.
 Vault ``accountSubscribe`` stays on the shared publicnode socket. HTTP
 (Jupiter anchor, pool resolve, vault poll) stays on the vault thread.
 
@@ -93,6 +105,9 @@ SPIKE_MOVE = 0.15  # one print beyond this waits for a second read
 SPIKE_AGREE = 0.02  # two consecutive reads within this override the baseline
 SPIKE_CROSS = 0.12  # vault ratio vs the executed fill on the same crash (~7% + noise)
 SPIKE_PAIR = 0.05  # swap fill and vault must agree within this when there is no real baseline
+VAULT_BASELINE_AGREE = 0.01  # two vault reads within this baseline a pool with no decodable swap
+SIG_LOOKBACK = 4  # getSignaturesForAddress limit while a pool is still unconfirmed
+SIG_RECHECK_S = 10.0  # chain baseline retries no faster than this
 SPIKE_HOLD_S = 3.0  # a crash candidate may sit at most this long, from hold start
 BASELINE_VETO_S = 5.0  # an older baseline cannot veto agreeing fresh reads
 BASELINE_HUGE_S = 1e8  # _baseline_age returns 1e9 when no tick has been accepted
@@ -109,7 +124,8 @@ SOURCE_WHY = (
     "0.02 SOL (metered). PumpSwap and pump.fun curves use logsSubscribe "
     "(mentions the pool) and parse Buy/Sell Program data. Vault "
     "accountSubscribe is the second source. Orca keeps accountSubscribe. "
-    "Helius is used only when HELIUS_API_KEY is set. No getTransaction."
+    "Helius is used only when HELIUS_API_KEY is set. A pool with no live logs "
+    "swap is baselined from getSignaturesForAddress and one getTransaction."
 )
 
 SOL_MINT = "So11111111111111111111111111111111111111112"
@@ -213,6 +229,11 @@ _pool_miss_at: dict[str, float] = {}
 _quote_px: dict[str, tuple[float, float]] = {}
 _quote_pools: dict[str, dict] = {}
 _swap_counts: dict[str, int] = {}
+_chain_at: dict[str, float] = {}
+_chain_tries: dict[str, int] = {}
+_chain_empty: set[str] = set()
+_chain_inflight: set[str] = set()
+_logs_priced: dict[str, float] = {}
 _rate_limits = 0
 POOL_UNREACHABLE_S = 10.0
 _ws: dict = {
@@ -510,6 +531,11 @@ def reset_for_tests() -> None:
         _quote_px.clear()
         _quote_pools.clear()
         _swap_counts.clear()
+        _chain_at.clear()
+        _chain_tries.clear()
+        _chain_empty.clear()
+        _chain_inflight.clear()
+        _logs_priced.clear()
         _rate_limits = 0
         _ws.update({
             "state": "down",
@@ -874,6 +900,7 @@ def _commit_price(
         _seen[mint] = now
         _last_px[mint] = px
         _awaiting_pair.discard(mint)
+        _chain_empty.discard(mint)
         _pending_spikes.pop(mint, None)
         _ws["last_event"][mint] = _iso_ms(now)
     return "same" if same else "ok"
@@ -971,6 +998,19 @@ def ingest_swap(
             ))
             return _commit_price(mint, px, source, sol, signature, slot, trade_epoch)
         if seed_ok:
+            return _commit_price(mint, px, source, sol, signature, slot, trade_epoch)
+        # No swap in the recent signatures. Two vault reads within 1% are enough.
+        # A decoded swap that missed the 5% band stays stale: it is in the pair bucket.
+        if (
+            public_src(source) == "pool_vault"
+            and same_agree is not None
+            and same_agree <= VAULT_BASELINE_AGREE
+            and _chain_swap_missing(mint)
+        ):
+            _remember_spike(_spike_row(
+                mint, px, 0.0, baseline_age, 0.0, source, now_mono,
+                kind="pair", agree=same_agree, reason="vault-pair",
+            ))
             return _commit_price(mint, px, source, sol, signature, slot, trade_epoch)
         with _guard:
             _awaiting_pair.add(mint)
@@ -1558,6 +1598,8 @@ def cold_vault_price(mint: str) -> bool:
         with _guard:
             _no_pool[mint] = time.time()
         return False
+    # The confirming swap is fetched beside this read, not after the next poll.
+    _kick_chain_baselines(http, [mint])
     kind = pool.get("kind")
     if kind == "pumpswap":
         return _read_vault_mid(http, pool) is not None
@@ -1615,6 +1657,8 @@ def _http_vault_loop() -> None:
             # call cannot stall every coin's vault read.
             if anchor_price(SOL_MINT, max_age=60.0) is None:
                 _refresh_anchors(mints)
+            # Signature baseline runs beside the vault batch, on the first watch.
+            _kick_chain_baselines(http, mints)
             _refresh_pump_mids(http)
             _refresh_account_mids(http, mints)
             _refresh_anchors(mints)
@@ -2050,7 +2094,26 @@ def _jittered(seconds: float) -> float:
 
 
 def _is_rate_limit(text: str) -> bool:
-    return "429" in text or "Too Many Requests" in text
+    lowered = text.lower()
+    return (
+        "429" in text
+        or "-32005" in text
+        or "too many requests" in lowered
+        or "rate limit" in lowered
+    )
+
+
+def _rpc_error_limited(err) -> bool:
+    """True for HTTP 429 and the Solana -32005 rate-limit body."""
+    if isinstance(err, dict):
+        try:
+            code = int(err.get("code"))
+        except (TypeError, ValueError):
+            code = None
+        if code in (-32005, 429):
+            return True
+        return _is_rate_limit(str(err.get("message") or ""))
+    return _is_rate_limit(str(err or ""))
 
 
 def logs_sub_live(address: str) -> bool:
@@ -2352,6 +2415,7 @@ def _on_logs(msg: dict, meta: dict[int, dict]) -> None:
     px = price_from_program_logs(logs, pool, sol, extra)
     if px is None or px <= 0:
         return
+    _note_logs_priced(str(pool.get("address") or ""))
     sig = str(value.get("signature") or "")
     sol_driver = sol if _quote_is_sol_or_stable(pool) else None
     _publish(
@@ -2709,24 +2773,425 @@ def _account_bytes(info: dict) -> bytes | None:
     return None
 
 
-def _post_rpc(http: str, body: bytes, timeout: float) -> dict | None:
+def _post_rpc(http: str, body: bytes, timeout: float) -> dict | list | None:
     try:
         req = Request(http, data=body, headers={"Content-Type": "application/json", "User-Agent": "nunu-filter-paper/1.0"})
         with urlopen(req, timeout=timeout) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
     except HTTPError as exc:
-        if getattr(exc, "code", None) == 429:
+        detail = ""
+        try:
+            detail = exc.read().decode("utf-8", "replace")[:400]
+        except Exception:
+            detail = ""
+        if getattr(exc, "code", None) == 429 or _rpc_error_limited({"code": getattr(exc, "code", None), "message": detail}):
             _note_rate_limit(http)
         return None
     except URLError as exc:
-        if "429" in str(exc):
+        if _is_rate_limit(str(exc)):
             _note_rate_limit(http)
         return None
     except Exception as exc:
-        if "429" in str(exc):
+        if _is_rate_limit(str(exc)):
             _note_rate_limit(http)
         return None
-    return payload if isinstance(payload, dict) else None
+    if isinstance(payload, dict):
+        if _rpc_error_limited(payload.get("error")):
+            _note_rate_limit(http)
+        return payload
+    if isinstance(payload, list):
+        for item in payload:
+            if isinstance(item, dict) and _rpc_error_limited(item.get("error")):
+                _note_rate_limit(http)
+                break
+        return payload
+    return None
+
+
+def _rate_limits_now() -> int:
+    with _guard:
+        return int(_rate_limits)
+
+
+def _rpc_batch(http: str, calls: list[tuple[str, list]], timeout: float = 4.0) -> tuple[list, bool]:
+    """One HTTP request for many JSON-RPC calls. (results, rate_limited)."""
+    if not calls:
+        return [], False
+    before = _rate_limits_now()
+    body = json.dumps([
+        {"jsonrpc": "2.0", "id": i, "method": method, "params": params}
+        for i, (method, params) in enumerate(calls)
+    ]).encode("utf-8")
+    payload = _post_rpc(http, body, timeout)
+    limited = _rate_limits_now() > before
+    out: list = [None] * len(calls)
+    if isinstance(payload, dict):
+        return out, limited or _rpc_error_limited(payload.get("error"))
+    if not isinstance(payload, list):
+        return out, limited
+    by_id: dict[int, dict] = {}
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        try:
+            by_id[int(item.get("id"))] = item
+        except (TypeError, ValueError):
+            continue
+    for i in range(len(calls)):
+        item = by_id.get(i)
+        if not isinstance(item, dict) or item.get("error") or "result" not in item:
+            continue
+        out[i] = item.get("result")
+    return out, limited
+
+
+def _chain_swap_missing(mint: str) -> bool:
+    """True when a signature pass found no swap and none has arrived since."""
+    with _guard:
+        if mint not in _chain_empty:
+            return False
+        return not (_pairs.get(mint) or {}).get("pool_swap")
+
+
+def _note_logs_priced(addr: str) -> None:
+    if not addr:
+        return
+    with _guard:
+        _logs_priced[addr] = time.monotonic()
+
+
+def _baseline_due_unlocked(mint: str, pool: dict | None, now: float) -> bool:
+    """Caller holds ``_guard``. Unconfirmed, and the logs feed is missing or silent."""
+    if not pool or pool.get("kind") != "pumpswap":
+        return False
+    addr = str(pool.get("address") or "")
+    if not addr or mint in _chain_inflight:
+        return False
+    seen = _seen.get(mint)
+    px = _last_px.get(mint)
+    if seen is not None and px and float(px) > 0:
+        return False
+    subs = _ws.get("subscriptions") or {}
+    if f"logs:{addr}" in subs and addr in _logs_priced:
+        return False
+    last = _chain_at.get(mint)
+    if last is not None and now - float(last) < SIG_RECHECK_S:
+        return False
+    return True
+
+
+def _take_due_baselines(mints: list[str]) -> list[dict]:
+    now = time.monotonic()
+    due: list[dict] = []
+    with _guard:
+        for mint in mints:
+            pool = _pools.get(mint)
+            if not _baseline_due_unlocked(mint, pool, now):
+                continue
+            _chain_at[mint] = now
+            _chain_inflight.add(mint)
+            due.append(dict(pool))
+    return due
+
+
+def _finish_due_baselines(pools: list[dict]) -> None:
+    with _guard:
+        for pool in pools:
+            _chain_inflight.discard(str(pool.get("mint") or ""))
+
+
+def _mark_chain_empty(mint: str) -> None:
+    with _guard:
+        _chain_empty.add(mint)
+        _chain_tries.pop(mint, None)
+
+
+def _mark_chain_retry(mint: str, limited: bool) -> None:
+    """A soft miss retries on the next poll. A rate limit waits the full 10s."""
+    with _guard:
+        tries = _chain_tries.get(mint, 0) + 1
+        _chain_tries[mint] = tries
+        if not limited and tries <= 2:
+            _chain_at.pop(mint, None)
+
+
+def _logs_have_pool_swap(logs, pool: dict) -> bool:
+    addr = str(pool.get("address") or "")
+    if not isinstance(logs, list) or not addr:
+        return False
+    for line in logs:
+        if not isinstance(line, str) or not line.startswith("Program data:"):
+            continue
+        b64 = line.split("Program data:", 1)[1].strip()
+        try:
+            raw = base64.b64decode(b64)
+        except Exception:
+            continue
+        if len(raw) < 8 or raw[:8] not in (BUY_EVENT_DISC, SELL_EVENT_DISC):
+            continue
+        pool_pk = _event_pool(raw[8:])
+        if pool_pk and pool_pk == addr:
+            return True
+    return False
+
+
+def _tx_account_keys(tx: dict) -> list[str]:
+    msg = (tx.get("transaction") or {}).get("message") or {}
+    keys: list[str] = []
+    for key in msg.get("accountKeys") or []:
+        if isinstance(key, str):
+            keys.append(key)
+        elif isinstance(key, dict):
+            keys.append(str(key.get("pubkey") or ""))
+        else:
+            keys.append("")
+    loaded = (tx.get("meta") or {}).get("loadedAddresses") or {}
+    for key in list(loaded.get("writable") or []) + list(loaded.get("readonly") or []):
+        keys.append(str(key))
+    return keys
+
+
+def _tx_vault_amounts(tx: dict, pool: dict) -> tuple[int | None, int | None]:
+    """Post-trade raw balances of the pool vaults. None when the tx does not carry them."""
+    keys = _tx_account_keys(tx)
+    want = {
+        "base": str(pool.get("base_vault") or ""),
+        "quote": str(pool.get("quote_vault") or ""),
+    }
+    found: dict[str, int] = {}
+    balances = (tx.get("meta") or {}).get("postTokenBalances") or []
+    for side, vault in want.items():
+        if not vault or vault not in keys:
+            continue
+        idx = keys.index(vault)
+        for row in balances:
+            if not isinstance(row, dict) or row.get("accountIndex") != idx:
+                continue
+            token = row.get("uiTokenAmount") or {}
+            try:
+                found[side] = int(token.get("amount"))
+            except (TypeError, ValueError):
+                continue
+            break
+    return found.get("base"), found.get("quote")
+
+
+def _swap_post_usd(http: str, tx: dict, pool: dict) -> tuple[str, float]:
+    """('px', usd), ('not_swap', 0), ('retry', 0), or ('skip', 0).
+
+    The price is the post-trade vault state, plus virtual quote, times the
+    quote's USD. That matches the live vault when nothing has traded since,
+    including when the swap itself is minutes or hours old. The executed fill
+    is the fallback when the transaction does not carry the vault balances.
+    """
+    if not isinstance(tx, dict):
+        return "skip", 0.0
+    meta = tx.get("meta") or {}
+    if meta.get("err"):
+        return "not_swap", 0.0
+    logs = meta.get("logMessages") or []
+    if not _logs_have_pool_swap(logs, pool):
+        return "not_swap", 0.0
+    sol = anchor_price(SOL_MINT, max_age=60.0)
+    if sol is None or sol <= 0:
+        return "retry", 0.0
+    extra = _extra_for_pool(pool, sol, http)
+    if extra is None and not _quote_is_sol_or_stable(pool):
+        return "retry", 0.0
+    # The kick-time copy may still say 6. The vault read learns the real
+    # mint decimals, and this price has to use those or the two will not agree.
+    base_dec = mint_decimals(http, str(pool.get("base_mint") or ""))
+    quote_dec = mint_decimals(http, str(pool.get("quote_mint") or ""))
+    if base_dec is None:
+        base_dec = pool.get("base_dec")
+    if quote_dec is None:
+        quote_dec = pool.get("quote_dec")
+    try:
+        base_dec_i = int(base_dec)
+        quote_dec_i = int(quote_dec)
+    except (TypeError, ValueError):
+        return "retry", 0.0
+    base_raw, quote_raw = _tx_vault_amounts(tx, pool)
+    px = None
+    if base_raw and quote_raw and base_raw > 0 and quote_raw > 0:
+        px = pumpswap_mid_usd(
+            base_raw,
+            base_dec_i,
+            quote_raw,
+            quote_dec_i,
+            str(pool.get("base_mint") or ""),
+            str(pool.get("quote_mint") or ""),
+            str(pool.get("mint") or ""),
+            sol,
+            int(pool.get("virtual_quote") or 0),
+            extra,
+        )
+    if not px or px <= 0:
+        px = price_from_program_logs(logs, pool, sol, extra)
+    if px and px > 0:
+        return "px", float(px)
+    return "retry", 0.0
+
+
+def _fetch_transaction(http: str, signature: str) -> tuple[str, dict | None]:
+    """('tx', body), ('missing', None), ('fail', None), or ('limited', None).
+
+    getTransaction is one call, not a batch. Public RPC answers 400 to a batch
+    of them, and that 400 is not a reason to treat the pool as swap-less.
+    """
+    before = _rate_limits_now()
+    body = json.dumps({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "getTransaction",
+        "params": [signature, {
+            "encoding": "json",
+            "commitment": "confirmed",
+            "maxSupportedTransactionVersion": 1,
+        }],
+    }).encode("utf-8")
+    payload = _post_rpc(http, body, 6.0)
+    limited = _rate_limits_now() > before
+    if isinstance(payload, dict) and _rpc_error_limited(payload.get("error")):
+        limited = True
+    if limited and (not isinstance(payload, dict) or payload.get("error")):
+        return "limited", None
+    if not isinstance(payload, dict) or payload.get("error") or "result" not in payload:
+        return "fail", None
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        return "missing", None
+    return "tx", result
+
+
+def _confirm_chain_baselines(http: str, pools: list[dict]) -> None:
+    """Decode the newest swap for each due pool. Signatures share one HTTP call."""
+    if not pools:
+        return
+    sig_calls = [
+        (
+            "getSignaturesForAddress",
+            [str(pool.get("address") or ""), {"limit": SIG_LOOKBACK, "commitment": "confirmed"}],
+        )
+        for pool in pools
+    ]
+    sig_rows, limited = _rpc_batch(http, sig_calls, 4.0)
+    if limited and all(row is None for row in sig_rows):
+        for pool in pools:
+            _mark_chain_retry(str(pool.get("mint") or ""), True)
+        return
+    pending: dict[str, list[str]] = {}
+    by_mint = {str(pool.get("mint") or ""): pool for pool in pools}
+    for pool, row in zip(pools, sig_rows):
+        mint = str(pool.get("mint") or "")
+        if row is None:
+            _mark_chain_retry(mint, limited)
+            continue
+        if not isinstance(row, list):
+            _mark_chain_retry(mint, limited)
+            continue
+        sigs: list[str] = []
+        for item in row:
+            if not isinstance(item, dict) or item.get("err"):
+                continue
+            sig = str(item.get("signature") or "")
+            if sig:
+                sigs.append(sig)
+        if not sigs:
+            _mark_chain_empty(mint)
+            continue
+        pending[mint] = sigs
+    saw_swap: set[str] = set()
+    failed: set[str] = set()
+    for step in range(SIG_LOOKBACK):
+        order = [(mint, sigs[step]) for mint, sigs in pending.items() if step < len(sigs)]
+        if not order:
+            break
+        fetched: dict[str, tuple[str, dict | None]] = {}
+        # A few at a time. A batch of getTransaction is a 400 on the public RPC.
+        workers = min(4, len(order))
+        if workers <= 1:
+            for mint, sig in order:
+                fetched[mint] = _fetch_transaction(http, sig)
+        else:
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futs = {pool.submit(_fetch_transaction, http, sig): mint for mint, sig in order}
+                for fut, mint in futs.items():
+                    try:
+                        fetched[mint] = fut.result()
+                    except Exception:
+                        fetched[mint] = ("fail", None)
+        for mint, sig in order:
+            status, tx = fetched.get(mint, ("fail", None))
+            pool = by_mint.get(mint) or {}
+            if status in ("limited", "fail"):
+                _mark_chain_retry(mint, status == "limited")
+                pending.pop(mint, None)
+                failed.add(mint)
+                continue
+            if status != "tx" or not isinstance(tx, dict):
+                continue
+            kind, px = _swap_post_usd(http, tx, pool)
+            if kind in ("not_swap", "skip"):
+                continue
+            if kind == "retry":
+                saw_swap.add(mint)
+                _mark_chain_retry(mint, False)
+                pending.pop(mint, None)
+                continue
+            with _guard:
+                _chain_empty.discard(mint)
+                _chain_tries.pop(mint, None)
+            sol = anchor_price(SOL_MINT, max_age=60.0)
+            sol_driver = sol if _quote_is_sol_or_stable(pool) else None
+            ingest_swap(
+                mint,
+                px,
+                signature=sig,
+                source="pool_swap",
+                sol=sol_driver,
+            )
+            print(f"[trade-stream] sig baseline {mint} px={px}", flush=True)
+            pending.pop(mint, None)
+    for mint in list(pending):
+        if mint in saw_swap or mint in failed:
+            continue
+        _mark_chain_empty(mint)
+
+
+def _chain_baseline_thread(http: str, pools: list[dict]) -> None:
+    try:
+        _confirm_chain_baselines(http, pools)
+    except Exception as exc:
+        print(f"[trade-stream] chain baseline failed ({exc})", flush=True)
+    finally:
+        _finish_due_baselines(pools)
+
+
+def _run_chain_baselines(http: str, mints: list[str]) -> None:
+    """Synchronous baseline pass. Tests call this. The live loop uses the thread."""
+    due = _take_due_baselines(mints)
+    if not due:
+        return
+    try:
+        _confirm_chain_baselines(http, due)
+    finally:
+        _finish_due_baselines(due)
+
+
+def _kick_chain_baselines(http: str, mints: list[str]) -> None:
+    """Start the signature fetch immediately. Does not wait for the vault read."""
+    if _under_test() and os.environ.get("NUNU_CHAIN_BASELINE") != "1":
+        return
+    due = _take_due_baselines(mints)
+    if not due:
+        return
+    threading.Thread(
+        target=_chain_baseline_thread,
+        args=(http, due),
+        name="trade-baseline",
+        daemon=True,
+    ).start()
 
 
 def _account_info(http: str, addr: str) -> dict | None:
