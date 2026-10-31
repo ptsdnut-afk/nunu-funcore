@@ -1,4 +1,4 @@
-"""SHIP X — coin checklist verdicts (AC-X01…X06) and panel_v 89.
+"""SHIP X — coin checklist verdicts (AC-X01…X06) and panel_v 90.
 
 Unknown is not a pass. Bands live in VERDICT_BANDS so a later 10-row sheet
 can retune them without hunting through the UI. The API verdict name is the
@@ -292,7 +292,7 @@ class CacheAndApiTests(unittest.TestCase):
 
     def test_health_and_checklist_route_expose_the_verdict_name(self):
         health = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(health["panel_v"], 89)
+        self.assertEqual(health["panel_v"], 90)
         self.assertIn("qa_stale", health)
         self.assertIn("live_tick", health["features"])
         self.assertIn("coin_checklist", health["features"])
