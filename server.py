@@ -259,7 +259,7 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 94,
+            "panel_v": 95,
             "time": _utc(),
             "qa_tick": "page ?qa_tick=both|up|down",
             "qa_end": "page ?qa_end=1 (one-shot) or POST /api/game/end",
@@ -344,7 +344,11 @@ def api_health():
                 "The hold is at most 3.0s from hold start. At that deadline the held price "
                 "publishes only if a swap and a vault (or two independent on-chain reads) agree "
                 "within 5%. Otherwise the coin is stale: Buy, Sell, and a new stop stay blocked, "
-                "and an open stop is not filled at the unconfirmed price. A real crash whose reads "
+                "and an open stop is not filled at an unconfirmed price. When the executed swap and the "
+                "vault disagree by more than 5%, the coin is stale immediately and Buy is refused. "
+                "The stop still fills at that non-dust executed swap when both legs are below it, or "
+                "when that swap is below it. A quiet vault with no disagreeing swap keeps the last "
+                "confirmed price fresh. A real crash whose reads "
                 "agree still publishes within 3s. A one-off bounce is rejected when a later read "
                 "disagrees. A dust buy of a few lamports is not a price; the mark stays on the "
                 "effective reserves. "
@@ -419,7 +423,7 @@ def api_gold():
     return jsonify(
         {
             "ok": True,
-            "panel_v": 94,
+            "panel_v": 95,
             "feature": "gold_scar",
             "count": len(picks),
             "empty_ok": True,
@@ -874,11 +878,16 @@ def api_game_tick():
     trade_stream.note_view(mint)
     tick = game_mod.fetch_live_tick(mint)
     if not isinstance(tick, dict):
+        reason = "no_baseline" if trade_stream.awaiting_baseline(mint) else "cold"
         return jsonify({
             "ok": False,
             "mint": mint,
+            "price_usd": None,
             "quote_live": False,
-            "stale": False,
+            "stale": True,
+            "stale_label": "STALE",
+            "stale_reason": reason,
+            "driver": reason,
             "quote_sla_s": game_mod.QUOTE_FRESH_SLA_S,
             "error": "no price",
         })
@@ -891,8 +900,17 @@ def api_game_tick():
         px_ok = px is not None and float(px) > 0
     except (TypeError, ValueError):
         px_ok = False
+    # A missing price is never a live tick. Cold and no-baseline say why.
+    missing_reason = ""
+    if not px_ok:
+        stale = True
+        if trade_stream.awaiting_baseline(mint) or tick.get("stale_reason") == "no_baseline":
+            missing_reason = "no_baseline"
+        else:
+            missing_reason = "cold"
+        px = None
     body = {
-        "ok": True,
+        "ok": True if px_ok else False,
         "mint": mint,
         "price_usd": px,
         "price_ts": tick.get("price_ts"),
@@ -903,13 +921,18 @@ def api_game_tick():
         "quote_sla_s": sla,
         "source": tick.get("source"),
         "src": tick.get("src") or game_mod.public_src(tick.get("source")),
-        "driver": tick.get("driver") or "swap",
+        "driver": missing_reason or tick.get("driver") or "swap",
         "fetched_at": tick.get("fetched_at") or tick.get("price_ts"),
         "trade_ts": tick.get("trade_ts") or tick.get("price_ts"),
         "render_ts": tick.get("render_ts") or _utc(),
         "stale": stale,
-        "stale_label": ("stale %ss" % int(round(float(age)))) if stale else "",
+        "stale_label": (
+            "STALE" if missing_reason else (("stale %ss" % int(round(float(age)))) if stale and age is not None else ("STALE" if stale else ""))
+        ),
     }
+    if missing_reason:
+        body["stale_reason"] = missing_reason
+        body["error"] = "no price"
     if tick.get("qa_tick"):
         body["qa_tick"] = tick.get("qa_tick")
         body["qa_walk_drop"] = tick.get("qa_walk_drop")

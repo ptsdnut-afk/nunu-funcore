@@ -68,7 +68,7 @@ class LiveTickCacheTests(unittest.TestCase):
         self.assertEqual(second["price_usd"], first["price_usd"])
         self.assertEqual(second["price_ts"], first["price_ts"])
         self.assertLessEqual(second["quote_age_s"], game.LIVE_TICK_TTL_S)
-        self.assertEqual(first["source"], "jupiter")
+        self.assertEqual(first["source"], "jupiter_fallback")
 
     def test_stale_cache_is_not_a_live_fill_and_backoff_skips_upstream(self):
         game._live_cache[MINT] = (
@@ -117,7 +117,7 @@ class LiveTickCacheTests(unittest.TestCase):
             tick = game.fetch_live_tick(MINT, bypass_cache=True)
         self.assertTrue(game.fillable_tick(tick))
         self.assertAlmostEqual(tick["price_usd"], 0.000737)
-        self.assertEqual(tick["source"], "jupiter")
+        self.assertEqual(tick["source"], "jupiter_fallback")
         dex = 0.000737
         gap = abs(tick["price_usd"] - dex) / dex
         self.assertLess(gap, 0.02)
@@ -157,7 +157,7 @@ class LiveTickCacheTests(unittest.TestCase):
         self.assertGreater(walked["qa_walk_drop"], 0.25)
         self.assertEqual(walked["source"], "qa_tick")
         self.assertEqual(game._live_cache[MINT][1]["price_usd"], 1.0)
-        self.assertEqual(other["source"], "jupiter")
+        self.assertEqual(other["source"], "jupiter_fallback")
         self.assertAlmostEqual(other["price_usd"], 1.0)
 
     def test_same_price_one_second_polls_stay_under_two_seconds(self):
@@ -453,9 +453,9 @@ class TradeFillTests(unittest.TestCase):
         self.assertEqual(held["closed"][0]["close_reason"], "stop")
         self.assertLessEqual(held["closed"][0]["pnl_pct"], -20.0)
         self.assertEqual(game._live_cache[MINT][1]["price_usd"], 1.0)
-        self.assertEqual(game._live_cache[MINT][1]["source"], "jupiter")
+        self.assertEqual(game._live_cache[MINT][1]["source"], "jupiter_fallback")
         self.assertAlmostEqual(other["price_usd"], 1.0)
-        self.assertEqual(other["source"], "jupiter")
+        self.assertEqual(other["source"], "jupiter_fallback")
 
     def test_one_request_id_opens_one_position(self):
         dex = {"symbol": "NVD", "name": "Nvidia", "price_usd": 0.000112, "pair_url": "https://dexscreener.com/solana/x"}
@@ -534,7 +534,7 @@ class TradeFillTests(unittest.TestCase):
 class HealthAndChartTests(unittest.TestCase):
     def test_health_is_v82_with_live_tick_and_a_five_second_sla(self):
         data = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 94)
+        self.assertEqual(data["panel_v"], 95)
         self.assertIn("live_tick", data["features"])
         self.assertLessEqual(data["quote_sla_s"], 5.0)
         self.assertEqual(data["quote_sla_s"], 5.0)
@@ -736,7 +736,7 @@ class ShipW3Tests(unittest.TestCase):
             sold = game.sell("pos1")
         self.assertEqual(walked["source"], "qa_tick")
         self.assertLessEqual(walked["price_usd"], 0.75)
-        self.assertEqual(real["source"], "jupiter")
+        self.assertEqual(real["source"], "jupiter_fallback")
         self.assertAlmostEqual(real["price_usd"], 1.0)
         self.assertEqual(len(held["positions"]), 1)
         self.assertAlmostEqual(sold["state"]["closed"][0]["exit_price_usd"], 1.0)
@@ -754,7 +754,7 @@ class ShipW3Tests(unittest.TestCase):
             return _jup(1.0)
         with mock.patch.object(game, "_http_json", side_effect=priced):
             other = game.fetch_live_tick(OTHER, qa_sid="only-one")
-        self.assertEqual(other["source"], "jupiter")
+        self.assertEqual(other["source"], "jupiter_fallback")
         self.assertNotEqual(other.get("qa_tick"), "down")
 
     def test_w21_off_up_and_zero_clear_the_walk(self):
@@ -820,11 +820,11 @@ class ShipW3Tests(unittest.TestCase):
             after = a.get("/api/game/tick?mint=" + MINT)
         self.assertEqual(walked.get_json()["source"], "qa_tick")
         self.assertLessEqual(walked.get_json()["price_usd"], 0.75)
-        self.assertEqual(game._live_cache[MINT][1]["source"], "jupiter")
+        self.assertEqual(game._live_cache[MINT][1]["source"], "jupiter_fallback")
         self.assertAlmostEqual(game._live_cache[MINT][1]["price_usd"], 1.0)
         self.assertNotEqual(id(game._live_cache[MINT][1]), id(walked.get_json()))
         body_b = fresh.get_json()
-        self.assertEqual(body_b["source"], "jupiter")
+        self.assertEqual(body_b["source"], "jupiter_fallback")
         self.assertAlmostEqual(body_b["price_usd"], 1.0)
         self.assertNotEqual(body_b.get("qa_tick"), "down")
         self.assertLess(time.time() - game._live_cache[MINT][0], 1.0)
@@ -835,11 +835,11 @@ class ShipW3Tests(unittest.TestCase):
         self.assertIn("Max-Age=0", off_cookie)
         self.assertNotIn(sid, game._qa_walks)
         off_body = off.get_json()
-        self.assertEqual(off_body["source"], "jupiter")
+        self.assertEqual(off_body["source"], "jupiter_fallback")
         self.assertAlmostEqual(off_body["price_usd"], 1.0)
         self.assertNotEqual(off_body.get("source"), "qa_tick")
         after_body = after.get_json()
-        self.assertEqual(after_body["source"], "jupiter")
+        self.assertEqual(after_body["source"], "jupiter_fallback")
         self.assertAlmostEqual(after_body["price_usd"], 1.0)
 
     def test_w25_cold_quote_is_stale_not_no_fresh_price(self):
@@ -864,7 +864,7 @@ class ShipW3Tests(unittest.TestCase):
         self.assertTrue(game.fillable_tick(tick))
         self.assertLess(tick["quote_age_s"], 1.0)
         self.assertAlmostEqual(tick["price_usd"], 1.25)
-        self.assertEqual(tick["source"], "jupiter")
+        self.assertEqual(tick["source"], "jupiter_fallback")
 
     def test_stream_serves_a_swap_and_falls_back_after_silence(self):
         import trade_stream
@@ -1061,7 +1061,7 @@ class ShipW3Tests(unittest.TestCase):
 
     def test_health_documents_the_stream_and_panel_87(self):
         data = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 94)
+        self.assertEqual(data["panel_v"], 95)
         self.assertIn("trade_stream", data["features"])
         self.assertIn("stream", data["live_tick"])
         self.assertIn("PumpPortal", data["live_tick"])
@@ -1073,7 +1073,7 @@ class ShipW3Tests(unittest.TestCase):
 
     def test_w20_w22_w23_w26_w27_w28_panel_contract(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
-        self.assertIn("const PANEL_V = 94", html)
+        self.assertIn("const PANEL_V = 95", html)
         self.assertIn("paintPanelVersion", html)
         self.assertIn("data-panel-v", html)
         pure = html[html.index("/* ship-w-pure-start */"):html.index("/* ship-w-pure-end */")]
@@ -1114,6 +1114,14 @@ const rows = tickLogLines([{ mint: "A", line: "a" }, { mint: "B", line: "b" }], 
 if (rows.length !== 1 || rows[0].mint !== "A") process.exit(24);
 if (sellAllStaleToast(true) !== "Price stale — can't sell yet") process.exit(25);
 if (sellAllStaleToast(false) !== "") process.exit(26);
+if (buyEnabledOnTick({ price_usd: null, stale: false })) process.exit(28);
+if (buyEnabledOnTick({ stale: false })) process.exit(29);
+if (buyEnabledOnTick({ price_usd: 1, stale: false }) !== true) process.exit(30);
+if (buyEnabledOnTick({ price_usd: 1, stale: true })) process.exit(31);
+if (buyEnabledOnTick(null)) process.exit(32);
+if (tickDriver({ driver: "jupiter_fallback", source: "jupiter_fallback" }) !== "jupiter_fallback") process.exit(33);
+if (tickDriver({ driver: "cold" }) !== "cold") process.exit(34);
+if (tickPriceMissing({ price_usd: null, stale: false }) !== true) process.exit(35);
 """
         proc = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=False)
         self.assertEqual(proc.returncode, 0, proc.stderr or proc.stdout)
@@ -1122,6 +1130,8 @@ if (sellAllStaleToast(false) !== "") process.exit(26);
         self.assertIn("body.mode-game .game-wrap { grid-template-columns: minmax(0, 1fr); }", html)
         self.assertIn("Price stale — can't sell yet", html)
         self.assertIn("tickDebugByMint", html)
+        self.assertIn("function buyEnabledOnTick", html)
+        self.assertIn("sl.disabled = !!block", html)
 
 
 class ShipW6Tests(unittest.TestCase):
@@ -2562,7 +2572,8 @@ class ShipW94Tests(unittest.TestCase):
         self.assertLess(row["agree"], 0.05)
         self.assertFalse(row.get("stale"))
 
-    def test_open_stop_does_not_fire_on_the_unconfirmed_price(self):
+    def test_stop_fills_at_the_executed_swap_when_the_vault_is_flat(self):
+        """Case (b): swap is below the stop, vault is flat. Fill at the swap, not the stop level."""
         import trade_stream
         entry = 1.0
         tmp = tempfile.TemporaryDirectory()
@@ -2578,14 +2589,29 @@ class ShipW94Tests(unittest.TestCase):
         trade_stream.reset_for_tests()
         game._live_cache.clear()
         self.assertEqual(trade_stream.ingest_swap(MINT, entry, seed_ok=True, source="pool_vault"), "ok")
+        started = time.time()
         self.assertEqual(
-            trade_stream.ingest_swap(MINT, 0.06, source="pool_swap", signature="dump"),
+            trade_stream.ingest_swap(
+                MINT, 0.06, source="pool_swap", signature="dump", executed=True,
+            ),
             "spike",
         )
-        trade_stream._release_hold(MINT, trade_stream._hold_gen.get(MINT, 0))
+        self.assertTrue(trade_stream.legs_disagree(MINT))
+        held = game.fetch_live_tick(MINT, apply_qa=False)
+        self.assertFalse(game.fillable_tick(held))
+        self.assertTrue(held.get("stale") or held.get("quote_age_s", 0) > game.QUOTE_FRESH_SLA_S)
+        refused = game.buy(MINT, 1.0, sl_pct=20)
+        self.assertFalse(refused["ok"], refused)
         st = game.tick_session()
-        self.assertEqual(len(st["positions"]), 1)
-        self.assertEqual(st["positions"][0]["close_reason"] if False else st["closed"], [])
+        self.assertLess(time.time() - started, 10.0)
+        self.assertEqual(st["positions"], [])
+        closed = st["closed"][0]
+        self.assertEqual(closed["close_reason"], "stop")
+        self.assertAlmostEqual(closed["exit_price_usd"], 0.06)
+        self.assertNotAlmostEqual(closed["exit_price_usd"], game.stop_fill_price(entry, 0.06, 20))
+        self.assertIn("last executed swap", closed.get("fill_label") or "")
+        self.assertTrue(any("last executed swap" in (ev.get("msg") or "") for ev in st["events"]))
+        self.assertAlmostEqual(game._live_cache[MINT][1]["price_usd"], entry)
 
     def test_agenc_recorded_swap_and_vault_match_the_size_bearing_fill(self):
         """Pool ABF43s. Dust user-quote is not the price. A real buy is."""
@@ -2666,6 +2692,306 @@ class ShipW94Tests(unittest.TestCase):
         self.assertIn("displayed_price", html)
         self.assertIn("fill_price_usd", html)
         self.assertIn('toast("Bought " + sym + " $" + stake + " @ " + fillTxt)', html)
+
+
+class ShipW95Tests(unittest.TestCase):
+    """Null ticks are stale, crash stops fill at the executed swap, quiet vaults stay fresh."""
+
+    def setUp(self):
+        import trade_stream
+        game._live_cache.clear()
+        game._live_backoff_until.clear()
+        game._live_backoff_s.clear()
+        game._qa_walks.clear()
+        game.set_qa_walk_sid(None)
+        game.set_client_sid(None)
+        trade_stream.reset_for_tests()
+
+    def tearDown(self):
+        import trade_stream
+        game._live_cache.clear()
+        game._qa_walks.clear()
+        game.set_qa_walk_sid(None)
+        game.set_client_sid(None)
+        trade_stream.reset_for_tests()
+
+    def _book(self, rows):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        patch = mock.patch.object(game, "STATE_PATH", Path(tmp.name) / "state.json")
+        patch.start()
+        self.addCleanup(patch.stop)
+        now = datetime.now(timezone.utc)
+        game.save_state({
+            "session_id": "w95",
+            "status": "active",
+            "started_at": _utc(now - timedelta(hours=1)),
+            "ends_at": _utc(now + timedelta(hours=20)),
+            "cash_usd": 5.0,
+            "start_bankroll": 5.0,
+            "peak_equity": 5.0,
+            "positions": rows,
+            "closed": [],
+            "events": [],
+        })
+
+    def test_null_tick_is_stale_and_buy_stays_off(self):
+        body = None
+        with mock.patch.object(game, "fetch_live_tick", return_value=None):
+            body = server.app.test_client().get("/api/game/tick?mint=" + MINT).get_json()
+        self.assertIsNone(body["price_usd"])
+        self.assertTrue(body["stale"])
+        self.assertFalse(body["quote_live"])
+        self.assertEqual(body["stale_label"], "STALE")
+        self.assertEqual(body["stale_reason"], "cold")
+        self.assertEqual(body["driver"], "cold")
+        lied = {
+            "mint": MINT,
+            "price_usd": None,
+            "quote_live": True,
+            "quote_age_s": 0.4,
+            "driver": "swap",
+            "source": "jupiter",
+        }
+        with mock.patch.object(game, "fetch_live_tick", return_value=lied):
+            lied_body = server.app.test_client().get("/api/game/tick?mint=" + MINT).get_json()
+        self.assertTrue(lied_body["stale"])
+        self.assertEqual(lied_body["stale_label"], "STALE")
+        self.assertEqual(lied_body["driver"], "cold")
+        self.assertIsNone(lied_body["price_usd"])
+        self._book([])
+        game.start_session(force=True)
+        with mock.patch.object(game, "fetch_live_tick", return_value=lied), \
+             mock.patch.object(game, "fetch_dex_token", return_value={"symbol": "COLD"}):
+            refused = game.buy(MINT, 1.0, sl_pct=20)
+        self.assertFalse(refused["ok"], refused)
+        self.assertEqual(refused["state"]["positions"], [])
+        self.assertFalse(game.fillable_tick({"price_usd": None, "quote_live": True, "quote_age_s": 0.2}))
+        self.assertFalse(game.fillable_tick(None))
+
+    def test_cold_jupiter_tick_is_labeled_fallback(self):
+        with mock.patch.object(game, "_http_json", return_value=_jup(0.42)):
+            tick = game.fetch_live_tick(MINT, apply_qa=False)
+            body = server.app.test_client().get("/api/game/tick?mint=" + MINT).get_json()
+        self.assertEqual(tick["source"], "jupiter_fallback")
+        self.assertEqual(tick["driver"], "jupiter_fallback")
+        self.assertEqual(body["source"], "jupiter_fallback")
+        self.assertEqual(body["driver"], "jupiter_fallback")
+        self.assertEqual(body["src"], "jupiter_fallback")
+        self.assertAlmostEqual(body["price_usd"], 0.42)
+
+    def test_both_legs_below_fill_at_the_executed_swap_within_3s(self):
+        import trade_stream
+        now = datetime.now(timezone.utc)
+        opened = _utc(now - timedelta(minutes=1))
+        self._book([{
+            "id": "pos-a",
+            "mint": MINT,
+            "symbol": "CRASH",
+            "stake_usd": 1.0,
+            "entry_price_usd": 1.0,
+            "qty_tokens": 1.0,
+            "last_price_usd": 1.0,
+            "opened_at": opened,
+            "sl_pct": 20,
+            "tp_pct": 100,
+            "client_id": "client-a",
+        }])
+        self.assertEqual(trade_stream.ingest_swap(MINT, 1.0, seed_ok=True, source="pool_vault"), "ok")
+        started = time.time()
+        self.assertEqual(
+            trade_stream.ingest_swap(MINT, 0.70, source="pool_swap", signature="swap", executed=True),
+            "spike",
+        )
+        self.assertEqual(
+            trade_stream.ingest_swap(MINT, 0.60, source="pool_vault", signature="vault"),
+            "spike",
+        )
+        st = game.tick_session()
+        self.assertLess(time.time() - started, 3.0)
+        self.assertEqual(st["positions"], [])
+        closed = st["closed"][0]
+        self.assertEqual(closed["close_reason"], "stop")
+        self.assertAlmostEqual(closed["exit_price_usd"], 0.70)
+        self.assertNotAlmostEqual(closed["exit_price_usd"], game.stop_fill_price(1.0, 0.70, 20))
+        self.assertIn("last executed swap", closed.get("fill_label") or "")
+        self.assertFalse(game.fillable_tick(game.fetch_live_tick(MINT, apply_qa=False)))
+        refused = game.buy(MINT, 1.0, sl_pct=20)
+        self.assertFalse(refused["ok"], refused)
+
+    def test_only_the_vault_below_fetches_the_executed_swap(self):
+        import trade_stream
+        now = datetime.now(timezone.utc)
+        opened = _utc(now - timedelta(minutes=1))
+        self._book([{
+            "id": "pos-b",
+            "mint": MINT,
+            "symbol": "ONE",
+            "stake_usd": 1.0,
+            "entry_price_usd": 1.0,
+            "qty_tokens": 1.0,
+            "last_price_usd": 1.0,
+            "opened_at": opened,
+            "sl_pct": 20,
+            "client_id": "client-b",
+        }])
+        pool = {
+            "mint": MINT,
+            "kind": "pumpswap",
+            "address": _pk(801),
+            "base_mint": MINT,
+            "quote_mint": trade_stream.SOL_MINT,
+            "base_vault": _pk(802),
+            "quote_vault": _pk(803),
+            "base_dec": 6,
+            "quote_dec": 9,
+            "virtual_quote": 0,
+        }
+        trade_stream._pools[MINT] = pool
+        trade_stream.note_anchor(trade_stream.SOL_MINT, 100.0, force=True)
+        self.assertEqual(trade_stream.ingest_swap(MINT, 1.0, seed_ok=True, source="pool_swap", executed=True), "ok")
+        # Vault alone is under the 0.80 stop. The stored fill is still 1.0.
+        self.assertEqual(trade_stream.ingest_swap(MINT, 0.70, source="pool_vault", signature="vault"), "spike")
+        self.assertAlmostEqual(trade_stream.latest_executed_swap(MINT), 1.0)
+        body = bytearray(160)
+        import base64
+        import os
+        import struct
+        struct.pack_into("<Q", body, 8, 1_000_000)
+        struct.pack_into("<Q", body, 104, 6_500_000)
+        body[112:144] = trade_stream.b58decode(pool["address"])
+        raw = trade_stream.BUY_EVENT_DISC + bytes(body)
+        line = "Program data: " + base64.b64encode(raw).decode()
+        tx = {
+            "meta": {"err": None, "logMessages": ["Program log: ignored", line], "postTokenBalances": []},
+            "transaction": {"message": {"accountKeys": ["payer"]}},
+        }
+        post, _calls = _batch_rpc([{"signature": "fill", "err": None}], tx)
+        started = time.time()
+        with mock.patch.dict(os.environ, {"NUNU_STOP_FETCH": "1"}), \
+             mock.patch.object(trade_stream, "_post_rpc", side_effect=post):
+            st = game.tick_session()
+        self.assertLess(time.time() - started, 10.0)
+        self.assertEqual(st["positions"], [])
+        self.assertAlmostEqual(st["closed"][0]["exit_price_usd"], 0.65, places=4)
+        self.assertIn("last executed swap", st["closed"][0].get("fill_label") or "")
+
+    def test_dust_fill_does_not_fire_a_stop(self):
+        import trade_stream
+        now = datetime.now(timezone.utc)
+        opened = _utc(now - timedelta(minutes=1))
+        self._book([{
+            "id": "pos-d",
+            "mint": MINT,
+            "symbol": "DUST",
+            "stake_usd": 1.0,
+            "entry_price_usd": 1.0,
+            "qty_tokens": 1.0,
+            "last_price_usd": 1.0,
+            "opened_at": opened,
+            "sl_pct": 20,
+            "client_id": "client-d",
+        }])
+        self.assertEqual(
+            trade_stream.ingest_swap(MINT, 1.0, seed_ok=True, source="pool_swap", executed=True),
+            "ok",
+        )
+        self.assertEqual(
+            trade_stream.ingest_swap(MINT, 0.70, source="pool_vault", signature="vault"),
+            "spike",
+        )
+        dust = trade_stream.ingest_swap(
+            MINT, 0.05, source="pool_swap", signature="dust", executed=True, quote_raw=50,
+        )
+        self.assertEqual(dust, "dust")
+        self.assertAlmostEqual(trade_stream.latest_executed_swap(MINT), 1.0)
+        st = game.tick_session()
+        self.assertEqual(len(st["positions"]), 1)
+        self.assertEqual(st["closed"], [])
+        self.assertFalse(trade_stream.note_executed_swap(MINT, 0.05, quote_raw=50))
+        self.assertAlmostEqual(trade_stream.latest_executed_swap(MINT), 1.0)
+
+    def test_one_sessions_stop_does_not_close_the_other(self):
+        import trade_stream
+        now = datetime.now(timezone.utc)
+        opened = _utc(now - timedelta(minutes=1))
+        other = "B" * 44
+
+        def row(pid, client, sl, mint=MINT):
+            return {
+                "id": pid,
+                "mint": mint,
+                "symbol": pid,
+                "stake_usd": 1.0,
+                "entry_price_usd": 1.0,
+                "qty_tokens": 1.0,
+                "last_price_usd": 1.0,
+                "opened_at": opened,
+                "sl_pct": sl,
+                "client_id": client,
+            }
+
+        self._book([
+            row("pos-a", "client-a", 20),
+            row("pos-b", "client-b", 80),
+            row("pos-c", "client-c", 20, other),
+        ])
+        self.assertEqual(trade_stream.ingest_swap(MINT, 1.0, seed_ok=True, source="pool_vault"), "ok")
+        trade_stream.ingest_swap(MINT, 0.70, source="pool_swap", signature="swap", executed=True)
+        trade_stream.ingest_swap(MINT, 0.60, source="pool_vault", signature="vault")
+        st = game.tick_session()
+        open_ids = [p["id"] for p in st["positions"]]
+        self.assertNotIn("pos-a", open_ids)
+        self.assertIn("pos-b", open_ids)
+        self.assertIn("pos-c", open_ids)
+        closed = next(p for p in st["closed"] if p["id"] == "pos-a")
+        self.assertAlmostEqual(closed["exit_price_usd"], 0.70)
+        self.assertEqual(closed["client_id"], "client-a")
+        self.assertFalse(any(p.get("id") == "pos-b" for p in st["closed"]))
+
+    def test_quiet_vault_echo_stays_fresh_and_agreement_still_publishes(self):
+        import trade_stream
+        self.assertEqual(trade_stream.ingest_swap(MINT, 1.0, seed_ok=True, source="pool_vault"), "ok")
+        trade_stream._seen[MINT] = time.time() - 30
+        game._live_cache[MINT] = (time.time() - 30, dict(game._live_cache[MINT][1]))
+        self.assertEqual(trade_stream.ingest_swap(MINT, 1.20, source="pool_vault", signature="blip"), "spike")
+        self.assertAlmostEqual(game._live_cache[MINT][1]["price_usd"], 1.0)
+        echo = trade_stream.ingest_swap(MINT, 1.0, source="pool_vault", signature="echo")
+        self.assertEqual(echo, "spike")
+        self.assertGreater(time.time() - trade_stream._seen[MINT], 5)
+        tick = game.fetch_live_tick(MINT, apply_qa=False)
+        self.assertTrue(game.fillable_tick(tick))
+        self.assertFalse(tick.get("stale"))
+        self.assertAlmostEqual(tick["price_usd"], 1.0)
+        # Two vault reads within 5% still publish a real move. The agreement rule stays.
+        trade_stream.reset_for_tests()
+        game._live_cache.clear()
+        self.assertEqual(trade_stream.ingest_swap(MINT, 1.0, seed_ok=True, source="pool_vault"), "ok")
+        self.assertEqual(trade_stream.ingest_swap(MINT, 0.80, source="pool_vault", signature="a"), "spike")
+        self.assertEqual(trade_stream.ingest_swap(MINT, 0.81, source="pool_vault", signature="b"), "ok")
+        self.assertAlmostEqual(game._live_cache[MINT][1]["price_usd"], 0.81)
+
+    def test_vault_move_with_a_flat_swap_refuses_buy(self):
+        import trade_stream
+        self._book([])
+        game.start_session(force=True)
+        self.assertEqual(
+            trade_stream.ingest_swap(MINT, 1.0, seed_ok=True, source="pool_swap", executed=True),
+            "ok",
+        )
+        with mock.patch.object(game, "fetch_dex_token", return_value={"symbol": "N", "name": "N"}), \
+             mock.patch.object(game, "_http_json", return_value=_jup(1.0)):
+            # The pool price is the fill. Jupiter must not sneak a buy through.
+            pass
+        self.assertEqual(
+            trade_stream.ingest_swap(MINT, 0.70, source="pool_vault", signature="vault"),
+            "spike",
+        )
+        self.assertTrue(trade_stream.legs_disagree(MINT))
+        with mock.patch.object(game, "fetch_dex_token", return_value={"symbol": "N", "name": "N"}):
+            refused = game.buy(MINT, 1.0, sl_pct=20)
+        self.assertFalse(refused["ok"], refused)
+        self.assertEqual(refused["state"]["positions"], [])
 
 
 if __name__ == "__main__":
