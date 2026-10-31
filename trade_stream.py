@@ -64,19 +64,24 @@ PumpSwap SOL pools because the AMM quotes against
 is 20 bps and protocol fee is 5 bps, so the fee schedule is not that gap.
 For 5 seconds after a fill the mark stays on that executed price. Between
 swaps the mark is the vault ratio plus virtual quote, which is the same
-correction. A move through 15% is held until a second independent read
-confirms it. That read publishes immediately: within 2%, or within 12%
-when one read is the fill and the other is the vault (the ~7% virtual-quote
-gap). The hold is at most 3.0 seconds from hold start. A hard timer
-publishes the latest on-chain read then, even if no confirm has arrived,
-so a real crash cannot be held longer. A one-off bounce is rejected when
-a later read disagrees. There is no real baseline when none has been
-accepted, or baseline_age is huge. The guard does not publish an override
-in that case. It publishes only once a swap price and a vault price agree
-within 5%. Until then the tick is stale. Two agreeing on-chain reads
-replace a stuck price. Spike rows log hold_start and publish. A baseline
-older than 5 seconds does not veto agreeing reads, and an echo of that
-old baseline does not refresh it.
+correction. A dust buy whose quote is only a few lamports (the fee floor
+rounds each leg up to 1) is not that fill: its user-quote ratio can sit
+hundreds of times off the curve, and the mark stays on the effective
+reserves instead. A move through 15% is held until a second independent
+read confirms it. That read publishes immediately when the two agree
+within 5%. The hold is at most 3.0 seconds from hold start. At that
+deadline the held price publishes only when a swap and a vault (or two
+independent on-chain reads) agree within 5%. Otherwise the coin is marked
+stale: Buy, Sell, and a new stop stay blocked, and an open stop is not
+filled at the unconfirmed price. A real crash whose reads agree still
+publishes within 3 seconds. A one-off bounce is rejected when a later
+read disagrees. There is no real baseline when none has been accepted,
+or baseline_age is huge. The guard does not publish an override in that
+case. It publishes only once a swap price and a vault price agree within
+5%. Until then the tick is stale. Two agreeing on-chain reads replace a
+stuck price. Spike rows log hold_start and publish. A baseline older
+than 5 seconds does not veto agreeing reads, and an echo of that old
+baseline does not refresh it.
 Vault polls for every watched pool share one getMultipleAccounts call.
 RPC URLs come from SOLANA_WS_URL and SOLANA_RPC_URL. The socket runs on a
 daemon thread.
@@ -102,9 +107,10 @@ from urllib.request import Request, urlopen
 STREAM_SILENCE_S = 5.0
 STREAM_OUTLIER = 0.03  # kept for callers that still name the old band
 SPIKE_MOVE = 0.15  # one print beyond this waits for a second read
-SPIKE_AGREE = 0.02  # two consecutive reads within this override the baseline
-SPIKE_CROSS = 0.12  # vault ratio vs the executed fill on the same crash (~7% + noise)
+SPIKE_AGREE = 0.02  # an echo of the baseline is this close; it does not confirm a crash
+SPIKE_CROSS = 0.05  # two sources on one move must agree within this to publish
 SPIKE_PAIR = 0.05  # swap fill and vault must agree within this when there is no real baseline
+DUST_QUOTE_RAW = 1_000  # a quote this small is a lamport fee floor, not an execution price
 VAULT_BASELINE_AGREE = 0.01  # two vault reads within this baseline a pool with no decodable swap
 SIG_LOOKBACK = 4  # getSignaturesForAddress limit while a pool is still unconfirmed
 SIG_RECHECK_S = 10.0  # chain baseline retries no faster than this
@@ -688,7 +694,7 @@ def _cancel_hold_timer(mint: str) -> None:
 
 
 def _arm_hold_timer(mint: str) -> None:
-    """Publish the held read at 3.0s from hold start, even with no confirm."""
+    """At 3.0s from hold start, publish only if two reads agree; otherwise stale."""
     with _guard:
         _hold_gen[mint] = _hold_gen.get(mint, 0) + 1
         gen = _hold_gen[mint]
@@ -704,8 +710,29 @@ def _arm_hold_timer(mint: str) -> None:
     timer.start()
 
 
+def _force_quote_stale(mint: str) -> None:
+    """Age the last confirmed tick past the SLA. The unconfirmed price is not written.
+
+    Buy, Sell, and a new stop read that age and stay blocked. An open stop
+    fills only on a fresh tick, so it does not fire at the held price.
+    """
+    import game
+
+    old = time.time() - (game.QUOTE_FRESH_SLA_S + 0.05)
+    with game._live_lock(mint):
+        hit = game._live_cache.get(mint)
+        if not hit:
+            return
+        game._live_cache[mint] = (old, dict(hit[1]))
+
+
 def _release_hold(mint: str, gen: int) -> None:
-    """Hard cap. The latest on-chain read publishes at 3.0s from hold start."""
+    """Hard cap at 3.0s. Publish only when two on-chain reads agree within 5%.
+
+    Otherwise the last confirmed price stays and the coin is stale until a
+    later read agrees. A crash whose swap and vault already agree is published
+    by that second read, before this timer.
+    """
     with _guard:
         if _hold_gen.get(mint) != gen:
             return
@@ -723,20 +750,42 @@ def _release_hold(mint: str, gen: int) -> None:
         _hold_timers.pop(mint, None)
     if px <= 0 or hold_start <= 0:
         return
+    agreed = _pair_agreement(mint)
     publish_at = time.time()
     move = abs(px - baseline) / baseline if baseline > 0 else 0.0
+    if agreed is None:
+        _remember_spike({
+            "kind": "spike",
+            "mint": mint,
+            "px": px,
+            "baseline": baseline,
+            "baseline_age": round(_baseline_age(mint, publish_at), 3),
+            "move": round(move, 6),
+            "source": source,
+            "at": _iso_ms(publish_at),
+            "hold_start": _iso_ms(hold_start),
+            "publish": _iso_ms(publish_at),
+            "hold_s": round(publish_at - hold_start, 3),
+            "agree": 0,
+            "reason": "hold-cap",
+            "stale": True,
+        })
+        _force_quote_stale(mint)
+        return
+    px, agree = agreed
     _remember_spike({
         "kind": "override",
         "mint": mint,
         "px": px,
         "baseline": baseline,
         "baseline_age": round(_baseline_age(mint, publish_at), 3),
-        "move": round(move, 6),
+        "move": round(abs(px - baseline) / baseline if baseline > 0 else 0.0, 6),
         "source": source,
         "at": _iso_ms(publish_at),
         "hold_start": _iso_ms(hold_start),
         "publish": _iso_ms(publish_at),
         "hold_s": round(publish_at - hold_start, 3),
+        "agree": round(agree, 6),
         "reason": "hold-cap",
     })
     _commit_price(
@@ -761,12 +810,12 @@ def _spike_confirmed(
 ) -> tuple[str, float, bool]:
     """Return (confirm|spike|reject, hold_start, arm_timer).
 
-    Two reads within 2% agree, including when both are far from the baseline.
-    A vault read and a swap on the same crash also agree within 12%, because
-    the raw vault sits about 7% under the fill. The hold clock does not
-    restart while the crash is still printing. A later read that gives the
-    move back rejects the one-off so the 3s timer cannot publish it. The
-    same signature twice is one observation.
+    Two reads within 5% agree, including when both are far from the baseline.
+    Swap and vault have to be that close: a fee-floor dust print does not
+    confirm a vault, and the 3s timer must not publish it either. The hold
+    clock does not restart while the crash is still printing. A later read
+    that gives the move back rejects the one-off so the timer cannot publish
+    it. The same signature twice is one observation.
     """
     now = time.time()
     arm = False
@@ -796,14 +845,14 @@ def _spike_confirmed(
         # wall-clock hold_start; this age is the backdatable clock.
         age = now - float(pend.get("at") or hold_start)
         base = float(pend.get("baseline") or baseline or 0)
-        close = held > 0 and abs(px - held) / held <= SPIKE_AGREE
+        gap = abs(px - held) / held if held > 0 else 1.0
+        close = held > 0 and gap <= SPIKE_PAIR
         cross = (
-            held > 0
-            and abs(px - held) / held <= SPIKE_CROSS
+            close
             and _same_side_move(base, held, px)
             and str(pend.get("source") or "") != str(source or "")
         )
-        if close or cross or (age >= SPIKE_HOLD_S and _same_side_move(base, held, px)):
+        if close or cross:
             _pending_spikes.pop(mint, None)
             return "confirm", hold_start, False
         if _move_shrank(base, held, px):
@@ -958,8 +1007,10 @@ def ingest_swap(
 
     Returns ok, same, spike, no-anchor, or bad. One print beyond 15% stays
     out of the cache until a second independent read confirms it. That read
-    publishes immediately. The hold is at most 3.0s from hold start: a timer
-    publishes the latest on-chain read then. A baseline older than 5s does
+    publishes immediately. The hold is at most 3.0s from hold start: at that
+    deadline the price publishes only when swap and vault agree within 5%.
+    Otherwise the coin is marked stale and the unconfirmed price is not
+    written. A baseline older than 5s does
     not get refreshed by an echo of itself while that pair is still forming.
     With no real baseline (none accepted, or baseline_age huge) an override
     is refused. The price publishes only once a swap and a vault agree
@@ -1235,6 +1286,26 @@ def pumpswap_event_fill(raw: bytes) -> tuple[int, int, str | None] | None:
     return base, quote, _event_pool(body)
 
 
+def pumpswap_event_virtual_quote(raw: bytes) -> int | None:
+    """Signed virtual quote reserves appended on a Buy or Sell event.
+
+    The prefix through ``user_quote`` is fixed. After the account pubkeys and
+    the fixed fee fields, ``ix_name`` is a Borsh string, then cashback and
+    buyback fees, then this i128. None when the event is the short layout.
+    """
+    body = _event_body(raw)
+    if body is None:
+        return None
+    off = EV_POOL + 32 * 7 + 16 + 1 + 8 * 5
+    if off + 4 > len(body):
+        return None
+    slen = int.from_bytes(body[off:off + 4], "little")
+    if slen > 80 or off + 4 + slen + 32 + 16 > len(body):
+        return None
+    off += 4 + slen + 32
+    return int.from_bytes(body[off:off + 16], "little", signed=True)
+
+
 def pump_trade_reserves(raw: bytes) -> tuple[str, int, int] | None:
     """(mint, virtual_sol, virtual_token) from a pump.fun TradeEvent."""
     if not raw or len(raw) < 8 + TR_VIRT_TOKEN + 8 or raw[:8] != TRADE_EVENT_DISC:
@@ -1259,10 +1330,13 @@ def price_from_program_logs(
 ) -> float | None:
     """Per-trade USD from Program data lines. Ignores every other log line.
 
-    The mark is the executed fill (user quote / base amount). Buy and Sell
-    store those amounts at the same body offsets. The pre-trade vault
-    reserves are the fallback when the fill fields are absent, and that
-    fallback adds ``virtual_quote`` the same way a quiet vault read does.
+    The mark is the executed fill (user quote / base amount) when that fill
+    is within 5% of the effective-reserve spot. A dust buy pays a few
+    lamports because each fee rounds up to 1, so user-quote / base can be
+    hundreds of times the curve. That print is not a price: the mark stays
+    on the pre-trade reserves plus ``virtual_quote``. Buy and Sell store the
+    fill amounts at the same body offsets. The reserves are also the
+    fallback when the fill fields are absent.
     """
     if not isinstance(logs, list) or not pool or not sol_usd or sol_usd <= 0:
         return None
@@ -1280,28 +1354,42 @@ def price_from_program_logs(
         if kind == "pumpswap":
             fill = pumpswap_event_fill(raw)
             reserves = pumpswap_event_reserves(raw)
-            if fill:
-                base, quote, pool_pk = fill
-                virtual = 0
-            elif reserves:
-                base, quote, pool_pk = reserves
-                virtual = int(pool.get("virtual_quote") or 0)
-            else:
+            if not fill and not reserves:
                 continue
+            pool_pk = None
+            quote_atoms = 0
+            if fill:
+                _base, quote_atoms, pool_pk = fill
+            if reserves and pool_pk is None:
+                pool_pk = reserves[2]
             if pool_pk and pool.get("address") and pool_pk != pool.get("address"):
                 continue
-            px = pumpswap_mid_usd(
-                base,
-                int(pool.get("base_dec") if pool.get("base_dec") is not None else 6),
-                quote,
-                int(pool.get("quote_dec") if pool.get("quote_dec") is not None else 9),
-                str(pool.get("base_mint") or ""),
-                str(pool.get("quote_mint") or ""),
-                watched,
-                sol_usd,
-                virtual,
-                extra_usd,
-            )
+            virt_ev = pumpswap_event_virtual_quote(raw)
+            virtual = int(virt_ev) if virt_ev is not None else int(pool.get("virtual_quote") or 0)
+            base_dec = int(pool.get("base_dec") if pool.get("base_dec") is not None else 6)
+            quote_dec = int(pool.get("quote_dec") if pool.get("quote_dec") is not None else 9)
+            base_mint = str(pool.get("base_mint") or "")
+            quote_mint = str(pool.get("quote_mint") or "")
+
+            def _px(base_raw: int, quote_raw: int, virt: int) -> float | None:
+                return pumpswap_mid_usd(
+                    base_raw, base_dec, quote_raw, quote_dec,
+                    base_mint, quote_mint, watched, sol_usd, virt, extra_usd,
+                )
+
+            fill_px = _px(fill[0], fill[1], 0) if fill else None
+            spot_px = _px(reserves[0], reserves[1], virtual) if reserves else None
+            px = None
+            if fill_px and spot_px:
+                gap = abs(fill_px - spot_px) / min(fill_px, spot_px)
+                # A few lamports of fee floor is not the curve. Size-bearing
+                # fills stay, including one that has already moved the price.
+                if gap > SPIKE_PAIR and quote_atoms < DUST_QUOTE_RAW:
+                    px = spot_px
+                else:
+                    px = fill_px
+            else:
+                px = fill_px or spot_px
             if px and px > 0:
                 found = px
         elif kind == "pump":

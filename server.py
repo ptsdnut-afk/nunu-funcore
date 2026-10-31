@@ -259,7 +259,7 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 93,
+            "panel_v": 94,
             "time": _utc(),
             "qa_tick": "page ?qa_tick=both|up|down",
             "qa_end": "page ?qa_end=1 (one-shot) or POST /api/game/end",
@@ -340,11 +340,14 @@ def api_health():
                 "is not that gap. "
                 "driver is swap, or sol_usd when only the SOL price moved. "
                 "A single print more than 15% from the last published price is held. A second "
-                "independent read publishes immediately when the two agree within 2%, or within 12% "
-                "when one is the executed fill and the other is the vault. The hold is at most 3.0s "
-                "from hold start: a hard timer publishes the latest on-chain read then, even if no "
-                "confirm has arrived, so a real crash cannot be held longer. A one-off bounce is "
-                "rejected when a later read disagrees. "
+                "independent read publishes immediately when the two agree within 5%. "
+                "The hold is at most 3.0s from hold start. At that deadline the held price "
+                "publishes only if a swap and a vault (or two independent on-chain reads) agree "
+                "within 5%. Otherwise the coin is stale: Buy, Sell, and a new stop stay blocked, "
+                "and an open stop is not filled at the unconfirmed price. A real crash whose reads "
+                "agree still publishes within 3s. A one-off bounce is rejected when a later read "
+                "disagrees. A dust buy of a few lamports is not a price; the mark stays on the "
+                "effective reserves. "
                 "There is no real baseline when none has been accepted, or baseline_age is huge. "
                 "The guard does not publish an override in that case. It publishes only once a swap "
                 "price and a vault price agree within 5%. Until then the tick is stale and Buy stays "
@@ -416,7 +419,7 @@ def api_gold():
     return jsonify(
         {
             "ok": True,
-            "panel_v": 93,
+            "panel_v": 94,
             "feature": "gold_scar",
             "count": len(picks),
             "empty_ok": True,
@@ -829,7 +832,10 @@ def api_game_buy():
     sl = body.get("sl_pct", body.get("stop_loss_pct"))
     tp = body.get("tp_pct", body.get("take_profit_pct"))
     rid = body.get("client_request_id") or body.get("request_id")
-    result = game_mod.buy(mint, stake, sl_pct=sl, tp_pct=tp, client_request_id=rid)
+    shown = body.get("displayed_price", body.get("seen_price"))
+    result = game_mod.buy(
+        mint, stake, sl_pct=sl, tp_pct=tp, client_request_id=rid, displayed_price=shown,
+    )
     code = 200 if result.get("ok") else 400
     if result.get("state") is not None:
         result["state"] = game_mod.public_state(result.get("state"))

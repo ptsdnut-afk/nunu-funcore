@@ -1917,6 +1917,7 @@ def buy(
     sl_pct: float | None = None,
     tp_pct: float | None = None,
     client_request_id: str | None = None,
+    displayed_price: float | None = None,
 ) -> dict:
     with _lock:
         st = tick_session()
@@ -1961,6 +1962,19 @@ def buy(
         px = float(tick["price_usd"])
         if px <= 0:
             return _fail("Bad price", st)
+        shown = None
+        try:
+            if displayed_price is not None and displayed_price != "":
+                shown = float(displayed_price)
+        except (TypeError, ValueError):
+            shown = None
+        if shown is not None and shown > 0 and abs(px - shown) / shown > QUOTE_BAND:
+            return _fail(
+                "Price moved more than 5% from the price on screen — not filled.",
+                st,
+                displayed_price=shown,
+                fill_price_usd=px,
+            )
         qty = stake / px
         price_ts = tick.get("price_ts")
         pos = {
@@ -2000,6 +2014,7 @@ def buy(
             "sound": "buy",
             "resolved_mint": mint,
             "resolve_source": src,
+            "fill_price_usd": px,
         }
 
 
