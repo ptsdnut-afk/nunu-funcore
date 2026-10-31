@@ -1770,7 +1770,35 @@
       z-index: 2;
       max-width: 100%;
     }
-    #modeFilter .coin .ticker,
+    /* w6-score-pill: badges stay inside the coin column. A nowrap ticker let
+       SITTING's border box run under the pill even when paint was clipped. */
+    #modeFilter .coin .ticker {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 4px;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      overflow: hidden;
+    }
+    #modeFilter .coin .ticker .sym {
+      min-width: 0;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #modeFilter .coin .ticker .badge,
+    #modeFilter .coin .ticker .tag-arrive {
+      flex: 0 1 auto;
+      max-width: 100%;
+    }
+    #modeFilter .badge.holding {
+      background: #102018;
+      color: #3ecf8e;
+      border: 1px solid #2a5a40;
+    }
     #modeFilter .coin .name {
       display: block;
       width: 100%;
@@ -3228,7 +3256,7 @@
 
   <script>
 
-    const PANEL_V = 88;
+    const PANEL_V = 89;
     function paintPanelVersion() {
       const label = String(PANEL_V);
       document.querySelectorAll("[data-panel-v]").forEach((el) => {
@@ -5066,6 +5094,7 @@
       const open = !!(mint && state.scoreOpenMint === mint);
       const sitBand = sittingBand(r);
       if (sitBand === "over") badge += '<span class="badge sitting">Sitting</span>';
+      if (r.holding) badge += '<span class="badge holding">HOLDING</span>';
       if (r.qa_max_fixture) {
         badge = '<span class="badge qa-max" title="' + esc(r.qa_label || "QA Max fixture") + '">QA MAX</span>' + badge;
       }
@@ -5079,7 +5108,7 @@
         '<div class="metric"><span class="lab">' + lab + '</span><span class="mval' + (cls ? (" " + cls) : "") + '">' + val + "</span></div>";
       return '<article class="tok' + (late ? " late-row" : "") + (isCopy ? " copy-row" : "") + (sitBand === "near" ? " sit-near" : "") + (sitBand === "over" ? " sit-over" : "") + (open ? " open" : "") + (selected ? " selected" : "") + (arrived ? (state.mute ? " arrive-muted" : " arrive") : "") + (r.qa_max_fixture ? " qa-max-row" : "") + '" data-mint="' + esc(mint) + '" data-sitting-band="' + esc(sitBand) + '"' + (r.qa_max_fixture ? ' data-qa-max="1"' : "") + '>' +
         '<button type="button" class="coin coin-open" data-mint="' + esc(mint) + '" aria-haspopup="dialog" aria-label="Open ' + esc(r.ticker || "coin") + ' detail">' + imgHtml +
-          "<div class=\"ident\"><div class=\"ticker\">" + esc(r.ticker) + " " + badge + "</div>" +
+          "<div class=\"ident\"><div class=\"ticker\"><span class=\"sym\">" + esc(r.ticker) + "</span>" + badge + "</div>" +
           '<div class="name" title="' + esc(r.name) + '">' + esc(r.name) + "</div>" +
           (warnHtml ? '<div class="warns">' + warnHtml + "</div>" : "") +
           "</div></button>" +
@@ -7058,20 +7087,30 @@
           last.setAttribute("data-px", String(px));
           last.setAttribute("data-driver", driver);
         }
-        const live = pos.querySelector("[data-role=live-px]");
-        if (!live) return;
-        const texts = [];
-        live.childNodes.forEach((node) => {
-          if (node.nodeType === 3) texts.push(node);
-        });
-        if (texts.length) texts[texts.length - 1].nodeValue = text;
-        else live.appendChild(document.createTextNode(text));
+        paintLiveUsd(pos.querySelector("[data-role=live-px]"), text);
       });
+      const quote = document.querySelector("#gQuoteBox .quote-card");
+      if (quote && (quote.getAttribute("data-mint") || "") === mint) {
+        paintLiveUsd(quote.querySelector(".live-px"), text);
+        const qpx = quote.querySelector("[data-role=quote-px]");
+        if (qpx) qpx.textContent = text;
+      }
       const dot = document.getElementById("gChartDot");
       if (dot) {
         dot.setAttribute("data-px", String(px));
         dot.setAttribute("data-driver", driver);
       }
+    }
+
+    function paintLiveUsd(el, text) {
+      if (!el) return;
+      let node = el.querySelector("[data-role=live-usd]");
+      if (!node) {
+        node = document.createElement("span");
+        node.setAttribute("data-role", "live-usd");
+        el.appendChild(node);
+      }
+      node.textContent = text;
     }
 
     function noteLiveTick(tick) {
@@ -8411,7 +8450,7 @@
           return '<div class="pos-card' + heat + '" data-id="' + esc(p.id) + '" data-mint="' + esc(p.mint || "") + '" data-price-ts="' + esc(p.price_ts || "") + '" title="Show this coin on the chart">' +
             coinHeadHtml(p.symbol, p.name, p.mint, imgUrl, flags) +
             (p.mint ? ('<div class="ca-line"><code class="ca-full">' + esc(p.mint) + "</code></div>") : "") +
-            '<div class="live-px' + flash + (liveOn ? "" : " is-unknown") + '" data-role="live-px" data-family="price" data-quote-live="' + (liveOn ? "1" : "0") + '"><span class="live-lab">' + (liveOn ? "Live USD" : (staleTxt ? "Last" : "Unknown")) + '</span><span class="unit">token price</span>' + priceHtml + staleHtml + "</div>" +
+            '<div class="live-px' + flash + (liveOn ? "" : " is-unknown") + '" data-role="live-px" data-family="price" data-quote-live="' + (liveOn ? "1" : "0") + '"><span class="live-lab">' + (liveOn ? "Live USD" : (staleTxt ? "Last" : "Unknown")) + '</span><span class="unit">token price</span><span data-role="live-usd">' + priceHtml + "</span>" + staleHtml + "</div>" +
             '<div class="pnl-big ' + pnlCls + '" data-family="paper"><span class="pnl-k">P&L · paper $</span>' + (pnlUsdP >= 0 ? "+" : "-") + "$" + Math.abs(pnlUsdP).toFixed(2) + " · " + fmtPct(pnlPctP) + "</div>" +
             mcapHeroHtml(p, { trade: true }) +
             '<div class="stats">' +
@@ -8511,7 +8550,10 @@
       el.textContent = "";
       el.appendChild(lab);
       el.appendChild(unit);
-      el.appendChild(document.createTextNode(live ? fmtPx(px) : "—"));
+      const usd = document.createElement("span");
+      usd.setAttribute("data-role", "live-usd");
+      usd.textContent = live ? fmtLivePx(px) : "—";
+      el.appendChild(usd);
       el.setAttribute("data-family", "price");
       el.setAttribute("data-quote-live", live ? "1" : "0");
       if (!live) el.classList.add("is-unknown");
@@ -8546,6 +8588,13 @@
       const tick = state.lastTickResponse;
       if (tick && tick.mint === mint && (tick.stale === true || tick.stale === false)) {
         applyTickFlagToQuote();
+        const tickPx = Number(tick.price_usd);
+        if (tickPx > 0) {
+          paintLiveUsd(card.querySelector(".live-px"), fmtLivePx(tickPx));
+          const pxEl = card.querySelector("[data-role=quote-px]");
+          if (pxEl) pxEl.textContent = fmtLivePx(tickPx);
+          state.lastQuotePrice = tickPx;
+        }
         return;
       }
       let data = null;
@@ -9021,7 +9070,7 @@
           coinHeadHtml(q.symbol, q.name, mint, imgUrl, flags) +
           '<div class="ca-line"><code class="ca-full">' + esc(mint) + "</code></div>" +
           warn +
-          '<div class="live-px" data-role="live-px" data-family="price" data-quote-live="1"><span class="live-lab">Live USD</span><span class="unit">token price</span>' + fmtPx(q.price_usd) + "</div>" +
+          '<div class="live-px" data-role="live-px" data-family="price" data-quote-live="1"><span class="live-lab">Live USD</span><span class="unit">token price</span><span data-role="live-usd">' + fmtLivePx(q.price_usd) + "</span></div>" +
           mcapHeroHtml(q, { trade: true }) +
           '<div class="stats">' +
           '<div class="stat-cell" data-family="price"><span class="k">Price</span><span class="unit">token price</span><span class="v" data-role="quote-px">' + fmtPx(q.price_usd) + "</span></div>" +

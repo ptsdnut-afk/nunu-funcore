@@ -25,11 +25,15 @@ No ``getTransaction``. ``api.mainnet-beta.solana.com`` accepts subscribe and
 then often pushes nothing. ``wss://solana-rpc.publicnode.com`` does push.
 When ``HELIUS_API_KEY`` is set, the same subscribe runs on Helius.
 
-Jupiter is the fallback when no trade and no decoded mid have landed within
-5 seconds (``source=jupiter_fallback``). Pump swap prices are the post-swap
-pool reserves (Buy and Sell events use the same offsets) plus the pool's
-virtual quote, scaled by mint decimals, times the SOL price. That spot is
-what Dexscreener prints. The execution price (quote spent / base received)
+Jupiter is not on the steady-state path. A watched pool is priced from its
+vaults and from logsSubscribe. Jupiter is only a labeled fallback after the
+pool has been unreachable for more than 10 seconds, and that tick is stale
+so it cannot fill. A non-SOL quote (a coin that trades against BABA, for
+example) is the pool ratio times that quote token's own SOL-pool USD price.
+Pump swap prices are the post-swap pool reserves (Buy and Sell events use
+the same offsets) plus the pool's virtual quote, scaled by mint decimals,
+times the quote token's USD price. That spot is what a fresh Dex print
+shows when the quote is SOL. The execution price (quote spent / base received)
 includes the fee and the trade's own slippage and is not the mark. A move
 through 15% publishes. One print beyond 15% is held until the other source,
 or the next paired vault read, agrees. It is not a stop or a take-profit
@@ -130,6 +134,9 @@ _thread: threading.Thread | None = None
 _vault_thread: threading.Thread | None = None
 _stop = threading.Event()
 _no_pool: dict[str, float] = {}
+_pool_miss_at: dict[str, float] = {}
+_quote_px: dict[str, tuple[float, float]] = {}
+POOL_UNREACHABLE_S = 10.0
 _ws: dict = {
     "state": "down",
     "error": "",
@@ -324,6 +331,30 @@ def stream_is_fresh(mint: str, now: float | None = None) -> bool:
     return (stamped - seen) <= STREAM_SILENCE_S
 
 
+def mark_pool_miss(mint: str, now: float | None = None) -> None:
+    """Remember the first moment a known pool had no on-chain price."""
+    if not mint:
+        return
+    stamped = time.time() if now is None else now
+    with _guard:
+        _pool_miss_at.setdefault(mint, stamped)
+
+
+def clear_pool_miss(mint: str) -> None:
+    with _guard:
+        _pool_miss_at.pop(mint, None)
+
+
+def pool_unreachable(mint: str, now: float | None = None) -> bool:
+    """True once a pool has had no on-chain price for POOL_UNREACHABLE_S."""
+    stamped = time.time() if now is None else now
+    with _guard:
+        started = _pool_miss_at.get(mint)
+    if started is None:
+        return False
+    return (stamped - started) > POOL_UNREACHABLE_S
+
+
 def recent_rejects() -> list[dict]:
     with _guard:
         return list(_rejects)
@@ -351,6 +382,8 @@ def reset_for_tests() -> None:
         _native.clear()
         _pools.clear()
         _no_pool.clear()
+        _pool_miss_at.clear()
+        _quote_px.clear()
         _ws.update({
             "state": "down",
             "error": "",
@@ -518,6 +551,7 @@ def ingest_swap(
     with game._live_lock(mint):
         game._live_cache[mint] = (now, payload)
         game._clear_live_backoff(mint)
+    clear_pool_miss(mint)
     with _guard:
         _seen[mint] = now
         _last_px[mint] = px
@@ -608,11 +642,14 @@ def pumpswap_mid_usd(
     watched: str,
     sol_usd: float,
     virtual_quote: int = 0,
+    extra_usd: dict | None = None,
 ) -> float | None:
     """USD mid = (quote vault + virtual quote) / base vault, scaled by mint decimals.
 
     Quote SOL is converted with the Jupiter wSOL price. Quote USDC/USDT is $1.
-    Raw amounts without decimals, or the inverted base/quote side, are not a price.
+    A quote token such as BABA uses ``extra_usd`` (that token's own SOL-pool
+    price). Raw amounts without decimals, or the inverted base/quote side,
+    are not a price.
     """
     try:
         base_raw_i = int(base_raw)
@@ -629,7 +666,7 @@ def pumpswap_mid_usd(
     quote_ui = quote_raw_i / (10 ** quote_dec_i)
     if base_ui <= 0 or quote_ui <= 0:
         return None
-    return _sided_usd(base_mint, quote_mint, quote_ui / base_ui, watched, sol_usd)
+    return _sided_usd(base_mint, quote_mint, quote_ui / base_ui, watched, sol_usd, extra_usd)
 
 
 def pumpswap_event_reserves(raw: bytes) -> tuple[int, int, str | None] | None:
@@ -668,7 +705,12 @@ def pump_trade_reserves(raw: bytes) -> tuple[str, int, int] | None:
     return mint, virtual_sol, virtual_token
 
 
-def price_from_program_logs(logs: list, pool: dict, sol_usd: float) -> float | None:
+def price_from_program_logs(
+    logs: list,
+    pool: dict,
+    sol_usd: float,
+    extra_usd: dict | None = None,
+) -> float | None:
     """Per-trade USD from Program data lines. Ignores every other log line.
 
     BuyEvent and SellEvent both store post-swap pool reserves at the same
@@ -705,6 +747,7 @@ def price_from_program_logs(logs: list, pool: dict, sol_usd: float) -> float | N
                 watched,
                 sol_usd,
                 int(pool.get("virtual_quote") or 0),
+                extra_usd,
             )
             if px and px > 0:
                 found = px
@@ -722,13 +765,26 @@ def price_from_program_logs(logs: list, pool: dict, sol_usd: float) -> float | N
     return found
 
 
-def _sided_usd(mint_a: str, mint_b: str, b_per_a: float, watched: str, sol_usd: float) -> float | None:
+def _sided_usd(
+    mint_a: str,
+    mint_b: str,
+    b_per_a: float,
+    watched: str,
+    sol_usd: float,
+    extra_usd: dict | None = None,
+) -> float | None:
     """b_per_a is how many B you get for one A. Return the watched mint's USD."""
     def quote_usd(mint: str) -> float | None:
         if mint == SOL_MINT:
             return sol_usd
         if mint in _STABLES:
             return 1.0
+        if extra_usd and mint in extra_usd:
+            try:
+                px = float(extra_usd[mint])
+            except (TypeError, ValueError):
+                return None
+            return px if px > 0 else None
         return None
 
     qa = quote_usd(mint_a)
@@ -1058,6 +1114,32 @@ def _serve_socket() -> None:
             pass
 
 
+def prioritize_subscriptions(pools: list[dict], limit: int = MAX_SUBS) -> dict[str, dict]:
+    """logsSubscribe for every PumpSwap and pump pool, then whatever vaults fit.
+
+    A busy watch list used to fill the cap with vault accounts and leave a
+    pool with no logs subscription, so it never printed pool_swap.
+    """
+    logs: list[tuple[str, dict]] = []
+    rest: list[tuple[str, dict]] = []
+    for pool in pools:
+        if not isinstance(pool, dict):
+            continue
+        for key, op in _ops_for(pool).items():
+            if op.get("method") == "logsSubscribe":
+                logs.append((key, op))
+            else:
+                rest.append((key, op))
+    want: dict[str, dict] = {}
+    for key, op in logs + rest:
+        if key in want:
+            continue
+        if len(want) >= limit:
+            break
+        want[key] = op
+    return want
+
+
 def _ops_for(pool: dict) -> dict[str, dict]:
     addr = str(pool.get("address") or "")
     kind = pool.get("kind")
@@ -1103,13 +1185,12 @@ def _ops_for(pool: dict) -> dict[str, dict]:
 
 
 def _sync_subs(ws, subs, meta, pending, rpc_id, http):
-    want: dict[str, dict] = {}
+    pools = []
     for mint in watched_mints():
         pool = _pool_for(mint, http)
         if pool:
-            want.update(_ops_for(pool))
-        if len(want) >= MAX_SUBS:
-            break
+            pools.append(pool)
+    want = prioritize_subscriptions(pools, MAX_SUBS)
     for key in list(subs):
         if key in want:
             continue
@@ -1212,11 +1293,13 @@ def _on_logs(msg: dict, meta: dict[int, dict]) -> None:
     sol = anchor_price(SOL_MINT, max_age=60.0)
     if sol is None or sol <= 0:
         return
-    px = price_from_program_logs(logs, pool, sol)
+    extra = _extra_for_pool(pool, sol, endpoints()[1])
+    px = price_from_program_logs(logs, pool, sol, extra)
     if px is None or px <= 0:
         return
     sig = str(value.get("signature") or "")
-    _publish(mint, px, compare_mid=True, slot=_slot_of(result), signature=sig, sol=sol)
+    sol_driver = sol if _quote_is_sol_or_stable(pool) else None
+    _publish(mint, px, compare_mid=True, slot=_slot_of(result), signature=sig, sol=sol_driver)
 
 
 def _slot_of(result: dict) -> int | None:
@@ -1279,6 +1362,9 @@ def _apply_vault_amount(pool: dict, vault: str, amount: int, sol: float, slot: i
     # update is several percent off Dex; a thin coin's is not.
     if base_raw is None or quote_raw is None or not paired:
         return
+    extra = _extra_for_pool(snap, sol, endpoints()[1])
+    if extra is None and not _quote_is_sol_or_stable(snap):
+        return
     px = pumpswap_mid_usd(
         int(base_raw),
         int(snap.get("base_dec") if snap.get("base_dec") is not None else 6),
@@ -1289,9 +1375,11 @@ def _apply_vault_amount(pool: dict, vault: str, amount: int, sol: float, slot: i
         mint,
         sol,
         int(snap.get("virtual_quote") or 0),
+        extra,
     )
     if px and px > 0:
-        _publish(mint, px, compare_mid=False, slot=slot, source="pool_vault", sol=sol)
+        sol_driver = sol if _quote_is_sol_or_stable(snap) else None
+        _publish(mint, px, compare_mid=False, slot=slot, source="pool_vault", sol=sol_driver)
 
 
 def _pool_for(mint: str, http: str) -> dict | None:
@@ -1428,33 +1516,160 @@ def _refresh_pump_mids(http: str) -> None:
         _read_vault_mid(http, snap)
 
 
-def _read_vault_mid(http: str, pool: dict) -> float | None:
-    global _pair_seq
-    base_vault = str(pool.get("base_vault") or "")
-    quote_vault = str(pool.get("quote_vault") or "")
+def _quote_is_sol_or_stable(pool: dict) -> bool:
+    sides = {str(pool.get("base_mint") or ""), str(pool.get("quote_mint") or "")}
+    return bool(sides & ({SOL_MINT} | _STABLES))
+
+
+def _vault_amounts(http: str, base_vault: str, quote_vault: str) -> tuple[int, int] | None:
+    """Raw token amounts. base64, not jsonParsed: public RPC answers 403 to jsonParsed."""
     if not base_vault or not quote_vault:
         return None
     body = json.dumps({
         "jsonrpc": "2.0",
         "id": 1,
         "method": "getMultipleAccounts",
-        "params": [[base_vault, quote_vault], {"encoding": "jsonParsed", "commitment": "processed"}],
+        "params": [[base_vault, quote_vault], {"encoding": "base64", "commitment": "processed"}],
     }).encode("utf-8")
     try:
         req = Request(http, data=body, headers={"Content-Type": "application/json", "User-Agent": "nunu-filter-paper/1.0"})
-        with urlopen(req, timeout=4) as resp:
+        with urlopen(req, timeout=2.5) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
     except Exception:
         return None
     vals = ((payload.get("result") or {}).get("value")) if isinstance(payload, dict) else None
     if not isinstance(vals, list) or len(vals) < 2:
         return None
-    parsed = [_parsed_token_amount(row) for row in vals[:2]]
-    if parsed[0] is None or parsed[1] is None:
+    amounts = []
+    for row in vals[:2]:
+        raw = _account_bytes(row) if isinstance(row, dict) else None
+        if not raw or len(raw) < TOKEN_AMOUNT + 8:
+            return None
+        amounts.append(struct.unpack_from("<Q", raw, TOKEN_AMOUNT)[0])
+    return amounts[0], amounts[1]
+
+
+def mint_decimals(http: str, mint: str) -> int | None:
+    """SPL mint decimals at byte 44. SOL is 9 and USDC/USDT are 6."""
+    if mint == SOL_MINT:
+        return 9
+    if mint in _STABLES:
+        return 6
+    if not mint:
         return None
-    base_raw, base_dec = parsed[0]
-    quote_raw, quote_dec = parsed[1]
+    with _guard:
+        known = _decimals.get(mint)
+    info = _account_info(http, mint)
+    raw = _account_bytes(info) if info else None
+    if raw and len(raw) > 44:
+        dec = raw[44]
+        if 0 <= dec <= 18:
+            with _guard:
+                _decimals[mint] = dec
+            return dec
+    return known if known is not None else None
+
+
+def quote_token_usd(mint: str, sol_usd: float, http: str, depth: int = 0) -> float | None:
+    """USD for a quote token from its own SOL (or stable) pool. Not Jupiter."""
+    if not mint or not sol_usd or sol_usd <= 0:
+        return None
+    if mint == SOL_MINT:
+        return float(sol_usd)
+    if mint in _STABLES:
+        return 1.0
+    now = time.time()
+    with _guard:
+        cached = _quote_px.get(mint)
+    if cached and now - cached[0] < 2.0 and cached[1] > 0:
+        return cached[1]
+    if depth >= 2:
+        return None
+    pool = _pool_for(mint, http)
+    if not pool:
+        return None
+    if pool.get("kind") == "whirlpool":
+        info = _account_info(http, str(pool.get("address") or ""))
+        raw = _account_bytes(info) if info else None
+        if not raw or len(raw) < 213:
+            return None
+        decs = {}
+        for off in (101, 181):
+            side = b58encode(raw[off:off + 32])
+            dec = mint_decimals(http, side)
+            if dec is not None:
+                decs[side] = dec
+        px = whirlpool_swap_usd(raw, mint, sol_usd, decs)
+        if px and px > 0:
+            with _guard:
+                _quote_px[mint] = (now, px)
+            return px
+        return None
+    if pool.get("kind") != "pumpswap":
+        return None
+    amounts = _vault_amounts(http, str(pool.get("base_vault") or ""), str(pool.get("quote_vault") or ""))
+    if not amounts:
+        return None
+    base_dec = mint_decimals(http, str(pool.get("base_mint") or ""))
+    quote_dec = mint_decimals(http, str(pool.get("quote_mint") or ""))
+    if base_dec is None or quote_dec is None:
+        return None
+    extra: dict[str, float] = {}
+    for side in (str(pool.get("base_mint") or ""), str(pool.get("quote_mint") or "")):
+        if not side or side == mint or side == SOL_MINT or side in _STABLES:
+            continue
+        side_px = quote_token_usd(side, sol_usd, http, depth + 1)
+        if not side_px:
+            return None
+        extra[side] = side_px
+    px = pumpswap_mid_usd(
+        amounts[0],
+        base_dec,
+        amounts[1],
+        quote_dec,
+        str(pool.get("base_mint") or ""),
+        str(pool.get("quote_mint") or ""),
+        mint,
+        sol_usd,
+        int(pool.get("virtual_quote") or 0),
+        extra or None,
+    )
+    if not px or px <= 0:
+        return None
+    with _guard:
+        _quote_px[mint] = (now, px)
+    return px
+
+
+def _extra_for_pool(pool: dict, sol_usd: float, http: str) -> dict | None:
+    """USD map for a non-SOL quote (or base) so the watched mint can be priced."""
+    watched = str(pool.get("mint") or "")
+    extra: dict[str, float] = {}
+    for side in (str(pool.get("base_mint") or ""), str(pool.get("quote_mint") or "")):
+        if not side or side == watched or side == SOL_MINT or side in _STABLES:
+            continue
+        px = quote_token_usd(side, sol_usd, http)
+        if not px:
+            return None
+        extra[side] = px
+    return extra or None
+
+
+def _read_vault_mid(http: str, pool: dict) -> float | None:
+    global _pair_seq
+    base_vault = str(pool.get("base_vault") or "")
+    quote_vault = str(pool.get("quote_vault") or "")
+    amounts = _vault_amounts(http, base_vault, quote_vault)
+    if not amounts:
+        return None
+    base_raw, quote_raw = amounts
     mint = str(pool.get("mint") or "")
+    base_mint = str(pool.get("base_mint") or "")
+    quote_mint = str(pool.get("quote_mint") or "")
+    base_dec = mint_decimals(http, base_mint)
+    quote_dec = mint_decimals(http, quote_mint)
+    if base_dec is None or quote_dec is None:
+        return None
     with _guard:
         live = _pools.get(mint)
         if live:
@@ -1465,8 +1680,8 @@ def _read_vault_mid(http: str, pool: dict) -> float | None:
             live["quote_dec"] = quote_dec
             live["base_slot"] = _pair_seq
             live["quote_slot"] = _pair_seq
-            _decimals[str(live.get("base_mint") or "")] = base_dec
-            _decimals[str(live.get("quote_mint") or "")] = quote_dec
+            _decimals[base_mint] = base_dec
+            _decimals[quote_mint] = quote_dec
             snap = dict(live)
         else:
             snap = dict(pool)
@@ -1475,19 +1690,25 @@ def _read_vault_mid(http: str, pool: dict) -> float | None:
     sol = anchor_price(SOL_MINT, max_age=60.0)
     if sol is None or sol <= 0:
         return None
+    extra = _extra_for_pool(snap, sol, http)
+    if extra is None and not _quote_is_sol_or_stable(snap):
+        return None
     px = pumpswap_mid_usd(
         base_raw,
         base_dec,
         quote_raw,
         quote_dec,
-        str(snap.get("base_mint") or ""),
-        str(snap.get("quote_mint") or ""),
+        base_mint,
+        quote_mint,
         mint,
         sol,
         int(snap.get("virtual_quote") or 0),
+        extra,
     )
     if px and px > 0:
-        _publish(mint, px, compare_mid=False, source="pool_vault", sol=sol)
+        sol_driver = sol if _quote_is_sol_or_stable(snap) else None
+        _publish(mint, px, compare_mid=False, source="pool_vault", sol=sol_driver)
+        clear_pool_miss(mint)
     return px
 
 

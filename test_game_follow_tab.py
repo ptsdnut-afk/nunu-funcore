@@ -20,7 +20,7 @@ class FollowHealthTests(unittest.TestCase):
     def test_health_is_v78_with_game_follow_tab(self):
         data = server.app.test_client().get("/api/health").get_json()
         self.assertTrue(data["ok"])
-        self.assertEqual(data["panel_v"], 88)
+        self.assertEqual(data["panel_v"], 89)
         for feature in (
             "game_follow_tab",
             "gold_scar",
@@ -39,7 +39,7 @@ class FollowHealthTests(unittest.TestCase):
 class FollowPanelTests(unittest.TestCase):
     def test_panel_advertises_v78_and_follow_chrome(self):
         html = _panel()
-        self.assertIn("const PANEL_V = 88", html)
+        self.assertIn("const PANEL_V = 89", html)
         self.assertIn("data-panel-v", html)
         self.assertIn("paintPanelVersion", html)
         self.assertIn("paintPanelVersion", html)

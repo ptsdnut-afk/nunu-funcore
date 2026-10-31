@@ -22,9 +22,10 @@ import trade_stream
 
 MINT = "3KpyR7uM657Bbcw64gLHQpJfPYByJEiVhu4ED3cnpump"
 TICKERS = (
-    ("发发", "发发火星", "MintAgenC1111111111111111111111111111111"),
-    ("CRAMERSAN", "CRAMERSAN the long one", "MintCramer111111111111111111111111111111"),
-    ("SUPERLONGTOKEN", "超级长的中文代币名字发发发", "MintLong1111111111111111111111111111111"),
+    ("发发", "发发火星", "MintAgenC1111111111111111111111111111111", False),
+    ("FĀFĀ", "发发", "MintFafa11111111111111111111111111111111", True),
+    ("CRAMERSAN", "CRAMERSAN the long one", "MintCramer111111111111111111111111111111", False),
+    ("SUPERLONGTOKEN", "超级长的中文代币名字发发发", "MintLong1111111111111111111111111111111", False),
 )
 
 
@@ -42,7 +43,7 @@ def _free_port() -> int:
 
 def _flow_rows() -> list[dict]:
     rows = []
-    for ticker, name, mint in TICKERS:
+    for ticker, name, mint, holding in TICKERS:
         rows.append({
             "mint": mint,
             "ticker": ticker,
@@ -50,6 +51,9 @@ def _flow_rows() -> list[dict]:
             "score_12": 11,
             "trench_band": True,
             "pair_age_hours": 2,
+            "sitting_minutes": 12.4,
+            "sitting_band": "over",
+            "holding": holding,
             "metrics": {
                 "liquidity_usd": 20000,
                 "volume_h1_usd": 9000,
@@ -96,7 +100,7 @@ class W5BrowserTests(unittest.TestCase):
             page.route("**/api/**", fulfill)
             for width in (1280, 1024, 768, 395):
                 page.set_viewport_size({"width": width, "height": 900})
-                page.goto(f"http://127.0.0.1:{port}/?v=88", wait_until="domcontentloaded")
+                page.goto(f"http://127.0.0.1:{port}/?v=89", wait_until="domcontentloaded")
                 page.wait_for_selector("#modeFilter .tok .score-btn", timeout=10000)
                 page.wait_for_timeout(200)
                 found = page.evaluate(
@@ -114,18 +118,34 @@ class W5BrowserTests(unittest.TestCase):
                           const h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
                           return {w: Math.max(0, w), h: Math.max(0, h), text: (el.textContent || "").trim().slice(0, 24)};
                         }
-                        out.push({ticker: hit(ticker), name: hit(name)});
+                        const badges = [];
+                        tok.querySelectorAll(".badge").forEach((el) => {
+                          const box = hit(el);
+                          if (box) badges.push(box);
+                        });
+                        out.push({ticker: hit(ticker), name: hit(name), badges: badges, texts: (tok.innerText || "").slice(0, 80)});
                       });
                       return out;
                     }"""
                 )
                 self.assertGreaterEqual(len(found), 3, found)
+                saw_sitting = False
+                saw_holding = False
                 for row in found:
                     for kind in ("ticker", "name"):
                         box = row[kind]
                         self.assertIsNotNone(box)
                         if box["w"] >= 1 and box["h"] >= 1:
                             overlaps.append((width, kind, box))
+                    for box in row["badges"]:
+                        if "Sitting" in box["text"] or "SITTING" in box["text"]:
+                            saw_sitting = True
+                        if "HOLDING" in box["text"]:
+                            saw_holding = True
+                        if box["w"] >= 1 and box["h"] >= 1:
+                            overlaps.append((width, "badge", box))
+                self.assertTrue(saw_sitting, found)
+                self.assertTrue(saw_holding, found)
             browser.close()
         self.assertEqual(overlaps, [], overlaps)
 
@@ -193,8 +213,11 @@ class W5BrowserTests(unittest.TestCase):
         with sync_playwright() as pw:
             browser = pw.chromium.launch(channel="chrome", headless=True)
             page = browser.new_page(viewport={"width": 1280, "height": 900})
-            page.goto(f"http://127.0.0.1:{port}/?v=88&mode=game", wait_until="domcontentloaded")
+            page.goto(f"http://127.0.0.1:{port}/?v=89&mode=game", wait_until="domcontentloaded")
             page.wait_for_selector("[data-role=last-px]", timeout=10000)
+            page.fill("#gMint", MINT)
+            page.click("#gQuote")
+            page.wait_for_selector("#gQuoteBox [data-role=live-usd]", timeout=10000)
             page.wait_for_function(
                 """() => {
                   const el = document.querySelector("[data-role=last-px]");
@@ -206,10 +229,13 @@ class W5BrowserTests(unittest.TestCase):
                 """() => new Promise((resolve) => {
                   const lastEl = () => document.querySelector("[data-role=last-px]");
                   const dotEl = () => document.getElementById("gChartDot");
+                  const usdEl = () => document.querySelector("#gQuoteBox [data-role=live-usd]");
                   const lasts = [];
                   const dots = [];
+                  const usds = [];
                   let prevLast = "";
                   let prevDot = "";
+                  let prevUsd = "";
                   let lastAt = 0;
                   let dotAt = 0;
                   const lastGaps = [];
@@ -219,13 +245,19 @@ class W5BrowserTests(unittest.TestCase):
                     const now = performance.now();
                     const last = lastEl();
                     const dot = dotEl();
+                    const usd = usdEl();
                     const text = last ? (last.textContent || "") : "";
+                    const usdText = usd ? (usd.textContent || "") : "";
                     const cy = dot ? (dot.getAttribute("data-px") || "") + "@" + (dot.getAttribute("cy") || "") : "";
                     if (text && text !== prevLast) {
                       if (prevLast) lastGaps.push((now - lastAt) / 1000);
                       lastAt = now;
                       prevLast = text;
                       lasts.push(text);
+                    }
+                    if (usdText && usdText !== prevUsd && usdText !== "—") {
+                      prevUsd = usdText;
+                      usds.push(usdText);
                     }
                     if (cy && cy !== prevDot && !cy.startsWith("@")) {
                       if (prevDot) dotGaps.push((now - dotAt) / 1000);
@@ -238,9 +270,11 @@ class W5BrowserTests(unittest.TestCase):
                       resolve({
                         lastChanges: lasts.length,
                         dotChanges: dots.length,
+                        usdChanges: usds.length,
                         maxLastGap: lastGaps.length ? Math.max.apply(null, lastGaps) : 999,
                         maxDotGap: dotGaps.length ? Math.max.apply(null, dotGaps) : 999,
                         sample: lasts.slice(0, 3).concat(lasts.slice(-2)),
+                        usdSample: usds.slice(0, 2).concat(usds.slice(-2)),
                       });
                     }
                   }, 100);
@@ -252,6 +286,7 @@ class W5BrowserTests(unittest.TestCase):
         self.assertLessEqual(stats["maxLastGap"], 3.0, stats)
         self.assertGreaterEqual(stats["dotChanges"], 20, stats)
         self.assertLessEqual(stats["maxDotGap"], 3.0, stats)
+        self.assertGreaterEqual(stats["usdChanges"], 50, stats)
 
 
 if __name__ == "__main__":
