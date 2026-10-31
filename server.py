@@ -259,7 +259,7 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 92,
+            "panel_v": 93,
             "time": _utc(),
             "qa_tick": "page ?qa_tick=both|up|down",
             "qa_end": "page ?qa_end=1 (one-shot) or POST /api/game/end",
@@ -315,7 +315,7 @@ def api_health():
                 "A pool without that live socket is priced from the 1s vault poll. "
                 "Vault accountSubscribe is the second source. "
                 "Orca keeps accountSubscribe. PumpPortal trade sockets are not used: "
-                "they require a funded API key. No getTransaction. "
+                "they require a funded API key. "
                 "Jupiter Price API usdPrice is one batched call per second for the SOL anchor. "
                 "It is not the steady-state coin price. A pool that stays unreachable for more than "
                 "10s may return src jupiter_fallback, and that tick is stale so it cannot fill a buy, "
@@ -349,6 +349,13 @@ def api_health():
                 "The guard does not publish an override in that case. It publishes only once a swap "
                 "price and a vault price agree within 5%. Until then the tick is stale and Buy stays "
                 "off. Two agreeing on-chain reads replace a stuck price. "
+                "A pool with no logs subscription, or a silent one, gets that swap from the chain: "
+                "on first watch, in parallel with the vault read, and at most every 10s while still "
+                "unconfirmed, getSignaturesForAddress (a short limit) and one getTransaction decode "
+                "the newest swap. The confirming price is the swap's post-trade vault state, times "
+                "the quote token's USD when the quote is not SOL. An old swap still counts. If those "
+                "signatures hold no decodable swap, two vault reads within 1% are the baseline, so a "
+                "working vault is not left blank. After that, vault reads keep the price fresh. "
                 "Spike rows log hold_start and publish. "
                 "That pair is accepted even when it is far from the baseline. A baseline older than 5s cannot veto them. "
                 "Held spikes and overrides are stream.spike_rejects and are not a stop or a take-profit "
@@ -409,7 +416,7 @@ def api_gold():
     return jsonify(
         {
             "ok": True,
-            "panel_v": 92,
+            "panel_v": 93,
             "feature": "gold_scar",
             "count": len(picks),
             "empty_ok": True,

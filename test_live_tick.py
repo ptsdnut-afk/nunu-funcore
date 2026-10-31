@@ -534,7 +534,7 @@ class TradeFillTests(unittest.TestCase):
 class HealthAndChartTests(unittest.TestCase):
     def test_health_is_v82_with_live_tick_and_a_five_second_sla(self):
         data = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 92)
+        self.assertEqual(data["panel_v"], 93)
         self.assertIn("live_tick", data["features"])
         self.assertLessEqual(data["quote_sla_s"], 5.0)
         self.assertEqual(data["quote_sla_s"], 5.0)
@@ -1061,7 +1061,7 @@ class ShipW3Tests(unittest.TestCase):
 
     def test_health_documents_the_stream_and_panel_87(self):
         data = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 92)
+        self.assertEqual(data["panel_v"], 93)
         self.assertIn("trade_stream", data["features"])
         self.assertIn("stream", data["live_tick"])
         self.assertIn("PumpPortal", data["live_tick"])
@@ -1073,7 +1073,7 @@ class ShipW3Tests(unittest.TestCase):
 
     def test_w20_w22_w23_w26_w27_w28_panel_contract(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
-        self.assertIn("const PANEL_V = 92", html)
+        self.assertIn("const PANEL_V = 93", html)
         self.assertIn("paintPanelVersion", html)
         self.assertIn("data-panel-v", html)
         pure = html[html.index("/* ship-w-pure-start */"):html.index("/* ship-w-pure-end */")]
@@ -2240,6 +2240,234 @@ class ShipW92Tests(unittest.TestCase):
         trade_stream._release_hold(MINT, trade_stream._hold_gen.get(MINT, 0))
         self.assertAlmostEqual(game._live_cache[MINT][1]["price_usd"], 1.0)
         self.assertTrue(trade_stream._pending_spikes[MINT].get("rejected"))
+
+
+def _swap_tx(pool_addr: str, base_vault: str, quote_vault: str, base_raw: int, quote_raw: int, *, block_time: int | None = None) -> dict:
+    """A confirmed swap whose post-trade vault balances are the price."""
+    import base64
+    import struct
+    import trade_stream
+    body = bytearray(160)
+    struct.pack_into("<Q", body, 8, 1_000)
+    struct.pack_into("<Q", body, 104, 1_000)
+    body[112:144] = trade_stream.b58decode(pool_addr)
+    raw = trade_stream.BUY_EVENT_DISC + bytes(body)
+    line = "Program data: " + base64.b64encode(raw).decode()
+    when = int(time.time()) - 20000 if block_time is None else block_time
+    return {
+        "blockTime": when,
+        "meta": {
+            "err": None,
+            "logMessages": ["Program log: ignored", line],
+            "postTokenBalances": [
+                {"accountIndex": 1, "uiTokenAmount": {"amount": str(base_raw), "decimals": 6}},
+                {"accountIndex": 2, "uiTokenAmount": {"amount": str(quote_raw), "decimals": 9}},
+            ],
+        },
+        "transaction": {"message": {"accountKeys": ["payer", base_vault, quote_vault]}},
+    }
+
+
+def _batch_rpc(sig_result, tx_result):
+    calls = []
+
+    def post(http, body, timeout):
+        payload = json.loads(body.decode())
+        items = payload if isinstance(payload, list) else [payload]
+        calls.append(items)
+        if not isinstance(payload, list):
+            method = payload.get("method")
+            if method == "getSignaturesForAddress":
+                return {"jsonrpc": "2.0", "id": payload.get("id", 1), "result": sig_result}
+            if method == "getTransaction":
+                return {"jsonrpc": "2.0", "id": payload.get("id", 1), "result": tx_result}
+            return {"jsonrpc": "2.0", "id": payload.get("id", 1), "result": None}
+        out = []
+        for item in payload:
+            method = item.get("method")
+            if method == "getSignaturesForAddress":
+                out.append({"jsonrpc": "2.0", "id": item["id"], "result": sig_result})
+            elif method == "getTransaction":
+                out.append({"jsonrpc": "2.0", "id": item["id"], "result": tx_result})
+            else:
+                out.append({"jsonrpc": "2.0", "id": item["id"], "error": {"code": -1, "message": "no"}})
+        return out
+
+    return post, calls
+
+
+class ShipW93Tests(unittest.TestCase):
+    """Pools past the logs cap baseline from the newest on-chain swap."""
+
+    def setUp(self):
+        import trade_stream
+        game._live_cache.clear()
+        game._live_backoff_until.clear()
+        game._live_backoff_s.clear()
+        game._qa_walks.clear()
+        game.set_qa_walk_sid(None)
+        game.set_client_sid(None)
+        trade_stream.reset_for_tests()
+
+    def tearDown(self):
+        import trade_stream
+        game._live_cache.clear()
+        game._qa_walks.clear()
+        game.set_qa_walk_sid(None)
+        game.set_client_sid(None)
+        trade_stream.reset_for_tests()
+
+    def _arm(self, n: int, quote: str, *, base_dec: int = 6, quote_dec: int = 9, virtual: int = 0) -> tuple[str, dict]:
+        import trade_stream
+        mint = _pk(n)
+        pool = {
+            "mint": mint,
+            "kind": "pumpswap",
+            "address": _pk(n + 1),
+            "base_mint": mint,
+            "quote_mint": quote,
+            "base_vault": _pk(n + 2),
+            "quote_vault": _pk(n + 3),
+            "base_dec": base_dec,
+            "quote_dec": quote_dec,
+            "virtual_quote": virtual,
+        }
+        trade_stream._pools[mint] = pool
+        trade_stream.note_view(mint)
+        trade_stream.note_anchor(trade_stream.SOL_MINT, 100.0, force=True)
+        return mint, pool
+
+    def test_no_logs_pool_baselines_from_an_old_signature(self):
+        """No logs subscription. An hours-old swap's post-trade price confirms the vault."""
+        import trade_stream
+        mint, pool = self._arm(610, trade_stream.SOL_MINT, virtual=1_000_000_000)
+        # (2 SOL + 1 virtual) * $100. The swap is hours old; blockTime is not a gate.
+        tx = _swap_tx(
+            pool["address"], pool["base_vault"], pool["quote_vault"],
+            1_000_000, 2_000_000_000,
+            block_time=int(time.time()) - 20000,
+        )
+        sigs = [{"signature": "oldswap", "err": None, "blockTime": tx["blockTime"]}]
+        post, calls = _batch_rpc(sigs, tx)
+        self.assertEqual(
+            trade_stream.ingest_swap(mint, 300.0, source="pool_vault", signature="vault"),
+            "spike",
+        )
+        self.assertNotIn(mint, game._live_cache)
+        with mock.patch.object(trade_stream, "_post_rpc", side_effect=post):
+            trade_stream._run_chain_baselines("http://rpc", [mint])
+        self.assertIn(mint, game._live_cache)
+        tick = game._live_cache[mint][1]
+        self.assertAlmostEqual(tick["price_usd"], 300.0, places=6)
+        self.assertEqual(tick["source"], "pool_swap")
+        self.assertFalse(trade_stream.awaiting_baseline(mint))
+        methods = [item.get("method") for batch in calls for item in batch]
+        self.assertIn("getSignaturesForAddress", methods)
+        self.assertIn("getTransaction", methods)
+        for batch in calls:
+            for item in batch:
+                if item.get("method") == "getSignaturesForAddress":
+                    self.assertLessEqual(item["params"][1]["limit"], trade_stream.SIG_LOOKBACK)
+        fetched = game.fetch_live_tick(mint, apply_qa=False)
+        self.assertFalse(fetched.get("stale"))
+        self.assertAlmostEqual(fetched["price_usd"], 300.0, places=6)
+
+    def test_non_sol_quote_uses_the_quote_usd(self):
+        import trade_stream
+        quote = _pk(630)
+        mint, pool = self._arm(640, quote, quote_dec=6, virtual=0)
+        trade_stream._quote_px[quote] = (time.time(), 2.0)
+        # 4 quote tokens * $2.
+        tx = _swap_tx(
+            pool["address"], pool["base_vault"], pool["quote_vault"],
+            1_000_000, 4_000_000,
+        )
+        post, _calls = _batch_rpc([{"signature": "qswap", "err": None}], tx)
+        self.assertEqual(trade_stream.ingest_swap(mint, 8.0, source="pool_vault", signature="v"), "spike")
+        with mock.patch.object(trade_stream, "_post_rpc", side_effect=post), \
+             mock.patch.object(game, "_http_json", side_effect=AssertionError("jupiter")):
+            trade_stream._run_chain_baselines("http://rpc", [mint])
+        self.assertAlmostEqual(game._live_cache[mint][1]["price_usd"], 8.0, places=6)
+        self.assertIn(game._live_cache[mint][1]["source"], ("pool_swap", "pool_vault"))
+
+    def test_swap_more_than_5_percent_from_the_vault_stays_stale(self):
+        import trade_stream
+        mint, pool = self._arm(660, trade_stream.SOL_MINT, virtual=1_000_000_000)
+        tx = _swap_tx(
+            pool["address"], pool["base_vault"], pool["quote_vault"],
+            1_000_000, 2_000_000_000,
+        )
+        post, _calls = _batch_rpc([{"signature": "far", "err": None}], tx)
+        # 8% above the post-trade price. The 5% pair refuses it.
+        self.assertEqual(trade_stream.ingest_swap(mint, 324.0, source="pool_vault", signature="v1"), "spike")
+        with mock.patch.object(trade_stream, "_post_rpc", side_effect=post):
+            trade_stream._run_chain_baselines("http://rpc", [mint])
+        self.assertNotIn(mint, game._live_cache)
+        self.assertNotIn(mint, trade_stream._chain_empty)
+        # A later vault that agrees with the first vault must not sneak through.
+        self.assertEqual(trade_stream.ingest_swap(mint, 325.0, source="pool_vault", signature="v2"), "spike")
+        self.assertNotIn(mint, game._live_cache)
+        tick = game.fetch_live_tick(mint, apply_qa=False)
+        self.assertTrue(tick.get("stale"))
+        self.assertIsNone(tick.get("price_usd"))
+        self.assertGreater(trade_stream._baseline_age(mint), trade_stream.BASELINE_HUGE_S)
+
+    def test_no_decodable_swap_baselines_on_two_close_vaults(self):
+        import trade_stream
+        mint, pool = self._arm(680, trade_stream.SOL_MINT)
+        tx = {
+            "blockTime": int(time.time()) - 5000,
+            "meta": {"err": None, "logMessages": ["Program log: not a swap"], "postTokenBalances": []},
+            "transaction": {"message": {"accountKeys": ["payer"]}},
+        }
+        post, _calls = _batch_rpc([{"signature": "noswap", "err": None}], tx)
+        with mock.patch.object(trade_stream, "_post_rpc", side_effect=post):
+            trade_stream._run_chain_baselines("http://rpc", [mint])
+        self.assertIn(mint, trade_stream._chain_empty)
+        self.assertEqual(trade_stream.ingest_swap(mint, 10.0, source="pool_vault", signature="a"), "spike")
+        self.assertNotIn(mint, game._live_cache)
+        # 2% is outside the 1% vault pair.
+        self.assertEqual(trade_stream.ingest_swap(mint, 10.2, source="pool_vault", signature="b"), "spike")
+        self.assertNotIn(mint, game._live_cache)
+        trade_stream.reset_for_tests()
+        game._live_cache.clear()
+        mint, pool = self._arm(690, trade_stream.SOL_MINT)
+        post, _calls = _batch_rpc([{"signature": "noswap2", "err": None}], tx)
+        with mock.patch.object(trade_stream, "_post_rpc", side_effect=post):
+            trade_stream._run_chain_baselines("http://rpc", [mint])
+        self.assertEqual(trade_stream.ingest_swap(mint, 10.0, source="pool_vault", signature="a"), "spike")
+        self.assertEqual(trade_stream.ingest_swap(mint, 10.05, source="pool_vault", signature="b"), "ok")
+        self.assertAlmostEqual(game._live_cache[mint][1]["price_usd"], 10.05, places=6)
+        self.assertEqual(game._live_cache[mint][1]["source"], "pool_vault")
+        self.assertFalse(trade_stream.awaiting_baseline(mint))
+
+    def test_unconfirmed_recheck_waits_10s_and_a_live_log_skips_rpc(self):
+        import trade_stream
+        mint, pool = self._arm(700, trade_stream.SOL_MINT, virtual=1_000_000_000)
+        tx = _swap_tx(
+            pool["address"], pool["base_vault"], pool["quote_vault"],
+            1_000_000, 2_000_000_000,
+        )
+        post, calls = _batch_rpc([{"signature": "far", "err": None}], tx)
+        trade_stream.ingest_swap(mint, 324.0, source="pool_vault", signature="v")
+        with mock.patch.object(trade_stream, "_post_rpc", side_effect=post):
+            trade_stream._run_chain_baselines("http://rpc", [mint])
+            used = len(calls)
+            self.assertGreater(used, 0)
+            trade_stream._run_chain_baselines("http://rpc", [mint])
+            self.assertEqual(len(calls), used)
+            trade_stream._chain_at[mint] = time.monotonic() - 11
+            trade_stream._run_chain_baselines("http://rpc", [mint])
+            self.assertGreater(len(calls), used)
+        # A pool whose logs subscription already delivered a swap is not fetched.
+        trade_stream.reset_for_tests()
+        mint, pool = self._arm(710, trade_stream.SOL_MINT)
+        trade_stream._ws["subscriptions"]["logs:" + pool["address"]] = 7
+        trade_stream._logs_priced[pool["address"]] = time.monotonic()
+        post, calls = _batch_rpc([{"signature": "x", "err": None}], tx)
+        with mock.patch.object(trade_stream, "_post_rpc", side_effect=post):
+            trade_stream._run_chain_baselines("http://rpc", [mint])
+        self.assertEqual(calls, [])
 
 
 if __name__ == "__main__":
