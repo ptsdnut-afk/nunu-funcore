@@ -49,9 +49,16 @@ non-SOL quote's own USD. When it agrees with the vault within 5%, that is
 the baseline. An hours-old swap still counts: if nothing traded since, the
 vault and the post-trade balances are the same number. If those signatures
 hold no decodable swap, two vault reads within 1% are the baseline, so a
-working vault is not left blank. After the baseline, the 1s vault poll keeps
-the price fresh. An unconfirmed override is still refused. Jupiter stays a
-labeled fallback.
+working vault is not left blank. After the baseline, vault polls keep the
+price fresh. Due pools are spread across the second. The public host
+accepts at most ten accounts per ``getMultipleAccounts``, so each call stays
+inside that cap and the next group waits. Shared accounts
+are read once. A ``-32005`` or HTTP 429 backs that endpoint off with jitter
+and the process stays inside a global request budget. Open positions and the
+coin being viewed go first, then coins that just traded, then quiet ones.
+``SOLANA_RPC_URL`` or ``HELIUS_API_KEY``, when set, is the host for vault
+polls and signature fetches, and ``api.mainnet-beta`` is the fallback. With
+no key, the public HTTP endpoint is used on its own.
 Vault ``accountSubscribe`` stays on the shared publicnode socket. HTTP
 (Jupiter anchor, pool resolve, vault poll) stays on the vault thread.
 
@@ -87,14 +94,15 @@ case. It publishes only once a swap price and a vault price agree within
 stuck price. Spike rows log hold_start and publish. A baseline older
 than 5 seconds does not veto agreeing reads, and an echo of that old
 baseline does not refresh it.
-Vault polls for every watched pool share one getMultipleAccounts call.
-RPC URLs come from SOLANA_WS_URL and SOLANA_RPC_URL. The socket runs on a
-daemon thread.
+Vault polls share getMultipleAccounts calls of at most ten accounts on
+the public host and are spread across the second. RPC URLs come from SOLANA_WS_URL
+and SOLANA_RPC_URL. The socket runs on a daemon thread.
 """
 
 from __future__ import annotations
 
 import base64
+import heapq
 import json
 import os
 import struct
@@ -129,6 +137,16 @@ SWAP_MARK_S = 5.0  # a fresh executed fill is the mark; vault ratio waits
 LOGS_COMMITMENT = "confirmed"  # processed acks on publicnode and never notifies
 SUB_ACK_S = 2.0  # a subscribe with no ack is dropped so the next sync retries
 _BACKOFF_CAP_S = 20.0
+# publicnode rejects getMultipleAccounts above 10 (HTTP 403, -32602).
+# Five pools is ten vaults, one call. The next group waits.
+VAULT_GROUP = 5
+_PUBLIC_ACCOUNT_CHUNK = 10
+_PAID_ACCOUNT_CHUNK = 100
+# The 16-coin run stayed at zero 429s under a tighter budget, so the public
+# host can take a few calls at once. Paid hosts can go faster.
+_PUBLIC_BUDGET = (10.0, 4.0)  # tokens per second, burst
+_PAID_BUDGET = (20.0, 6.0)
+_MAINNET_BETA_HTTP = "https://api.mainnet-beta.solana.com"
 
 SOURCE_WHY = (
     "PumpPortal subscribeTokenTrade requires an API key funded with at least "
@@ -248,6 +266,22 @@ _chain_empty: set[str] = set()
 _chain_inflight: set[str] = set()
 _logs_priced: dict[str, float] = {}
 _rate_limits = 0
+_poll_at: dict[str, float] = {}
+_ep: dict[str, dict] = {}
+_tokens = 0.0
+_tokens_at = 0.0
+_budget_override: tuple[float, float] | None = None
+_rpc_lock = threading.Lock()
+_prio_local = threading.local()
+_sched_cv = threading.Condition()
+_sched_heap: list = []
+_sched_seq = 0
+_sched_thread: threading.Thread | None = None
+_sched_hold = False
+_inflight = 0
+_sched_pool = None
+_resolve_lock = threading.Lock()
+_poll_lock = threading.Lock()
 POOL_UNREACHABLE_S = 10.0
 _ws: dict = {
     "state": "down",
@@ -565,6 +599,7 @@ def reset_for_tests() -> None:
         })
     for timer in timers:
         timer.cancel()
+    _reset_rpc_state()
 
 
 def _remember_reject(row: dict) -> None:
@@ -1823,18 +1858,29 @@ def cold_vault_price(mint: str) -> bool:
         missed = _no_pool.get(mint)
     if missed and now - missed < 30.0:
         return False
-    http = endpoints()[1]
+    http = poll_http_primary()
     _refresh_anchors([mint])
-    pool = _pool_for(mint, http)
+    # One tick warms every watched mint through the shared batch. A private
+    # resolve per coin is what piled vault -32005s once 13–16 were open.
+    watched = watched_mints()
+    with _priority(0):
+        _resolve_watched_pools(http, watched)
+    with _priority(1):
+        _kick_chain_baselines(http, watched)
+    with _priority(0):
+        _warm_decimals(http, _cached_pool_snaps(watched))
+        _refresh_pump_mids(http)
+    with _guard:
+        pool = dict(_pools[mint]) if mint in _pools else None
     if not pool:
         with _guard:
             _no_pool[mint] = time.time()
         return False
-    # The confirming swap is fetched beside this read, not after the next poll.
-    _kick_chain_baselines(http, [mint])
+    if stream_is_fresh(mint):
+        return True
     kind = pool.get("kind")
     if kind == "pumpswap":
-        return _read_vault_mid(http, pool) is not None
+        return False
     info = _account_info(http, str(pool.get("address") or ""))
     raw = _account_bytes(info) if info else None
     sol = anchor_price(SOL_MINT, max_age=60.0)
@@ -1880,20 +1926,26 @@ def _http_vault_loop() -> None:
                 _ws["why"] = "idle: no watched mints"
             time.sleep(0.5)
             continue
-        http = endpoints()[1]
+        http = poll_http_primary()
+        ordered = _order_mints(mints)
         try:
-            _resolve_watched_pools(http, mints)
+            with _priority(0):
+                _resolve_watched_pools(http, ordered)
+            # Signature fetches start now and share the wire with the vault
+            # reads. A decoded swap publishes on its own, without waiting
+            # for the other coins.
+            with _priority(1):
+                _kick_chain_baselines(http, ordered)
             _ensure_quote_pools(http)
             # A missing SOL anchor has to land before the first vault math.
             # Once it is cached, refresh it after the mids so a slow Jupiter
             # call cannot stall every coin's vault read.
             if anchor_price(SOL_MINT, max_age=60.0) is None:
-                _refresh_anchors(mints)
-            # Signature baseline runs beside the vault batch, on the first watch.
-            _kick_chain_baselines(http, mints)
+                _refresh_anchors(ordered)
+            _warm_decimals(http, _cached_pool_snaps(ordered))
             _refresh_pump_mids(http)
-            _refresh_account_mids(http, mints)
-            _refresh_anchors(mints)
+            _refresh_account_mids(http, ordered)
+            _refresh_anchors(ordered)
             with _guard:
                 _ws["vault_poll_at"] = _iso_ms(time.time())
                 _ws["vault_poll_ok"] = True
@@ -1953,9 +2005,15 @@ def _refresh_account_mids(http: str, mints: list[str]) -> None:
         quotes = [dict(row) for row in _quote_pools.values()]
     for row in quotes:
         add(row)
+    if not snaps:
+        return
+    snaps.sort(key=lambda row: (_mint_tier(str(row.get("mint") or "")), str(row.get("address") or "")))
+    addrs = [str(snap.get("address") or "") for snap in snaps]
+    with _priority(2):
+        infos = _multiple_accounts(http, addrs) or {}
     for snap in snaps:
         mint = str(snap.get("mint") or "")
-        info = _account_info(http, str(snap.get("address") or ""))
+        info = infos.get(str(snap.get("address") or ""))
         raw = _account_bytes(info) if info else None
         if not raw:
             continue
@@ -2348,6 +2406,335 @@ def _rpc_error_limited(err) -> bool:
     return _is_rate_limit(str(err or ""))
 
 
+def paid_rpc_configured() -> bool:
+    """True when a paid or custom HTTP RPC is configured. No key stays public."""
+    if (os.environ.get("SOLANA_RPC_URL") or os.environ.get("SOLANA_RPC_HTTP") or "").strip():
+        return True
+    if (os.environ.get("HELIUS_API_KEY") or "").strip():
+        return True
+    return False
+
+
+def poll_http_primary() -> str:
+    """Host for vault polls and signature fetches. Public when no key is set."""
+    return endpoints()[1]
+
+
+def _http_candidates(http: str) -> list[str]:
+    """Primary host, then mainnet-beta when a paid RPC is configured."""
+    primary = (http or "").strip() or poll_http_primary()
+    out = [primary]
+    if paid_rpc_configured() and _MAINNET_BETA_HTTP not in out:
+        out.append(_MAINNET_BETA_HTTP)
+    return out
+
+
+def _endpoint_host(url: str) -> str:
+    try:
+        from urllib.parse import urlsplit
+        host = (urlsplit(url).hostname or "").lower()
+    except Exception:
+        host = ""
+    return host or (url or "")
+
+
+def _budget_params() -> tuple[float, float]:
+    if _budget_override is not None:
+        return _budget_override
+    # The suite posts through fakes. A live public host is the tight budget.
+    if _under_test() and (os.environ.get("NUNU_RPC_SCHEDULER") or "").strip() != "1":
+        return (1000.0, 1000.0)
+    if paid_rpc_configured():
+        return _PAID_BUDGET
+    return _PUBLIC_BUDGET
+
+
+def _refill_unlocked(now: float) -> None:
+    global _tokens, _tokens_at
+    rate, burst = _budget_params()
+    if _tokens_at <= 0:
+        _tokens = float(burst)
+        _tokens_at = now
+        return
+    if now > _tokens_at:
+        _tokens = min(float(burst), _tokens + (now - _tokens_at) * float(rate))
+        _tokens_at = now
+
+
+def _take_token_unlocked(now: float) -> bool:
+    global _tokens
+    _refill_unlocked(now)
+    if _tokens < 1.0:
+        return False
+    _tokens -= 1.0
+    return True
+
+
+def _take_token_wait(priority: int) -> bool:
+    """Spend one request token. Low priority does not wait out a full second."""
+    max_wait = {0: 0.8, 1: 0.45, 2: 0.15}.get(int(priority), 0.0)
+    if _under_test() and (os.environ.get("NUNU_RPC_SCHEDULER") or "").strip() != "1":
+        max_wait = 0.0
+    deadline = time.monotonic() + max_wait
+    while True:
+        with _rpc_lock:
+            if _take_token_unlocked(time.monotonic()):
+                return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.02)
+
+
+def _note_endpoint_limit(url: str) -> None:
+    """Double this host's backoff and jitter the next-allowed time."""
+    host = _endpoint_host(url)
+    if not host:
+        return
+    with _rpc_lock:
+        st = _ep.setdefault(host, {"delay": 0.0, "until": 0.0})
+        prev = float(st.get("delay") or 0.0)
+        delay = 0.5 if prev < 0.5 else min(_BACKOFF_CAP_S, prev * 2.0)
+        st["delay"] = delay
+        st["until"] = time.monotonic() + _jittered(delay)
+
+
+def _note_endpoint_ok(url: str) -> None:
+    host = _endpoint_host(url)
+    if not host:
+        return
+    with _rpc_lock:
+        st = _ep.get(host)
+        if not st:
+            return
+        st["delay"] = float(st.get("delay") or 0.0) * 0.5
+        if st["delay"] < 0.5:
+            st["delay"] = 0.0
+        st["until"] = 0.0
+
+
+def _endpoint_wait_unlocked(host: str) -> float:
+    st = _ep.get(host)
+    if not st:
+        return 0.0
+    return max(0.0, float(st.get("until") or 0.0) - time.monotonic())
+
+
+def _endpoint_wait(url: str) -> float:
+    host = _endpoint_host(url)
+    with _rpc_lock:
+        return _endpoint_wait_unlocked(host)
+
+
+def _endpoint_delay(url: str) -> float:
+    host = _endpoint_host(url)
+    with _rpc_lock:
+        st = _ep.get(host) or {}
+        return float(st.get("delay") or 0.0)
+
+
+def _ready_to_send(http: str, now: float) -> bool:
+    _refill_unlocked(now)
+    if _tokens < 1.0:
+        return False
+    return any(_endpoint_wait_unlocked(_endpoint_host(host)) <= 0 for host in _http_candidates(http))
+
+
+def _call_limited(before: int, payload) -> bool:
+    if isinstance(payload, dict) and _rpc_error_limited(payload.get("error")):
+        return True
+    if isinstance(payload, list) and any(
+        isinstance(item, dict) and _rpc_error_limited(item.get("error")) for item in payload
+    ):
+        return True
+    if payload is None and _rate_limits_now() > before:
+        return True
+    return False
+
+
+def _current_priority() -> int:
+    try:
+        return int(getattr(_prio_local, "value", 2))
+    except (TypeError, ValueError):
+        return 2
+
+
+class _priority:
+    """Vault and signature callers set this so the scheduler can reorder."""
+
+    def __init__(self, level: int):
+        self.level = int(level)
+        self.prev = 2
+
+    def __enter__(self):
+        self.prev = _current_priority()
+        _prio_local.value = self.level
+        return self
+
+    def __exit__(self, *_exc):
+        _prio_local.value = self.prev
+        return False
+
+
+def _account_chunk() -> int:
+    """publicnode allows 10 accounts. A paid host can take many more."""
+    if paid_rpc_configured():
+        return _PAID_ACCOUNT_CHUNK
+    return _PUBLIC_ACCOUNT_CHUNK
+
+
+def _chunk_gap() -> float:
+    """Pause between account chunks. Tests skip it unless they opt in."""
+    if _under_test() and (os.environ.get("NUNU_RPC_GAP") or "").strip() != "1":
+        return 0.0
+    return 0.12
+
+
+def _rpc_send_now(http: str, body: bytes, timeout: float, token_held: bool = False):
+    """One JSON-RPC body. Falls through to the next host after -32005 or 429."""
+    if not token_held and not _take_token_wait(_current_priority()):
+        return None
+    last = None
+    sent = False
+    for host in _http_candidates(http):
+        if _endpoint_wait(host) > 0:
+            continue
+        before = _rate_limits_now()
+        payload = _post_rpc(host, body, timeout)
+        sent = True
+        if _call_limited(before, payload):
+            _note_endpoint_limit(host)
+            last = payload
+            continue
+        if payload is not None:
+            _note_endpoint_ok(host)
+        return payload
+    if not sent:
+        return None
+    return last
+
+
+def _on_sched_thread() -> bool:
+    return threading.current_thread().name == "trade-rpc"
+
+
+def _ensure_sched_thread() -> None:
+    global _sched_thread
+    if _sched_thread is not None and _sched_thread.is_alive():
+        return
+    _sched_thread = threading.Thread(target=_sched_loop, name="trade-rpc", daemon=True)
+    _sched_thread.start()
+
+
+def _inflight_cap() -> int:
+    """How many HTTP calls may be on the wire. Tests stay serial."""
+    if _under_test():
+        return 1
+    if paid_rpc_configured():
+        return 4
+    return 4
+
+
+def _sched_run(http: str, body: bytes, timeout: float, box: dict, ev: threading.Event) -> None:
+    global _inflight
+    try:
+        box["result"] = _rpc_send_now(http, body, timeout, token_held=True)
+    except Exception:
+        box["result"] = None
+    finally:
+        with _sched_cv:
+            _inflight = max(0, _inflight - 1)
+            _sched_cv.notify_all()
+        ev.set()
+
+
+def _sched_loop() -> None:
+    global _sched_pool, _inflight
+    _sched_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="trade-rpc-http")
+    while not _stop.is_set():
+        job = None
+        with _sched_cv:
+            if _sched_hold or _inflight >= _inflight_cap():
+                _sched_cv.wait(0.05)
+                continue
+            if not _sched_heap:
+                _sched_cv.wait(0.2)
+                continue
+            _priority, _seq, http, body, timeout, box, ev, deadline = _sched_heap[0]
+            now = time.monotonic()
+            if now >= deadline:
+                heapq.heappop(_sched_heap)
+                box["result"] = None
+                ev.set()
+                continue
+            with _rpc_lock:
+                ready = _ready_to_send(http, now)
+                if ready:
+                    _take_token_unlocked(now)
+            if not ready:
+                _sched_cv.wait(0.05)
+                continue
+            heapq.heappop(_sched_heap)
+            _inflight += 1
+            job = (http, body, timeout, box, ev)
+        if not job:
+            continue
+        _sched_pool.submit(_sched_run, *job)
+
+
+def _sched_submit(priority: int, http: str, body: bytes, timeout: float):
+    global _sched_seq
+    ev = threading.Event()
+    box: dict = {}
+    wait_s = {0: 3.0, 1: 2.0, 2: 1.0}.get(int(priority), 0.35)
+    deadline = time.monotonic() + wait_s
+    with _sched_cv:
+        _sched_seq += 1
+        heapq.heappush(
+            _sched_heap,
+            (int(priority), _sched_seq, http, body, timeout, box, ev, deadline),
+        )
+        _ensure_sched_thread()
+        _sched_cv.notify()
+    ev.wait(wait_s + float(timeout) + 0.5)
+    return box.get("result")
+
+
+def _use_scheduler() -> bool:
+    flag = (os.environ.get("NUNU_RPC_SCHEDULER") or "").strip()
+    if flag == "1":
+        return True
+    if flag == "0":
+        return False
+    return not _under_test()
+
+
+def _rpc_dispatch(http: str, body: bytes, timeout: float):
+    """Send one body. Live calls queue by priority. Tests post inline."""
+    if _on_sched_thread() or not _use_scheduler():
+        return _rpc_send_now(http, body, timeout, token_held=False)
+    return _sched_submit(_current_priority(), http, body, timeout)
+
+
+def _reset_rpc_state() -> None:
+    """Drop backoff, budget, and any queued RPC. Used by tests."""
+    global _tokens, _tokens_at, _budget_override, _sched_seq, _sched_hold
+    with _rpc_lock:
+        _ep.clear()
+        _tokens = 0.0
+        _tokens_at = 0.0
+        _budget_override = None
+    _poll_at.clear()
+    with _sched_cv:
+        _sched_hold = False
+        while _sched_heap:
+            *_head, box, ev, _deadline = heapq.heappop(_sched_heap)
+            # heap entries are (priority, seq, http, body, timeout, box, ev, deadline)
+            box["result"] = None
+            ev.set()
+        _sched_seq = 0
+        _sched_cv.notify_all()
+
+
 def logs_sub_live(address: str) -> bool:
     """True when this pool's logsSubscribe id is on the live socket."""
     if not address:
@@ -2364,6 +2751,10 @@ def _logs_supervisor() -> None:
         if not _priority_log_ops():
             time.sleep(0.4)
             continue
+        paused = _endpoint_wait(logs_endpoint())
+        if paused > 0:
+            time.sleep(min(paused, 2.0))
+            continue
         try:
             _serve_log_socket()
             backoff = 0.0
@@ -2372,6 +2763,7 @@ def _logs_supervisor() -> None:
             limited = _is_rate_limit(text)
             if limited:
                 _note_rate_limit("logs")
+                _note_endpoint_limit(logs_endpoint())
                 backoff = min(_BACKOFF_CAP_S, max(2.0, (backoff or 1.0) * 2.0))
             else:
                 routine = "1006" in text or "Connection to remote host was lost" in text
@@ -2849,6 +3241,11 @@ def _decode_pool_account(mint: str, addr: str, http: str) -> dict | None:
     info = _account_info(http, addr)
     if not info:
         return None
+    return _interpret_pool_account(mint, addr, info, http)
+
+
+def _interpret_pool_account(mint: str, addr: str, info: dict, http: str) -> dict | None:
+    """Decode a pool from an account that was already fetched."""
     owner = str(info.get("owner") or "")
     raw = _account_bytes(info)
     if owner == WHIRLPOOL_OWNER:
@@ -2963,8 +3360,14 @@ def _quote_pool_for(mint: str, http: str) -> dict | None:
 
 
 def _resolve_watched_pools(http: str, mints: list[str]) -> None:
+    """Resolve missing pools. Many mints share one getMultipleAccounts call."""
+    with _resolve_lock:
+        _resolve_watched_pools_locked(http, mints)
+
+
+def _resolve_watched_pools_locked(http: str, mints: list[str]) -> None:
     missing = []
-    for mint in mints:
+    for mint in _order_mints(mints):
         with _guard:
             pool = _pools.get(mint)
         if not (pool and pool.get("address")):
@@ -2973,8 +3376,56 @@ def _resolve_watched_pools(http: str, mints: list[str]) -> None:
         for mint in missing:
             _pool_for(mint, http)
         return
-    with ThreadPoolExecutor(max_workers=min(8, len(missing))) as pool:
-        list(pool.map(lambda mint: _pool_for(mint, http), missing))
+    with ThreadPoolExecutor(max_workers=min(4, len(missing))) as pool:
+        fetched = list(pool.map(_dex_pairs, missing))
+    def _pair_addrs(pairs) -> list[str]:
+        chosen = []
+        for pair in (pairs or [])[:4]:
+            addr = str((pair or {}).get("pairAddress") or "")
+            if len(addr) >= 32 and addr not in chosen:
+                chosen.append(addr)
+        return chosen
+
+    def _store_decoded(mint: str, addrs: list[str], infos: dict) -> bool:
+        with _guard:
+            have = _pools.get(mint)
+        if have and have.get("address"):
+            return True
+        for addr in addrs:
+            info = infos.get(addr)
+            if not info:
+                continue
+            decoded = _interpret_pool_account(mint, addr, info, http)
+            if decoded:
+                with _guard:
+                    _pools[mint] = decoded
+                return True
+        return False
+
+    # The busiest pair is usually the pool. Fetch those first so a 16-coin
+    # watch does not wait on three extra accounts per coin.
+    plans = [(mint, _pair_addrs(pairs)) for mint, pairs in zip(missing, fetched)]
+    top_addrs: list[str] = []
+    for _mint, chosen in plans:
+        if chosen and chosen[0] not in top_addrs:
+            top_addrs.append(chosen[0])
+    top_infos = _multiple_accounts(http, top_addrs) or {}
+    rest: list[tuple[str, list[str]]] = []
+    for mint, chosen in plans:
+        if not chosen:
+            _pool_for(mint, http)
+            continue
+        if _store_decoded(mint, [chosen[0]], top_infos):
+            continue
+        rest.append((mint, chosen[1:]))
+    rest_addrs: list[str] = []
+    for _mint, chosen in rest:
+        for addr in chosen:
+            if addr not in rest_addrs:
+                rest_addrs.append(addr)
+    rest_infos = _multiple_accounts(http, rest_addrs) or {}
+    for mint, chosen in rest:
+        _store_decoded(mint, chosen, rest_infos)
 
 
 def _ensure_quote_pools(http: str) -> None:
@@ -3068,8 +3519,8 @@ def _rpc_batch(http: str, calls: list[tuple[str, list]], timeout: float = 4.0) -
         {"jsonrpc": "2.0", "id": i, "method": method, "params": params}
         for i, (method, params) in enumerate(calls)
     ]).encode("utf-8")
-    payload = _post_rpc(http, body, timeout)
-    limited = _rate_limits_now() > before
+    payload = _rpc_dispatch(http, body, timeout)
+    limited = _rate_limits_now() > before or _call_limited(before, payload)
     out: list = [None] * len(calls)
     if isinstance(payload, dict):
         return out, limited or _rpc_error_limited(payload.get("error"))
@@ -3129,8 +3580,9 @@ def _baseline_due_unlocked(mint: str, pool: dict | None, now: float) -> bool:
 def _take_due_baselines(mints: list[str]) -> list[dict]:
     now = time.monotonic()
     due: list[dict] = []
+    ordered = _order_mints(list(mints))
     with _guard:
-        for mint in mints:
+        for mint in ordered:
             pool = _pools.get(mint)
             if not _baseline_due_unlocked(mint, pool, now):
                 continue
@@ -3296,7 +3748,7 @@ def _fetch_transaction(http: str, signature: str) -> tuple[str, dict | None]:
             "maxSupportedTransactionVersion": 1,
         }],
     }).encode("utf-8")
-    payload = _post_rpc(http, body, 6.0)
+    payload = _rpc_dispatch(http, body, 6.0)
     limited = _rate_limits_now() > before
     if isinstance(payload, dict) and _rpc_error_limited(payload.get("error")):
         limited = True
@@ -3353,38 +3805,33 @@ def _confirm_chain_baselines(http: str, pools: list[dict]) -> None:
         order = [(mint, sigs[step]) for mint, sigs in pending.items() if step < len(sigs)]
         if not order:
             break
-        fetched: dict[str, tuple[str, dict | None]] = {}
-        # A few at a time. A batch of getTransaction is a 400 on the public RPC.
-        workers = min(4, len(order))
-        if workers <= 1:
-            for mint, sig in order:
-                fetched[mint] = _fetch_transaction(http, sig)
-        else:
-            with ThreadPoolExecutor(max_workers=workers) as pool:
-                futs = {pool.submit(_fetch_transaction, http, sig): mint for mint, sig in order}
-                for fut, mint in futs.items():
-                    try:
-                        fetched[mint] = fut.result()
-                    except Exception:
-                        fetched[mint] = ("fail", None)
-        for mint, sig in order:
-            status, tx = fetched.get(mint, ("fail", None))
+        # A batch of getTransaction is a 400 on the public RPC. A few at a
+        # time is enough, and each one publishes as soon as it decodes so
+        # the first coins do not wait on the last coin.
+        cap = 4
+        workers = min(cap, len(order))
+
+        def _one(mint: str, sig: str) -> None:
+            try:
+                status, tx = _fetch_transaction(http, sig)
+            except Exception:
+                status, tx = "fail", None
             pool = by_mint.get(mint) or {}
             if status in ("limited", "fail"):
                 _mark_chain_retry(mint, status == "limited")
                 pending.pop(mint, None)
                 failed.add(mint)
-                continue
+                return
             if status != "tx" or not isinstance(tx, dict):
-                continue
+                return
             kind, px = _swap_post_usd(http, tx, pool)
             if kind in ("not_swap", "skip"):
-                continue
+                return
             if kind == "retry":
                 saw_swap.add(mint)
                 _mark_chain_retry(mint, False)
                 pending.pop(mint, None)
-                continue
+                return
             with _guard:
                 _chain_empty.discard(mint)
                 _chain_tries.pop(mint, None)
@@ -3399,6 +3846,13 @@ def _confirm_chain_baselines(http: str, pools: list[dict]) -> None:
             )
             print(f"[trade-stream] sig baseline {mint} px={px}", flush=True)
             pending.pop(mint, None)
+
+        if workers <= 1:
+            for mint, sig in order:
+                _one(mint, sig)
+        else:
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                list(pool.map(lambda item: _one(item[0], item[1]), order))
     for mint in list(pending):
         if mint in saw_swap or mint in failed:
             continue
@@ -3407,7 +3861,8 @@ def _confirm_chain_baselines(http: str, pools: list[dict]) -> None:
 
 def _chain_baseline_thread(http: str, pools: list[dict]) -> None:
     try:
-        _confirm_chain_baselines(http, pools)
+        with _priority(1):
+            _confirm_chain_baselines(http, pools)
     except Exception as exc:
         print(f"[trade-stream] chain baseline failed ({exc})", flush=True)
     finally:
@@ -3463,7 +3918,8 @@ def _run_chain_baselines(http: str, mints: list[str]) -> None:
     if not due:
         return
     try:
-        _confirm_chain_baselines(http, due)
+        with _priority(1):
+            _confirm_chain_baselines(http, due)
     finally:
         _finish_due_baselines(due)
 
@@ -3484,32 +3940,139 @@ def _kick_chain_baselines(http: str, mints: list[str]) -> None:
 
 
 def _account_info(http: str, addr: str) -> dict | None:
+    if not addr:
+        return None
     body = json.dumps({
         "jsonrpc": "2.0",
         "id": 1,
         "method": "getAccountInfo",
         "params": [addr, {"encoding": "base64"}],
     }).encode("utf-8")
-    payload = _post_rpc(http, body, 4)
-    if not payload:
+    payload = _rpc_dispatch(http, body, 4)
+    if not isinstance(payload, dict) or payload.get("error"):
         return None
-    value = ((payload.get("result") or {}).get("value")) if isinstance(payload, dict) else None
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        return None
+    value = result.get("value")
     return value if isinstance(value, dict) else None
 
 
 _anchor_at = 0.0
 
 
+def _viewed_mint() -> str:
+    """The coin the panel is looking at. The most recent view wins."""
+    with _guard:
+        if not _views:
+            return ""
+        return max(_views.items(), key=lambda kv: kv[1])[0]
+
+
+def _mint_tier(mint: str, positions: set[str] | None = None, viewed: str | None = None) -> int:
+    """0 = position, viewed coin, or still cold. 1 = just traded. 2 = quiet."""
+    if positions is None:
+        try:
+            positions = set(_position_mints())
+        except Exception:
+            positions = set()
+    if viewed is None:
+        viewed = _viewed_mint()
+    if mint and (mint in positions or mint == viewed):
+        return 0
+    with _guard:
+        seen = _seen.get(mint)
+        px = _last_px.get(mint)
+        swap_at = float(_swap_at.get(mint) or 0.0)
+    try:
+        priced = float(px or 0) > 0
+    except (TypeError, ValueError):
+        priced = False
+    if not seen or not priced:
+        return 0
+    if swap_at > 0 and time.time() - swap_at <= 30.0:
+        return 1
+    return 2
+
+
+def _order_mints(mints: list[str]) -> list[str]:
+    """Positions, then the viewed coin, then cold and active, then quiet."""
+    try:
+        positions = _position_mints()
+    except Exception:
+        positions = []
+    pos = set(positions)
+    viewed = _viewed_mint()
+
+    def key(mint: str):
+        tier = _mint_tier(mint, pos, viewed)
+        rank = 0 if mint in pos else 1 if mint == viewed else 2
+        return (tier, rank, mint)
+
+    return sorted([mint for mint in mints if mint], key=key)
+
+
+def _cached_pool_snaps(mints: list[str]) -> list[dict]:
+    out = []
+    for mint in mints:
+        with _guard:
+            pool = _pools.get(mint)
+            snap = dict(pool) if pool else None
+        if snap:
+            out.append(snap)
+    return out
+
+
+def _store_mint_decimals(mint: str, info: dict | None) -> None:
+    raw = _account_bytes(info) if isinstance(info, dict) else None
+    if not raw or len(raw) <= 44:
+        return
+    dec = raw[44]
+    if 0 <= dec <= 18:
+        with _guard:
+            _decimals[mint] = int(dec)
+
+
+def _warm_decimals(http: str, snaps: list[dict]) -> None:
+    """One getMultipleAccounts for mint decimals that are not cached yet."""
+    need: list[str] = []
+    for snap in snaps:
+        for side in ("base_mint", "quote_mint"):
+            mint = str(snap.get(side) or "")
+            if not mint or mint == SOL_MINT or mint in _STABLES or mint in need:
+                continue
+            with _guard:
+                known = mint in _decimals
+            if not known:
+                need.append(mint)
+    if not need:
+        return
+    with _priority(0):
+        infos = _multiple_accounts(http, need) or {}
+    for mint in need:
+        _store_mint_decimals(mint, infos.get(mint))
+
+
+def _poll_interval(tier: int) -> float:
+    return 1.0 if tier <= 1 else 2.0
+
+
 def _due_pump_snaps() -> list[dict]:
     """PumpSwap pools whose vaults should be read on this pass.
 
     Watched coins and the SOL/USDC pools that price their quote tokens share
-    one batch. A covered pool can wait on the socket until the mid is a
-    second old. A pool with no vault subscription is read every pass.
+    the batch. Open positions, the viewed coin, and anything still cold are
+    due every second. A quiet coin waits two seconds so the calls do not
+    all land together. A live logs socket can skip a pool whose mid is fresh.
     """
     now = time.time()
     snaps = []
     seen: set[str] = set()
+    try:
+        positions = set(_position_mints())
+    except Exception:
+        positions = set()
+    viewed = _viewed_mint()
 
     def consider(pool: dict | None) -> None:
         if not pool or pool.get("kind") != "pumpswap":
@@ -3520,12 +4083,24 @@ def _due_pump_snaps() -> list[dict]:
         mint = str(pool.get("mint") or "")
         with _guard:
             seen_mid = _mids.get(mint)
-        # A live logs socket can carry the price. Without one, the 1s vault
+        # A live logs socket can carry the price. Without one, the vault
         # poll is the price, even when an accountSubscribe id is already up.
         if logs_sub_live(addr) and _vault_sub_covered(pool) and seen_mid and now - seen_mid[0] < 1.0:
             return
+        tier = _mint_tier(mint, positions, viewed)
+        last = _poll_at.get(addr, 0.0)
+        if last and now - last < _poll_interval(tier) - 0.05:
+            return
         seen.add(addr)
-        snaps.append(dict(pool))
+        snap = dict(pool)
+        snap["_tier"] = tier
+        if mint in positions:
+            snap["_rank"] = 0
+        elif mint == viewed:
+            snap["_rank"] = 1
+        else:
+            snap["_rank"] = 2
+        snaps.append(snap)
 
     for mint in watched_mints():
         with _guard:
@@ -3542,16 +4117,41 @@ def _due_pump_snaps() -> list[dict]:
 def _refresh_pump_mids(http: str) -> None:
     """Re-read PumpSwap vaults so a quiet coin still shows the post-swap mid.
 
-    Two or more pools share one getMultipleAccounts call. Per-pool HTTP was
-    serial, so six watched coins went stale in the same seconds.
+    Up to five pools share one getMultipleAccounts call, capped at the
+    public host's 10-account limit. The next group waits a fraction of a
+    second. A failed batch is not fanned out into one HTTP call per pool.
     """
+    with _poll_lock:
+        _refresh_pump_mids_locked(http)
+
+
+def _refresh_pump_mids_locked(http: str) -> None:
     snaps = _due_pump_snaps()
     if not snaps:
         return
-    if len(snaps) == 1:
-        _read_vault_mid(http, snaps[0])
-        return
-    _read_vault_mids_batch(http, snaps)
+    snaps.sort(key=lambda row: (
+        int(row.get("_tier") or 0),
+        int(row.get("_rank") or 2),
+        str(row.get("mint") or ""),
+    ))
+    for start in range(0, len(snaps), VAULT_GROUP):
+        chunk = snaps[start:start + VAULT_GROUP]
+        if start and _chunk_gap():
+            time.sleep(_chunk_gap())
+        tier = min(int(row.get("_tier") or 0) for row in chunk)
+        # An open position cuts in front. Cold and active coins share the
+        # signature lane so a vault chunk does not hold every decode back.
+        if any(int(row.get("_rank") or 2) == 0 for row in chunk):
+            pri = 0
+        elif tier <= 1:
+            pri = 1
+        else:
+            pri = 2
+        with _priority(pri):
+            if len(chunk) == 1:
+                _read_vault_mid(http, chunk[0])
+            else:
+                _read_vault_mids_batch(http, chunk)
 
 
 def _quote_is_sol_or_stable(pool: dict) -> bool:
@@ -3566,30 +4166,58 @@ def _token_amount(row: dict | None) -> int | None:
     return struct.unpack_from("<Q", raw, TOKEN_AMOUNT)[0]
 
 
-def _multiple_amounts(http: str, addrs: list[str]) -> dict[str, int] | None:
-    """One getMultipleAccounts for every vault. None when the RPC call fails."""
-    if not addrs:
+def _multiple_accounts(http: str, addrs: list[str], timeout: float = 2.5) -> dict[str, dict] | None:
+    """getMultipleAccounts, deduped. None when the first chunk fails."""
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for addr in addrs:
+        if addr and addr not in seen:
+            seen.add(addr)
+            deduped.append(addr)
+    if not deduped:
         return {}
-    out: dict[str, int] = {}
-    for start in range(0, len(addrs), 100):
-        chunk = addrs[start:start + 100]
+    found: dict[str, dict] = {}
+    any_ok = False
+    step = _account_chunk()
+    for start in range(0, len(deduped), step):
+        if start and _chunk_gap():
+            time.sleep(_chunk_gap())
+        chunk = deduped[start:start + step]
         body = json.dumps({
             "jsonrpc": "2.0",
             "id": 1,
             "method": "getMultipleAccounts",
             "params": [chunk, {"encoding": "base64", "commitment": "processed"}],
         }).encode("utf-8")
-        payload = _post_rpc(http, body, 2.5)
-        if not payload:
-            return None
-        vals = ((payload.get("result") or {}).get("value")) if isinstance(payload, dict) else None
-        if not isinstance(vals, list) or len(vals) < len(chunk):
-            return None
+        payload = _rpc_dispatch(http, body, timeout)
+        if not isinstance(payload, dict) or payload.get("error") or "result" not in payload:
+            if not any_ok:
+                return None
+            break
+        result = payload.get("result")
+        vals = result.get("value") if isinstance(result, dict) else None
+        if not isinstance(vals, list):
+            if not any_ok:
+                return None
+            break
+        any_ok = True
         for addr, row in zip(chunk, vals):
-            amt = _token_amount(row if isinstance(row, dict) else None)
-            if amt is None:
-                continue
-            out[addr] = amt
+            if isinstance(row, dict):
+                found[addr] = row
+    return found
+
+
+def _multiple_amounts(http: str, addrs: list[str]) -> dict[str, int] | None:
+    """One getMultipleAccounts for every vault. None when the RPC call fails."""
+    infos = _multiple_accounts(http, addrs)
+    if infos is None:
+        return None
+    out: dict[str, int] = {}
+    for addr, row in infos.items():
+        amt = _token_amount(row)
+        if amt is None:
+            continue
+        out[addr] = amt
     return out
 
 
@@ -3613,6 +4241,8 @@ def mint_decimals(http: str, mint: str) -> int | None:
         return None
     with _guard:
         known = _decimals.get(mint)
+    if known is not None:
+        return known
     info = _account_info(http, mint)
     raw = _account_bytes(info) if info else None
     if raw and len(raw) > 44:
@@ -3771,17 +4401,29 @@ def _price_vault_pair(http: str, pool: dict, base_raw: int, quote_raw: int) -> f
     return px
 
 
+def _mark_polled(addr: str) -> None:
+    if addr:
+        _poll_at[addr] = time.time()
+
+
 def _read_vault_mid(http: str, pool: dict) -> float | None:
     base_vault = str(pool.get("base_vault") or "")
     quote_vault = str(pool.get("quote_vault") or "")
     amounts = _vault_amounts(http, base_vault, quote_vault)
     if not amounts:
         return None
-    return _price_vault_pair(http, pool, amounts[0], amounts[1])
+    px = _price_vault_pair(http, pool, amounts[0], amounts[1])
+    if px:
+        _mark_polled(str(pool.get("address") or ""))
+    return px
 
 
 def _read_vault_mids_batch(http: str, snaps: list[dict]) -> None:
-    """Price every due pool from one account fetch."""
+    """Price every due pool from one account fetch.
+
+    A -32005 or a dropped call is retried on the next pass. It does not
+    turn into one HTTP request per vault.
+    """
     addrs: list[str] = []
     for snap in snaps:
         for key in ("base_vault", "quote_vault"):
@@ -3789,16 +4431,16 @@ def _read_vault_mids_batch(http: str, snaps: list[dict]) -> None:
             if addr and addr not in addrs:
                 addrs.append(addr)
     got = _multiple_amounts(http, addrs)
-    if got is None:
-        with ThreadPoolExecutor(max_workers=min(8, len(snaps))) as pool:
-            list(pool.map(lambda snap: _read_vault_mid(http, snap), snaps))
+    if not got:
         return
     for snap in snaps:
         base = got.get(str(snap.get("base_vault") or ""))
         quote = got.get(str(snap.get("quote_vault") or ""))
         if base is None or quote is None:
             continue
-        _price_vault_pair(http, snap, base, quote)
+        px = _price_vault_pair(http, snap, base, quote)
+        if px:
+            _mark_polled(str(snap.get("address") or ""))
 
 
 def _parsed_token_amount(row: dict | None) -> tuple[int, int] | None:

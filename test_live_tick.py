@@ -1923,8 +1923,13 @@ class ShipW91Tests(unittest.TestCase):
         with mock.patch.object(trade_stream, "_post_rpc", side_effect=post), \
              mock.patch.object(trade_stream, "mint_decimals", side_effect=lambda http, mint: 9 if mint == trade_stream.SOL_MINT else 6):
             trade_stream._refresh_pump_mids("http://rpc")
-        self.assertEqual([row["method"] for row in calls], ["getMultipleAccounts"])
-        self.assertEqual(len(calls[0]["params"][0]), 12)
+        self.assertTrue(calls)
+        self.assertTrue(all(row["method"] == "getMultipleAccounts" for row in calls))
+        # publicnode allows 10 accounts per getMultipleAccounts. Twelve vaults
+        # are two calls, not one rejected batch and not one call per pool.
+        self.assertTrue(all(len(row["params"][0]) <= 10 for row in calls))
+        self.assertEqual(sum(len(row["params"][0]) for row in calls), 12)
+        self.assertLess(len(calls), 6)
         for pool in pools:
             # One shared poll still priced every vault. It is not a live tick
             # until a swap agrees, so a lone read cannot publish an override.
