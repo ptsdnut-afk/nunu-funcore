@@ -259,7 +259,7 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 90,
+            "panel_v": 91,
             "time": _utc(),
             "qa_tick": "page ?qa_tick=both|up|down",
             "qa_end": "page ?qa_end=1 (one-shot) or POST /api/game/end",
@@ -309,8 +309,10 @@ def api_health():
                 "PumpSwap and pump.fun curves use logsSubscribe (mentions the pool, commitment "
                 "confirmed) and parse Buy/Sell Program data into the executed fill. "
                 "processed logsSubscribe acks and then pushes nothing on the public socket. "
-                "Each pool's logsSubscribe has its own websocket: a shared socket delivers "
-                "notifications for only the first one. "
+                "api.mainnet-beta pushes every logsSubscribe on one socket and answers 429 "
+                "around 10 connections, so open positions and the coin being viewed share one "
+                "logs socket (at most 8 subscriptions). A 429 backs off with jitter. "
+                "A pool without that live socket is priced from the 1s vault poll. "
                 "Vault accountSubscribe is the second source. "
                 "Orca keeps accountSubscribe. PumpPortal trade sockets are not used: "
                 "they require a funded API key. No getTransaction. "
@@ -319,7 +321,10 @@ def api_health():
                 "10s may return src jupiter_fallback, and that tick is stale so it cannot fill a buy, "
                 "sell, or stop. The first tick resolves the pool and reads vaults synchronously "
                 "(base64, within about 3s). A non-SOL quote is the pool ratio times that quote token's "
-                "own SOL-pool USD price. Every watched PumpSwap pool gets logsSubscribe before vault "
+                "own SOL or USDC pool (PumpSwap, Orca, pump.fun, Raydium CLMM, or Meteora DLMM). That pool is resolved, "
+                "cached, and subscribed even when it is not the quote token's busiest pair, so an "
+                "SPCX-quoted coin and BABA (发发) both stay off Jupiter in steady state. "
+                "Every watched PumpSwap pool gets logsSubscribe before vault "
                 "accounts take subscription room. A coin with an open position, or viewed in the last "
                 "5 minutes, keeps those subscriptions. A pool with no vault subscription is HTTP-polled "
                 "at least once a second. The socket thread does not do that HTTP, so acks and "
@@ -334,9 +339,12 @@ def api_health():
                 "about 7% under the fill on these pools; the fee schedule (20 bps LP, 5 bps protocol) "
                 "is not that gap. "
                 "driver is swap, or sol_usd when only the SOL price moved. "
-                "A single print more than 15% from the last published price is held until two "
-                "consecutive independent reads agree within 2%. That pair is accepted even when it "
-                "is far from the baseline. A baseline older than 5s cannot veto them. "
+                "A single print more than 15% from the last published price is held. A second "
+                "independent read publishes immediately when the two agree within 2%, or within 12% "
+                "when one is the executed fill and the other is the vault. The hold is at most 3s: "
+                "a later read that is still the crash publishes then, so a real dump cannot sit for "
+                "half a minute. A one-off bounce with no confirming read stays out of the cache. "
+                "That pair is accepted even when it is far from the baseline. A baseline older than 5s cannot veto them. "
                 "Held spikes and overrides are stream.spike_rejects and are not a stop or a take-profit "
                 "until the override publishes."
             ),
@@ -395,7 +403,7 @@ def api_gold():
     return jsonify(
         {
             "ok": True,
-            "panel_v": 90,
+            "panel_v": 91,
             "feature": "gold_scar",
             "count": len(picks),
             "empty_ok": True,

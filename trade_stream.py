@@ -28,17 +28,20 @@ When ``HELIUS_API_KEY`` is set, the same subscribe runs on Helius.
 Jupiter is not on the steady-state path. A watched pool is priced from its
 vaults and from logsSubscribe. Jupiter is only a labeled fallback after the
 pool has been unreachable for more than 10 seconds, and that tick is stale
-so it cannot fill. A non-SOL quote (a coin that trades against BABA, for
-example) is the pool ratio times that quote token's own SOL-pool USD price.
+so it cannot fill. Any quote mint that is not SOL or USDC/USDT is the pool
+ratio times that quote token's own SOL or USDC pool. That pool is resolved,
+cached, and subscribed, including when it is not the quote token's busiest
+pair. BABA (发发) and an SPCX-quoted coin such as SIS both take this path.
 
 ``logsSubscribe`` uses commitment ``confirmed``. On the public mainnet
-socket, ``processed`` returns a subscription id and then pushes nothing, so
-the book never printed ``pool_swap``. A shared socket also pushes only the
-first ``logsSubscribe``; each PumpSwap or pump pool has its own logs
-socket. Vault ``accountSubscribe`` stays on the shared socket. That socket
-only reads and refreshes subscriptions. HTTP (Jupiter anchor, pool resolve,
-vault poll) stays on the vault thread, so a slow RPC cannot sit on an ack
-or drop a notification.
+socket, ``processed`` returns a subscription id and then pushes nothing.
+``api.mainnet-beta`` pushes every mentions subscription on one socket, and
+answers 429 once a process opens about 10 of those sockets. Priority coins
+(open positions, then the coin being viewed) share one logs socket, capped
+at 8 subscriptions. A 429 backs off with jitter. Any pool without a live
+logs subscription is priced from the 1s vault poll, so it does not go stale.
+Vault ``accountSubscribe`` stays on the shared publicnode socket. HTTP
+(Jupiter anchor, pool resolve, vault poll) stays on the vault thread.
 
 The mark from a Buy or Sell event is the executed fill: quote the user
 paid or received, divided by the base amount filled. The raw vault ratio
@@ -49,10 +52,16 @@ PumpSwap SOL pools because the AMM quotes against
 is 20 bps and protocol fee is 5 bps, so the fee schedule is not that gap.
 For 5 seconds after a fill the mark stays on that executed price. Between
 swaps the mark is the vault ratio plus virtual quote, which is the same
-correction. A move through 15% publishes once two consecutive independent
-reads agree within 2%, including when they are far from the baseline. A
-baseline older than 5 seconds does not veto those reads, and an echo of
-that old baseline does not refresh it. The socket runs on a daemon thread.
+correction. A move through 15% is held until a second independent read
+confirms it. That read publishes immediately: within 2%, or within 12%
+when one read is the fill and the other is the vault (the ~7% virtual-quote
+gap). The hold is at most 3 seconds, so a crash that is still there on the
+next read cannot sit the way a 98% drop did. A one-off bounce with no
+confirming read stays out. A baseline older than 5 seconds does not veto
+agreeing reads, and an echo of that old baseline does not refresh it.
+Vault polls for every watched pool share one getMultipleAccounts call.
+RPC URLs come from SOLANA_WS_URL and SOLANA_RPC_URL. The socket runs on a
+daemon thread.
 """
 
 from __future__ import annotations
@@ -64,7 +73,9 @@ import struct
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 # Same window as game.QUOTE_FRESH_SLA_S. Silent means no accepted swap or
@@ -74,6 +85,8 @@ STREAM_SILENCE_S = 5.0
 STREAM_OUTLIER = 0.03  # kept for callers that still name the old band
 SPIKE_MOVE = 0.15  # one print beyond this waits for a second read
 SPIKE_AGREE = 0.02  # two consecutive reads within this override the baseline
+SPIKE_CROSS = 0.12  # vault ratio vs the executed fill on the same crash (~7% + noise)
+SPIKE_HOLD_S = 3.0  # a crash candidate may sit at most this long
 BASELINE_VETO_S = 5.0  # an older baseline cannot veto agreeing fresh reads
 MID_OVER_JUPITER = 0.02  # PumpSwap mid wins when it disagrees with Jupiter by more than this
 MAX_SUBS = 48
@@ -99,6 +112,27 @@ _STABLES = {USDC_MINT, USDT_MINT}
 WHIRLPOOL_OWNER = "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"
 PUMP_OWNER = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
 PUMPSWAP_OWNER = "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"
+# Raydium CLMM. A quote token's SOL or USDC pool is often this, not PumpSwap.
+RAYDIUM_CLMM_OWNER = "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK"
+CLMM_DISC = bytes([247, 237, 227, 245, 215, 195, 222, 70])
+# Meteora DLMM. SPCX/SOL 3h9Gh… is this program.
+METEORA_DLMM_OWNER = "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo"
+DLMM_DISC = bytes([33, 11, 49, 98, 181, 101, 177, 13])
+DLMM_ACTIVE_ID = 76
+DLMM_BIN_STEP = 80
+DLMM_MINT_X = 88
+DLMM_MINT_Y = 120
+# api.mainnet-beta answers 429 once a process opens about 10 logs sockets.
+# One socket carries the priority logsSubscribe set. The rest use the 1s vault poll.
+MAX_LOG_SOCKETS = 1
+MAX_LOG_SUBS = 8
+CLMM_MINT_0 = 73
+CLMM_MINT_1 = 105
+CLMM_VAULT_0 = 137
+CLMM_VAULT_1 = 169
+CLMM_DEC_0 = 233
+CLMM_DEC_1 = 234
+CLMM_SQRT = 253
 
 # pump_amm IDL Pool discriminator and field offsets, including the 8-byte disc.
 # pool_bump u8, index u16, creator, base_mint, quote_mint, lp_mint,
@@ -165,6 +199,9 @@ _stop = threading.Event()
 _no_pool: dict[str, float] = {}
 _pool_miss_at: dict[str, float] = {}
 _quote_px: dict[str, tuple[float, float]] = {}
+_quote_pools: dict[str, dict] = {}
+_swap_counts: dict[str, int] = {}
+_rate_limits = 0
 POOL_UNREACHABLE_S = 10.0
 _ws: dict = {
     "state": "down",
@@ -224,23 +261,56 @@ def next_backoff(prev: float) -> float:
     return min(_BACKOFF_CAP_S, cur * 2.0)
 
 
+def _helius_urls(key: str) -> tuple[str, str]:
+    return (
+        f"wss://mainnet.helius-rpc.com/?api-key={key}",
+        f"https://mainnet.helius-rpc.com/?api-key={key}",
+    )
+
+
 def logs_endpoint() -> str:
-    """Websocket that actually pushes every pool's logsSubscribe."""
-    return (os.environ.get("SOLANA_LOGS_WSS") or "").strip() or _LOGS_WSS
+    """Websocket for the one multiplexed logs socket.
+
+    The default stays on mainnet-beta: publicnode acks several logsSubscribe
+    calls and then notifies only one of them. SOLANA_WS_URL, SOLANA_LOGS_WSS,
+    or HELIUS_API_KEY points that socket at a paid RPC. The free host 429s
+    around 10 connections, so this process opens one.
+    """
+    explicit = (os.environ.get("SOLANA_LOGS_WSS") or "").strip()
+    if explicit:
+        return explicit
+    custom = (os.environ.get("SOLANA_WS_URL") or "").strip()
+    if custom:
+        return custom
+    key = (os.environ.get("HELIUS_API_KEY") or "").strip()
+    if key:
+        return _helius_urls(key)[0]
+    return _LOGS_WSS
 
 
 def endpoints() -> tuple[str, str, str]:
-    """Return (wss, http, name). Helius only when HELIUS_API_KEY is set."""
+    """Return (wss, http, name).
+
+    SOLANA_WS_URL and SOLANA_RPC_URL override the defaults. The defaults are
+    publicnode for account subscribe and HTTP. Helius is used when
+    HELIUS_API_KEY is set and those two variables are not.
+    """
+    http = (os.environ.get("SOLANA_RPC_URL") or os.environ.get("SOLANA_RPC_HTTP") or "").strip()
+    wss = (os.environ.get("SOLANA_WS_URL") or os.environ.get("SOLANA_RPC_WSS") or "").strip()
     key = (os.environ.get("HELIUS_API_KEY") or "").strip()
-    if key:
-        return (
-            f"wss://mainnet.helius-rpc.com/?api-key={key}",
-            f"https://mainnet.helius-rpc.com/?api-key={key}",
-            "helius",
-        )
-    wss = (os.environ.get("SOLANA_RPC_WSS") or "").strip() or _PUBLIC_WSS
-    http = (os.environ.get("SOLANA_RPC_HTTP") or "").strip() or _PUBLIC_HTTP
-    return wss, http, "public"
+    if key and not http and not wss:
+        helius_wss, helius_http = _helius_urls(key)
+        return helius_wss, helius_http, "helius"
+    if not wss and http.startswith("https://"):
+        wss = "wss://" + http[len("https://"):]
+    elif not wss and http.startswith("http://"):
+        wss = "ws://" + http[len("http://"):]
+    if not http and wss.startswith("wss://"):
+        http = "https://" + wss[len("wss://"):]
+    elif not http and wss.startswith("ws://"):
+        http = "http://" + wss[len("ws://"):]
+    name = "env" if (http or wss) else "public"
+    return wss or _PUBLIC_WSS, http or _PUBLIC_HTTP, name
 
 
 def select_watched(positions: list[str], views: list[str], *, limit: int = 16) -> list[str]:
@@ -401,6 +471,7 @@ def recent_spikes() -> list[dict]:
 
 
 def reset_for_tests() -> None:
+    global _rate_limits
     with _guard:
         _views.clear()
         _seen.clear()
@@ -419,6 +490,9 @@ def reset_for_tests() -> None:
         _no_pool.clear()
         _pool_miss_at.clear()
         _quote_px.clear()
+        _quote_pools.clear()
+        _swap_counts.clear()
+        _rate_limits = 0
         _ws.update({
             "state": "down",
             "error": "",
@@ -475,11 +549,28 @@ def _remember_spike(row: dict) -> None:
             del _spike_rejects[:-50]
 
 
-def _spike_confirmed(mint: str, px: float, source: str, baseline: float, signature: str = "") -> bool:
-    """Two consecutive independent reads within 2% override the baseline.
+def _same_side_move(baseline: float, a: float, b: float) -> bool:
+    """Both prints are more than SPIKE_MOVE from baseline, on the same side."""
+    if baseline <= 0 or a <= 0 or b <= 0:
+        return False
+    da = a - baseline
+    db = b - baseline
+    if da * db <= 0:
+        return False
+    return abs(da) / baseline > SPIKE_MOVE and abs(db) / baseline > SPIKE_MOVE
 
-    The same signature twice is one observation. A candidate older than the
-    veto window is dropped so a stale pending print cannot confirm later.
+
+def _spike_confirmed(mint: str, px: float, source: str, baseline: float, signature: str = "") -> bool:
+    """A second independent read publishes immediately. Max hold is 3s.
+
+    Two reads within 2% agree, including when both are far from the baseline.
+    A vault read and a swap on the same crash also agree within 12%, because
+    the raw vault sits about 7% under the fill. Once the first print has been
+    held for 3s, a later read that is still that crash publishes too. The
+    same signature twice is one observation. A one-off that never gets a
+    second read stays pending and is not published. The hold clock does not
+    restart while the crash is still printing, which is what left a real
+    ~98% drop unpublished for half a minute.
     """
     now = time.time()
     with _guard:
@@ -491,15 +582,31 @@ def _spike_confirmed(mint: str, px: float, source: str, baseline: float, signatu
         sig = signature or ""
         if sig and sig == str(pend.get("sig") or ""):
             return False
-        if now - float(pend.get("at") or 0) > BASELINE_VETO_S:
-            _pending_spikes[mint] = fresh
-            return False
-        held = float(pend["px"])
+        held = float(pend.get("px") or 0)
+        started = float(pend.get("at") or 0)
+        age = now - started
+        base = float(pend.get("baseline") or baseline or 0)
         close = held > 0 and abs(px - held) / held <= SPIKE_AGREE
-        if close:
+        cross = (
+            held > 0
+            and abs(px - held) / held <= SPIKE_CROSS
+            and _same_side_move(base, held, px)
+            and str(pend.get("source") or "") != str(source or "")
+        )
+        if close or cross or (age >= SPIKE_HOLD_S and _same_side_move(base, held, px)):
             _pending_spikes.pop(mint, None)
             return True
-        _pending_spikes[mint] = fresh
+        if _same_side_move(base, held, px) and age < SPIKE_HOLD_S:
+            # Keep the original clock. Slide to the latest crash print so the
+            # next read can agree with it without adding another 3s.
+            pend["px"] = px
+            pend["source"] = source
+            pend["sig"] = sig
+            _pending_spikes[mint] = pend
+            return False
+        if age >= SPIKE_HOLD_S:
+            _pending_spikes[mint] = fresh
+            return False
         return False
 
 
@@ -552,10 +659,10 @@ def ingest_swap(
     """Publish one real swap or pool mid into the shared tick cache.
 
     Returns ok, same, spike, no-anchor, or bad. One print beyond 15% stays
-    out of the cache until a second independent read lands within 2% of it.
-    That pair is published even when it is far from the baseline. A baseline
-    older than 5s does not get refreshed by an echo of itself while that
-    pair is still forming.
+    out of the cache until a second independent read confirms it. That read
+    publishes immediately. The hold is at most 3s. A baseline older than 5s
+    does not get refreshed by an echo of itself while that pair is still
+    forming.
     ``seed_ok`` accepts the first pump print when no decoded mid exists yet,
     so a wrong Jupiter quote cannot block it.
     """
@@ -930,6 +1037,81 @@ def _sided_usd(
     return None
 
 
+def raydium_clmm_view(raw: bytes) -> dict | None:
+    """Mints and sqrt price from a Raydium CLMM pool. None if the disc mismatches."""
+    if not raw or len(raw) < CLMM_SQRT + 16 or raw[:8] != CLMM_DISC:
+        return None
+    try:
+        return {
+            "mint_0": b58encode(raw[CLMM_MINT_0:CLMM_MINT_0 + 32]),
+            "mint_1": b58encode(raw[CLMM_MINT_1:CLMM_MINT_1 + 32]),
+            "vault_0": b58encode(raw[CLMM_VAULT_0:CLMM_VAULT_0 + 32]),
+            "vault_1": b58encode(raw[CLMM_VAULT_1:CLMM_VAULT_1 + 32]),
+            "dec_0": raw[CLMM_DEC_0],
+            "dec_1": raw[CLMM_DEC_1],
+            "sqrt_price": int.from_bytes(raw[CLMM_SQRT:CLMM_SQRT + 16], "little"),
+        }
+    except Exception:
+        return None
+
+
+def meteora_dlmm_view(raw: bytes) -> dict | None:
+    """Active bin and mints from a Meteora DLMM LbPair. None if the disc mismatches."""
+    if not raw or len(raw) < DLMM_MINT_Y + 32 or raw[:8] != DLMM_DISC:
+        return None
+    try:
+        return {
+            "active_id": struct.unpack_from("<i", raw, DLMM_ACTIVE_ID)[0],
+            "bin_step": struct.unpack_from("<H", raw, DLMM_BIN_STEP)[0],
+            "mint_x": b58encode(raw[DLMM_MINT_X:DLMM_MINT_X + 32]),
+            "mint_y": b58encode(raw[DLMM_MINT_Y:DLMM_MINT_Y + 32]),
+        }
+    except Exception:
+        return None
+
+
+def meteora_dlmm_usd(
+    raw: bytes,
+    watched: str,
+    sol_usd: float,
+    decimals: dict[str, int] | None = None,
+    extra_usd: dict | None = None,
+) -> float | None:
+    """USD from the active bin. Price of X in Y is (1 + bin_step/10000) ** active_id."""
+    view = meteora_dlmm_view(raw)
+    if not view or not sol_usd or sol_usd <= 0 or view["bin_step"] <= 0:
+        return None
+    decs = decimals or {}
+    try:
+        dec_x = int(decs[view["mint_x"]])
+        dec_y = int(decs[view["mint_y"]])
+    except (KeyError, TypeError, ValueError):
+        return None
+    y_per_x = (1 + view["bin_step"] / 10000) ** int(view["active_id"])
+    y_per_x *= 10 ** (dec_x - dec_y)
+    if y_per_x <= 0:
+        return None
+    return _sided_usd(view["mint_x"], view["mint_y"], y_per_x, watched, sol_usd, extra_usd)
+
+
+def raydium_clmm_usd(raw: bytes, watched: str, sol_usd: float, extra_usd: dict | None = None) -> float | None:
+    """USD from sqrt_price_x64. token1 per token0, same convention as the Dex price."""
+    view = raydium_clmm_view(raw)
+    if not view or not sol_usd or sol_usd <= 0:
+        return None
+    sqrt_price = int(view["sqrt_price"])
+    if sqrt_price <= 0:
+        return None
+    dec_0 = int(view["dec_0"])
+    dec_1 = int(view["dec_1"])
+    if dec_0 > 18 or dec_1 > 18:
+        return None
+    b_per_a = (sqrt_price / 2**64) ** 2 * (10 ** (dec_0 - dec_1))
+    if b_per_a <= 0:
+        return None
+    return _sided_usd(view["mint_0"], view["mint_1"], b_per_a, watched, sol_usd, extra_usd)
+
+
 def _position_mints() -> list[str]:
     import game
 
@@ -1032,6 +1214,8 @@ def stream_health() -> dict:
             "watch_ttl_s": WATCH_TTL_S,
             "why": _ws.get("why") or "not started",
             "spike_rejects": list(_spike_rejects),
+            "rate_limits": int(_rate_limits),
+            "pool_swaps": dict(_swap_counts),
         }
     snap["watched"] = watched_mints()
     return snap
@@ -1152,11 +1336,16 @@ def _http_vault_loop() -> None:
             continue
         http = endpoints()[1]
         try:
-            for mint in mints:
-                _pool_for(mint, http)
-            _refresh_anchors(mints)
+            _resolve_watched_pools(http, mints)
+            _ensure_quote_pools(http)
+            # A missing SOL anchor has to land before the first vault math.
+            # Once it is cached, refresh it after the mids so a slow Jupiter
+            # call cannot stall every coin's vault read.
+            if anchor_price(SOL_MINT, max_age=60.0) is None:
+                _refresh_anchors(mints)
             _refresh_pump_mids(http)
             _refresh_account_mids(http, mints)
+            _refresh_anchors(mints)
             with _guard:
                 _ws["vault_poll_at"] = _iso_ms(time.time())
                 _ws["vault_poll_ok"] = True
@@ -1186,27 +1375,57 @@ def _http_vault_loop() -> None:
 
 
 def _refresh_account_mids(http: str, mints: list[str]) -> None:
-    """HTTP read of whirlpool and bonding-curve accounts when the socket is quiet."""
+    """HTTP read of whirlpool, bonding-curve, and Raydium CLMM accounts when the socket is quiet."""
     sol = anchor_price(SOL_MINT, max_age=60.0)
     if sol is None or sol <= 0:
         return
+    snaps = []
+    seen_addr: set[str] = set()
+
+    def add(pool: dict | None) -> None:
+        if not pool or pool.get("kind") not in ("whirlpool", "pump", "raydium", "meteora"):
+            return
+        addr = str(pool.get("address") or "")
+        mint = str(pool.get("mint") or "")
+        if not addr or not mint or addr in seen_addr:
+            return
+        with _guard:
+            seen = _seen.get(mint)
+        if seen and time.time() - seen < 1.0:
+            return
+        seen_addr.add(addr)
+        snaps.append(dict(pool))
+
     for mint in mints:
         with _guard:
             pool = _pools.get(mint)
             snap = dict(pool) if pool else None
-            seen = _seen.get(mint)
-        if not snap or snap.get("kind") not in ("whirlpool", "pump"):
-            continue
-        if seen and time.time() - seen < 1.0:
-            continue
+        add(snap)
+    with _guard:
+        quotes = [dict(row) for row in _quote_pools.values()]
+    for row in quotes:
+        add(row)
+    for snap in snaps:
+        mint = str(snap.get("mint") or "")
         info = _account_info(http, str(snap.get("address") or ""))
         raw = _account_bytes(info) if info else None
         if not raw:
             continue
-        if snap.get("kind") == "whirlpool":
+        kind = snap.get("kind")
+        if kind == "whirlpool":
             with _guard:
                 decs = dict(_decimals)
             px = whirlpool_swap_usd(raw, mint, sol, decs)
+        elif kind == "raydium":
+            px = raydium_clmm_usd(raw, mint, sol)
+        elif kind == "meteora":
+            decs = {
+                str(snap.get("base_mint") or ""): snap.get("base_dec"),
+                str(snap.get("quote_mint") or ""): snap.get("quote_dec"),
+            }
+            with _guard:
+                decs.update(_decimals)
+            px = meteora_dlmm_usd(raw, mint, sol, decs)
         else:
             px = pump_curve_swap_usd(raw, sol)
         if px and px > 0:
@@ -1380,6 +1599,8 @@ def _ops_for(pool: dict) -> dict[str, dict]:
             "params": [{"mentions": [addr]}, {"commitment": LOGS_COMMITMENT}],
             "role": "logs",
         }
+    elif kind in ("raydium", "meteora"):
+        ops[f"acct:{addr}"] = {"method": "accountSubscribe", "params": [addr, acct], "role": "pool"}
     elif kind == "pumpswap":
         ops[f"logs:{addr}"] = {
             "method": "logsSubscribe",
@@ -1409,14 +1630,32 @@ def _ops_for(pool: dict) -> dict[str, dict]:
 
 
 def _cached_watched_pools() -> list[dict]:
-    """Pools already resolved. The socket thread must not hit HTTP."""
+    """Pools already resolved. The socket thread must not hit HTTP.
+
+    Quote-token SOL/USDC pools are included so they get the same per-pool
+    logs socket and vault subscribe as a watched coin.
+    """
     out = []
+    seen: set[str] = set()
+
+    def add(pool: dict | None) -> None:
+        if not pool or not pool.get("address"):
+            return
+        addr = str(pool.get("address") or "")
+        if not addr or addr in seen:
+            return
+        seen.add(addr)
+        out.append(dict(pool))
+
     for mint in watched_mints():
         with _guard:
             pool = _pools.get(mint)
-            snap = dict(pool) if pool and pool.get("address") else None
-        if snap:
-            out.append(snap)
+            snap = dict(pool) if pool else None
+        add(snap)
+    with _guard:
+        quotes = [dict(row) for row in _quote_pools.values()]
+    for row in quotes:
+        add(row)
     return out
 
 
@@ -1460,11 +1699,10 @@ def _sync_subs(ws, subs, meta, pending, rpc_id, http, include_logs: bool = True)
 
 
 def _wanted_log_ops() -> dict[str, dict]:
-    """One logsSubscribe per PumpSwap or pump pool. Each runs on its own socket.
+    """logsSubscribe for every watched PumpSwap or pump pool.
 
-    A shared socket on the public mainnet RPC pushes notifications for only
-    the first logsSubscribe. The others ack (or never ack) and stay silent,
-    which is why pool_swap was 0 on every coin but one.
+    The socket that is actually opened is the priority subset from
+    ``_priority_log_ops``. This map is the full plan.
     """
     ops: dict[str, dict] = {}
     for pool in _cached_watched_pools():
@@ -1472,137 +1710,210 @@ def _wanted_log_ops() -> dict[str, dict]:
         if pool.get("kind") not in ("pumpswap", "pump") or not addr:
             continue
         key = f"logs:{addr}"
-        ops[key] = {
-            "method": "logsSubscribe",
-            "params": [{"mentions": [addr]}, {"commitment": LOGS_COMMITMENT}],
-            "role": "logs",
-            "mint": pool.get("mint"),
-            "pool": addr,
-            "key": key,
-        }
+        ops[key] = _log_op(pool, key)
     return ops
 
 
+def _log_op(pool: dict, key: str) -> dict:
+    addr = str(pool.get("address") or "")
+    return {
+        "method": "logsSubscribe",
+        "params": [{"mentions": [addr]}, {"commitment": LOGS_COMMITMENT}],
+        "role": "logs",
+        "mint": pool.get("mint"),
+        "pool": addr,
+        "key": key,
+    }
+
+
+def _priority_mints() -> list[str]:
+    """Open positions first, then the most recently viewed coin."""
+    try:
+        positions = _position_mints()
+    except Exception:
+        positions = []
+    with _guard:
+        views = [mint for mint, _seen_at in sorted(_views.items(), key=lambda kv: -kv[1])]
+    out: list[str] = []
+    for mint in list(positions) + views:
+        if mint and mint not in out:
+            out.append(mint)
+    return out
+
+
+def _priority_log_ops(limit: int = MAX_LOG_SUBS) -> dict[str, dict]:
+    """The logsSubscribe set that fits on the one mainnet-beta socket.
+
+    Positions come first, then the coin being viewed. Anything past the cap
+    stays on the 1s vault poll.
+    """
+    all_ops = _wanted_log_ops()
+    by_mint: dict[str, list[tuple[str, dict]]] = {}
+    for key, op in all_ops.items():
+        by_mint.setdefault(str(op.get("mint") or ""), []).append((key, op))
+    chosen: dict[str, dict] = {}
+
+    def take(mint: str) -> None:
+        for key, op in by_mint.get(mint, []):
+            if len(chosen) >= limit:
+                return
+            chosen[key] = op
+
+    for mint in _priority_mints():
+        take(mint)
+        if len(chosen) >= limit:
+            return chosen
+    for key, op in all_ops.items():
+        if key in chosen:
+            continue
+        if len(chosen) >= limit:
+            break
+        chosen[key] = op
+    return chosen
+
+
+def _jittered(seconds: float) -> float:
+    import random
+    return max(0.3, float(seconds) * random.uniform(0.5, 1.5))
+
+
+def _is_rate_limit(text: str) -> bool:
+    return "429" in text or "Too Many Requests" in text
+
+
+def logs_sub_live(address: str) -> bool:
+    """True when this pool's logsSubscribe id is on the live socket."""
+    if not address:
+        return False
+    with _guard:
+        subs = _ws.get("subscriptions") or {}
+    return f"logs:{address}" in subs
+
+
 def _logs_supervisor() -> None:
-    """Keep one live logs socket for every watched PumpSwap or pump pool."""
+    """One logs socket for the priority pools. 429s back off with jitter."""
+    backoff = 0.0
     while not _stop.is_set():
-        want = _wanted_log_ops()
-        for key, ev in list(_log_stop.items()):
-            if key not in want:
-                ev.set()
-        for key, op in want.items():
-            ev = _log_stop.get(key)
-            thread = _log_threads.get(key)
-            if thread is not None and thread.is_alive() and ev is not None and not ev.is_set():
-                continue
-            ev = threading.Event()
-            _log_stop[key] = ev
-            thread = threading.Thread(
-                target=_serve_one_log,
-                args=(key, dict(op), ev),
-                name="trade-log",
-                daemon=True,
-            )
-            _log_threads[key] = thread
-            thread.start()
-        time.sleep(0.4)
+        if not _priority_log_ops():
+            time.sleep(0.4)
+            continue
+        try:
+            _serve_log_socket()
+            backoff = 0.0
+        except Exception as exc:
+            text = f"{exc.__class__.__name__}: {exc}"
+            limited = _is_rate_limit(text)
+            if limited:
+                _note_rate_limit("logs")
+                backoff = min(_BACKOFF_CAP_S, max(2.0, (backoff or 1.0) * 2.0))
+            else:
+                routine = "1006" in text or "Connection to remote host was lost" in text
+                backoff = 0.4 if routine else min(_BACKOFF_CAP_S, max(1.0, (backoff or 1.0) * 2.0))
+                if not routine:
+                    _note_sub_error({"key": "logs"}, text)
+            time.sleep(_jittered(backoff))
 
 
-def _serve_one_log(key: str, op: dict, stop_ev: threading.Event) -> None:
-    """One websocket, one logsSubscribe, until the pool leaves the watch list."""
+def _serve_log_socket() -> None:
+    """One websocket, many logsSubscribe calls, for the priority pools only."""
     import websocket
 
-    backoff = 0.0
-    while not _stop.is_set() and not stop_ev.is_set():
-        ws = None
-        sub_id = None
-        try:
-            wss = logs_endpoint()
-            ws = websocket.WebSocket()
-            ws.settimeout(5)
-            ws.connect(wss, timeout=8)
-            ws.send(json.dumps({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "logsSubscribe",
-                "params": op["params"],
-            }))
-            deadline = time.time() + 8
-            while sub_id is None and time.time() < deadline and not stop_ev.is_set() and not _stop.is_set():
+    ws = websocket.WebSocket()
+    ws.settimeout(5)
+    ws.connect(logs_endpoint(), timeout=8)
+    subs: dict[str, int] = {}
+    meta: dict[int, dict] = {}
+    pending: dict[int, dict] = {}
+    rpc = 1
+    last_note = time.time()
+    try:
+        while not _stop.is_set():
+            want = _priority_log_ops()
+            for key in list(subs):
+                if key in want:
+                    continue
+                sub_id = subs.pop(key, None)
+                meta.pop(sub_id, None)
+                _set_log_sub(key, None, clear_id=sub_id)
+                rpc += 1
                 try:
-                    raw = ws.recv()
-                except Exception as exc:
-                    if exc.__class__.__name__ == "WebSocketTimeoutException":
-                        continue
+                    ws.send(json.dumps({
+                        "jsonrpc": "2.0",
+                        "id": rpc,
+                        "method": "logsUnsubscribe",
+                        "params": [sub_id],
+                    }))
+                except Exception:
                     raise
-                if not raw:
+            pending_keys = {str(op.get("key") or "") for op in pending.values()}
+            for key, op in want.items():
+                if key in subs or key in pending_keys:
                     continue
-                try:
-                    msg = json.loads(raw)
-                except json.JSONDecodeError:
+                rpc += 1
+                pending[rpc] = dict(op, key=key, sent=time.monotonic())
+                ws.send(json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": rpc,
+                    "method": "logsSubscribe",
+                    "params": op["params"],
+                }))
+            try:
+                raw = ws.recv()
+            except Exception as exc:
+                if exc.__class__.__name__ == "WebSocketTimeoutException":
+                    now = time.monotonic()
+                    for rid, op in list(pending.items()):
+                        if now - float(op.get("sent") or 0) > 8:
+                            pending.pop(rid, None)
+                            _note_sub_error(op, "ack timeout")
+                    if time.time() - last_note > 45 and subs:
+                        raise RuntimeError("logs silent")
+                    try:
+                        ws.ping()
+                    except Exception:
+                        raise
                     continue
-                if not isinstance(msg, dict) or msg.get("method"):
+                raise
+            if not raw:
+                continue
+            try:
+                msg = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(msg, dict):
+                continue
+            err = msg.get("error")
+            if err and _is_rate_limit(str(err)):
+                raise RuntimeError(f"429 {err}")
+            if not msg.get("method") and "id" in msg:
+                op = _pending_pop(pending, msg.get("id"))
+                if not isinstance(op, dict):
                     continue
                 if msg.get("error") or "result" not in msg:
                     _note_sub_error(op, msg.get("error") or "no result")
-                    raise RuntimeError("logs ack failed")
+                    if _is_rate_limit(str(msg.get("error") or "")):
+                        raise RuntimeError(f"429 {msg.get('error')}")
+                    continue
                 try:
                     sub_id = int(msg["result"])
                 except (TypeError, ValueError):
                     _note_sub_error(op, msg.get("result"))
-                    raise RuntimeError("logs ack was not an id")
-            if sub_id is None:
-                _note_sub_error(op, "ack timeout")
-                raise RuntimeError("logs ack timeout")
-            _set_log_sub(key, sub_id)
-            meta = {sub_id: dict(op, key=key)}
-            backoff = 0.0
-            last_note = time.time()
-            while not _stop.is_set() and not stop_ev.is_set():
-                try:
-                    raw = ws.recv()
-                except Exception as exc:
-                    if exc.__class__.__name__ == "WebSocketTimeoutException":
-                        try:
-                            ws.ping()
-                        except Exception:
-                            raise
-                        # A subscription that acks and then stays silent is the
-                        # publicnode failure mode. Reconnect and subscribe again.
-                        if time.time() - last_note > 45:
-                            raise RuntimeError("logs silent")
-                        continue
-                    raise
-                if not raw:
                     continue
-                try:
-                    msg = json.loads(raw)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(msg, dict) and msg.get("method") == "logsNotification":
-                    last_note = time.time()
-                    _on_logs(msg, meta)
-        except Exception as exc:
-            if not stop_ev.is_set() and not _stop.is_set():
-                text = f"{exc.__class__.__name__}: {exc}"
-                # 1006 is an idle drop from the logs socket. Reconnect quietly.
-                routine = "1006" in text or "Connection to remote host was lost" in text
-                if routine:
-                    time.sleep(0.4)
-                else:
-                    backoff = next_backoff(backoff)
-                    _note_sub_error(op, text)
-                    time.sleep(min(backoff, 3.0))
-        finally:
-            if sub_id is not None:
-                _set_log_sub(key, None, clear_id=sub_id)
-            if ws is not None:
-                try:
-                    ws.close()
-                except Exception:
-                    pass
-        if stop_ev.is_set() or _stop.is_set():
-            return
+                key = str(op.get("key") or "")
+                subs[key] = sub_id
+                meta[sub_id] = dict(op, key=key)
+                _set_log_sub(key, sub_id)
+                continue
+            if msg.get("method") == "logsNotification":
+                last_note = time.time()
+                _on_logs(msg, meta)
+    finally:
+        for key, sub_id in list(subs.items()):
+            _set_log_sub(key, None, clear_id=sub_id)
+        try:
+            ws.close()
+        except Exception:
+            pass
 
 
 def _send(ws, payload: dict) -> None:
@@ -1617,6 +1928,81 @@ def _sub_op(msg: dict, meta: dict[int, dict]) -> dict | None:
         return None
     op = meta.get(sub_id)
     return op if isinstance(op, dict) else None
+
+
+def _is_usd_leg(mint: str) -> bool:
+    return mint == SOL_MINT or mint in _STABLES
+
+
+def _pool_rows() -> list[dict]:
+    rows = []
+    for bucket in (_pools, _quote_pools):
+        rows.extend(bucket.values())
+    return rows
+
+
+def _lookup_pool(mint: str = "", address: str = "", vault: str = "") -> dict | None:
+    """Copy the pool row for an address, a vault, or a mint.
+
+    Quote-token SOL/USDC pools live in ``_quote_pools`` and can share a mint
+    with a different trading pool, so the address wins.
+    """
+    with _guard:
+        if address:
+            for row in _pool_rows():
+                if str(row.get("address") or "") == address:
+                    return dict(row)
+        if vault:
+            for row in _pool_rows():
+                if vault in (str(row.get("base_vault") or ""), str(row.get("quote_vault") or "")):
+                    return dict(row)
+        if mint:
+            row = _pools.get(mint) or _quote_pools.get(mint)
+            return dict(row) if row else None
+    return None
+
+
+def _live_row_unlocked(mint: str, address: str = "", vault: str = "") -> dict | None:
+    """Mutable pool dict. Caller holds ``_guard``."""
+    if address:
+        for bucket in (_pools, _quote_pools):
+            for row in bucket.values():
+                if str(row.get("address") or "") == address:
+                    return row
+    if vault:
+        for bucket in (_pools, _quote_pools):
+            for row in bucket.values():
+                if vault in (str(row.get("base_vault") or ""), str(row.get("quote_vault") or "")):
+                    return row
+    if mint in _pools:
+        return _pools[mint]
+    if mint in _quote_pools:
+        return _quote_pools[mint]
+    return None
+
+
+def _note_quote_mark(mint: str, px: float) -> None:
+    """Remember a quote token's USD so the watched coin does not ask Jupiter."""
+    if not mint or px <= 0:
+        return
+    now = time.time()
+    with _guard:
+        if mint in _quote_pools:
+            _quote_px[mint] = (now, float(px))
+            return
+        for row in _pools.values():
+            sides = (str(row.get("base_mint") or ""), str(row.get("quote_mint") or ""))
+            if mint in sides and mint != str(row.get("mint") or ""):
+                _quote_px[mint] = (now, float(px))
+                return
+
+
+def _note_rate_limit(where: str = "") -> None:
+    global _rate_limits
+    with _guard:
+        _rate_limits += 1
+    if where:
+        print(f"[trade-stream] rpc 429 {where}", flush=True)
 
 
 def _on_account(msg: dict, meta: dict[int, dict]) -> None:
@@ -1635,8 +2021,8 @@ def _on_account(msg: dict, meta: dict[int, dict]) -> None:
         return
     slot = _slot_of(result)
     mint = str(op.get("mint"))
+    pool = _lookup_pool(mint, address=str(op.get("pool") or ""), vault=str(op.get("vault") or ""))
     with _guard:
-        pool = dict(_pools.get(mint) or {})
         decs = dict(_decimals)
     if not pool:
         return
@@ -1658,6 +2044,16 @@ def _on_account(msg: dict, meta: dict[int, dict]) -> None:
     elif owner == PUMP_OWNER or pool.get("kind") == "pump":
         px = pump_curve_swap_usd(raw, sol)
         compare_mid = True
+    elif owner == RAYDIUM_CLMM_OWNER or pool.get("kind") == "raydium":
+        px = raydium_clmm_usd(raw, mint, sol)
+    elif owner == METEORA_DLMM_OWNER or pool.get("kind") == "meteora":
+        decs = {
+            str(pool.get("base_mint") or ""): pool.get("base_dec"),
+            str(pool.get("quote_mint") or ""): pool.get("quote_dec"),
+        }
+        with _guard:
+            decs.update(_decimals)
+        px = meteora_dlmm_usd(raw, mint, sol, decs)
     if px is None or px <= 0:
         return
     _publish(mint, px, compare_mid=compare_mid, slot=slot, sol=sol)
@@ -1674,8 +2070,7 @@ def _on_logs(msg: dict, meta: dict[int, dict]) -> None:
         return
     logs = value.get("logs") or []
     mint = str(op.get("mint"))
-    with _guard:
-        pool = dict(_pools.get(mint) or {})
+    pool = _lookup_pool(mint, address=str(op.get("pool") or ""))
     if not pool:
         return
     sol = anchor_price(SOL_MINT, max_age=60.0)
@@ -1696,6 +2091,26 @@ def _on_logs(msg: dict, meta: dict[int, dict]) -> None:
         sol=sol_driver,
         executed=True,
     )
+
+
+def _touch_live(mint: str) -> None:
+    """Refresh quote age without changing the price. The fill stays the mark."""
+    if not mint:
+        return
+    now = time.time()
+    with _guard:
+        if mint not in _seen:
+            return
+        _seen[mint] = now
+    import game
+
+    with game._live_lock(mint):
+        hit = game._live_cache.get(mint)
+        if not hit:
+            return
+        payload = dict(hit[1])
+        payload["fetched_at"] = _iso_ms(now)
+        game._live_cache[mint] = (now, payload)
 
 
 def _slot_of(result: dict) -> int | None:
@@ -1722,6 +2137,9 @@ def _publish(
     An executed fill becomes the mark for SWAP_MARK_S. Vault ratios wait.
     """
     if source == "pool_vault" and _recent_swap(mint):
+        # The fill stays the mark. The vault read still happened, so the
+        # quote age must not sit on the 5s line until the hold expires.
+        _touch_live(mint)
         return "held"
     had = mid_price(mint, max_age=120.0)
     status = ingest_swap(
@@ -1736,8 +2154,11 @@ def _publish(
     )
     if status in ("ok", "same"):
         note_mid(mint, px)
-        if executed:
-            with _guard:
+        _note_quote_mark(mint, px)
+        with _guard:
+            if public_src(source) == "pool_swap":
+                _swap_counts[mint] = _swap_counts.get(mint, 0) + 1
+            if executed:
                 _swap_at[mint] = time.time()
     return status
 
@@ -1747,7 +2168,7 @@ def _apply_vault_amount(pool: dict, vault: str, amount: int, sol: float, slot: i
     if not mint or not vault:
         return
     with _guard:
-        live = _pools.get(mint)
+        live = _live_row_unlocked(mint, address=str(pool.get("address") or ""), vault=vault)
         if not live:
             return
         if vault == live.get("base_vault"):
@@ -1800,8 +2221,18 @@ def _pool_for(mint: str, http: str) -> dict | None:
     return pool
 
 
-def _resolve_pool(mint: str, http: str) -> dict | None:
-    """Highest-liquidity Dex pair whose account we can decode. None if not."""
+def _pair_other(pair: dict, mint: str) -> str:
+    base = str((pair.get("baseToken") or {}).get("address") or "")
+    quote = str((pair.get("quoteToken") or {}).get("address") or "")
+    if base == mint:
+        return quote
+    if quote == mint:
+        return base
+    return ""
+
+
+def _dex_pairs(mint: str) -> list[dict]:
+    """Dex pairs for mint, highest liquidity first."""
     try:
         req = Request(
             f"https://api.dexscreener.com/token-pairs/v1/solana/{mint}",
@@ -1810,9 +2241,9 @@ def _resolve_pool(mint: str, http: str) -> dict | None:
         with urlopen(req, timeout=4) as resp:
             pairs = json.loads(resp.read().decode("utf-8"))
     except Exception:
-        return None
+        return []
     if not isinstance(pairs, list):
-        return None
+        return []
     ranked = []
     for pair in pairs:
         if not isinstance(pair, dict):
@@ -1820,39 +2251,163 @@ def _resolve_pool(mint: str, http: str) -> dict | None:
         addr = str(pair.get("pairAddress") or "")
         if len(addr) < 32:
             continue
-        liq = 0.0
         try:
             liq = float((pair.get("liquidity") or {}).get("usd") or 0)
         except (TypeError, ValueError):
             liq = 0.0
-        ranked.append((liq, addr))
+        ranked.append((liq, pair))
     ranked.sort(key=lambda row: -row[0])
-    for _liq, addr in ranked[:4]:
-        info = _account_info(http, addr)
-        if not info:
+    return [pair for _liq, pair in ranked]
+
+
+def _decode_pool_account(mint: str, addr: str, http: str) -> dict | None:
+    info = _account_info(http, addr)
+    if not info:
+        return None
+    owner = str(info.get("owner") or "")
+    raw = _account_bytes(info)
+    if owner == WHIRLPOOL_OWNER:
+        return {"mint": mint, "address": addr, "owner": owner, "kind": "whirlpool"}
+    if owner == PUMP_OWNER:
+        return {"mint": mint, "address": addr, "owner": owner, "kind": "pump"}
+    if owner == METEORA_DLMM_OWNER and raw:
+        view = meteora_dlmm_view(raw)
+        if not view or mint not in (view["mint_x"], view["mint_y"]):
+            return None
+        dec_x = mint_decimals(http, view["mint_x"])
+        dec_y = mint_decimals(http, view["mint_y"])
+        return {
+            "mint": mint,
+            "address": addr,
+            "owner": owner,
+            "kind": "meteora",
+            "base_mint": view["mint_x"],
+            "quote_mint": view["mint_y"],
+            "base_dec": dec_x if dec_x is not None else 9,
+            "quote_dec": dec_y if dec_y is not None else 9,
+        }
+    if owner == RAYDIUM_CLMM_OWNER and raw:
+        view = raydium_clmm_view(raw)
+        if not view or mint not in (view["mint_0"], view["mint_1"]):
+            return None
+        return {
+            "mint": mint,
+            "address": addr,
+            "owner": owner,
+            "kind": "raydium",
+            "base_mint": view["mint_0"],
+            "quote_mint": view["mint_1"],
+            "base_vault": view["vault_0"],
+            "quote_vault": view["vault_1"],
+            "base_dec": view["dec_0"],
+            "quote_dec": view["dec_1"],
+        }
+    if owner == PUMPSWAP_OWNER and raw:
+        view = pumpswap_pool_view(raw)
+        if not view:
+            return None
+        if mint not in (view["base_mint"], view["quote_mint"]):
+            return None
+        pool = {
+            "mint": mint,
+            "address": addr,
+            "owner": owner,
+            "kind": "pumpswap",
+            **view,
+        }
+        _fill_decimals(pool)
+        return pool
+    return None
+
+
+def _resolve_pool(mint: str, http: str, usd_only: bool = False) -> dict | None:
+    """Highest-liquidity Dex pair whose account we can decode.
+
+    ``usd_only`` keeps pairs whose other side is SOL or USDC/USDT. A quote
+    token's busiest pair can be another coin (SIS/SPCX). That pair cannot
+    price the quote. The SOL or USDC pool can.
+    """
+    picked = []
+    for pair in _dex_pairs(mint):
+        if usd_only and not _is_usd_leg(_pair_other(pair, mint)):
             continue
-        owner = str(info.get("owner") or "")
-        raw = _account_bytes(info)
-        if owner == WHIRLPOOL_OWNER:
-            return {"mint": mint, "address": addr, "owner": owner, "kind": "whirlpool"}
-        if owner == PUMP_OWNER:
-            return {"mint": mint, "address": addr, "owner": owner, "kind": "pump"}
-        if owner == PUMPSWAP_OWNER and raw:
-            view = pumpswap_pool_view(raw)
-            if not view:
-                continue
-            if mint not in (view["base_mint"], view["quote_mint"]):
-                continue
-            pool = {
-                "mint": mint,
-                "address": addr,
-                "owner": owner,
-                "kind": "pumpswap",
-                **view,
-            }
-            _fill_decimals(pool)
+        addr = str(pair.get("pairAddress") or "")
+        if len(addr) < 32:
+            continue
+        picked.append(addr)
+        if len(picked) >= 4:
+            break
+    for addr in picked:
+        pool = _decode_pool_account(mint, addr, http)
+        if pool:
             return pool
     return None
+
+
+def _resolve_usd_pool(mint: str, http: str) -> dict | None:
+    """SOL or USDC/USDT pool for a quote mint. Not necessarily its busiest pair."""
+    return _resolve_pool(mint, http, usd_only=True)
+
+
+def _pool_has_usd_leg(pool: dict, mint: str) -> bool:
+    sides = {str(pool.get("base_mint") or ""), str(pool.get("quote_mint") or "")}
+    if pool.get("kind") == "pump":
+        return True
+    return any(_is_usd_leg(side) for side in sides if side and side != mint)
+
+
+def _quote_pool_for(mint: str, http: str) -> dict | None:
+    """Cached SOL or USDC pool used to price ``mint``. Subscribed with the watch set."""
+    with _guard:
+        cached = _quote_pools.get(mint)
+    if cached and cached.get("address"):
+        return cached
+    with _guard:
+        main = dict(_pools[mint]) if mint in _pools else None
+    if main and main.get("address") and _pool_has_usd_leg(main, mint):
+        pool = main
+    else:
+        pool = _resolve_usd_pool(mint, http)
+    if not pool:
+        return None
+    pool = dict(pool)
+    pool["mint"] = mint
+    with _guard:
+        _quote_pools[mint] = pool
+    return pool
+
+
+def _resolve_watched_pools(http: str, mints: list[str]) -> None:
+    missing = []
+    for mint in mints:
+        with _guard:
+            pool = _pools.get(mint)
+        if not (pool and pool.get("address")):
+            missing.append(mint)
+    if len(missing) <= 1:
+        for mint in missing:
+            _pool_for(mint, http)
+        return
+    with ThreadPoolExecutor(max_workers=min(8, len(missing))) as pool:
+        list(pool.map(lambda mint: _pool_for(mint, http), missing))
+
+
+def _ensure_quote_pools(http: str) -> None:
+    """Resolve a SOL or USDC pool for every non-stable quote leg."""
+    sides: list[str] = []
+    with _guard:
+        rows = [dict(row) for row in _pools.values()]
+    for pool in rows:
+        watched = str(pool.get("mint") or "")
+        for side in (str(pool.get("base_mint") or ""), str(pool.get("quote_mint") or "")):
+            if side and side != watched and not _is_usd_leg(side) and side not in sides:
+                sides.append(side)
+    if len(sides) <= 1:
+        for side in sides:
+            _quote_pool_for(side, http)
+        return
+    with ThreadPoolExecutor(max_workers=min(8, len(sides))) as pool:
+        list(pool.map(lambda side: _quote_pool_for(side, http), sides))
 
 
 def _fill_decimals(pool: dict) -> None:
@@ -1879,6 +2434,26 @@ def _account_bytes(info: dict) -> bytes | None:
     return None
 
 
+def _post_rpc(http: str, body: bytes, timeout: float) -> dict | None:
+    try:
+        req = Request(http, data=body, headers={"Content-Type": "application/json", "User-Agent": "nunu-filter-paper/1.0"})
+        with urlopen(req, timeout=timeout) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except HTTPError as exc:
+        if getattr(exc, "code", None) == 429:
+            _note_rate_limit(http)
+        return None
+    except URLError as exc:
+        if "429" in str(exc):
+            _note_rate_limit(http)
+        return None
+    except Exception as exc:
+        if "429" in str(exc):
+            _note_rate_limit(http)
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
 def _account_info(http: str, addr: str) -> dict | None:
     body = json.dumps({
         "jsonrpc": "2.0",
@@ -1886,11 +2461,8 @@ def _account_info(http: str, addr: str) -> dict | None:
         "method": "getAccountInfo",
         "params": [addr, {"encoding": "base64"}],
     }).encode("utf-8")
-    try:
-        req = Request(http, data=body, headers={"Content-Type": "application/json", "User-Agent": "nunu-filter-paper/1.0"})
-        with urlopen(req, timeout=4) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-    except Exception:
+    payload = _post_rpc(http, body, 4)
+    if not payload:
         return None
     value = ((payload.get("result") or {}).get("value")) if isinstance(payload, dict) else None
     return value if isinstance(value, dict) else None
@@ -1899,29 +2471,58 @@ def _account_info(http: str, addr: str) -> dict | None:
 _anchor_at = 0.0
 
 
-def _refresh_pump_mids(http: str) -> None:
-    """Re-read PumpSwap vaults so a quiet coin still shows the post-swap mid."""
+def _due_pump_snaps() -> list[dict]:
+    """PumpSwap pools whose vaults should be read on this pass.
+
+    Watched coins and the SOL/USDC pools that price their quote tokens share
+    one batch. A covered pool can wait on the socket until the mid is a
+    second old. A pool with no vault subscription is read every pass.
+    """
     now = time.time()
-    mints = []
+    snaps = []
+    seen: set[str] = set()
+
+    def consider(pool: dict | None) -> None:
+        if not pool or pool.get("kind") != "pumpswap":
+            return
+        addr = str(pool.get("address") or "")
+        if not addr or addr in seen:
+            return
+        mint = str(pool.get("mint") or "")
+        with _guard:
+            seen_mid = _mids.get(mint)
+        # A live logs socket can carry the price. Without one, the 1s vault
+        # poll is the price, even when an accountSubscribe id is already up.
+        if logs_sub_live(addr) and _vault_sub_covered(pool) and seen_mid and now - seen_mid[0] < 1.0:
+            return
+        seen.add(addr)
+        snaps.append(dict(pool))
+
     for mint in watched_mints():
         with _guard:
             pool = _pools.get(mint)
-            if not pool or pool.get("kind") != "pumpswap":
-                continue
-            snap = dict(pool)
-            seen = _mids.get(mint)
-        # No vault subscription: poll every pass (the loop is 1s). A covered
-        # pool can wait on the socket until the mid is a second old.
-        if _vault_sub_covered(snap) and seen and now - seen[0] < 1.0:
-            continue
-        mints.append(mint)
-    for mint in mints:
-        with _guard:
-            pool = _pools.get(mint)
             snap = dict(pool) if pool else None
-        if not snap:
-            continue
-        _read_vault_mid(http, snap)
+        consider(snap)
+    with _guard:
+        quotes = [dict(row) for row in _quote_pools.values()]
+    for row in quotes:
+        consider(row)
+    return snaps
+
+
+def _refresh_pump_mids(http: str) -> None:
+    """Re-read PumpSwap vaults so a quiet coin still shows the post-swap mid.
+
+    Two or more pools share one getMultipleAccounts call. Per-pool HTTP was
+    serial, so six watched coins went stale in the same seconds.
+    """
+    snaps = _due_pump_snaps()
+    if not snaps:
+        return
+    if len(snaps) == 1:
+        _read_vault_mid(http, snaps[0])
+        return
+    _read_vault_mids_batch(http, snaps)
 
 
 def _quote_is_sol_or_stable(pool: dict) -> bool:
@@ -1929,32 +2530,48 @@ def _quote_is_sol_or_stable(pool: dict) -> bool:
     return bool(sides & ({SOL_MINT} | _STABLES))
 
 
+def _token_amount(row: dict | None) -> int | None:
+    raw = _account_bytes(row) if isinstance(row, dict) else None
+    if not raw or len(raw) < TOKEN_AMOUNT + 8:
+        return None
+    return struct.unpack_from("<Q", raw, TOKEN_AMOUNT)[0]
+
+
+def _multiple_amounts(http: str, addrs: list[str]) -> dict[str, int] | None:
+    """One getMultipleAccounts for every vault. None when the RPC call fails."""
+    if not addrs:
+        return {}
+    out: dict[str, int] = {}
+    for start in range(0, len(addrs), 100):
+        chunk = addrs[start:start + 100]
+        body = json.dumps({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getMultipleAccounts",
+            "params": [chunk, {"encoding": "base64", "commitment": "processed"}],
+        }).encode("utf-8")
+        payload = _post_rpc(http, body, 2.5)
+        if not payload:
+            return None
+        vals = ((payload.get("result") or {}).get("value")) if isinstance(payload, dict) else None
+        if not isinstance(vals, list) or len(vals) < len(chunk):
+            return None
+        for addr, row in zip(chunk, vals):
+            amt = _token_amount(row if isinstance(row, dict) else None)
+            if amt is None:
+                continue
+            out[addr] = amt
+    return out
+
+
 def _vault_amounts(http: str, base_vault: str, quote_vault: str) -> tuple[int, int] | None:
     """Raw token amounts. base64, not jsonParsed: public RPC answers 403 to jsonParsed."""
     if not base_vault or not quote_vault:
         return None
-    body = json.dumps({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "getMultipleAccounts",
-        "params": [[base_vault, quote_vault], {"encoding": "base64", "commitment": "processed"}],
-    }).encode("utf-8")
-    try:
-        req = Request(http, data=body, headers={"Content-Type": "application/json", "User-Agent": "nunu-filter-paper/1.0"})
-        with urlopen(req, timeout=2.5) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-    except Exception:
+    got = _multiple_amounts(http, [base_vault, quote_vault])
+    if not got or base_vault not in got or quote_vault not in got:
         return None
-    vals = ((payload.get("result") or {}).get("value")) if isinstance(payload, dict) else None
-    if not isinstance(vals, list) or len(vals) < 2:
-        return None
-    amounts = []
-    for row in vals[:2]:
-        raw = _account_bytes(row) if isinstance(row, dict) else None
-        if not raw or len(raw) < TOKEN_AMOUNT + 8:
-            return None
-        amounts.append(struct.unpack_from("<Q", raw, TOKEN_AMOUNT)[0])
-    return amounts[0], amounts[1]
+    return got[base_vault], got[quote_vault]
 
 
 def mint_decimals(http: str, mint: str) -> int | None:
@@ -1979,7 +2596,11 @@ def mint_decimals(http: str, mint: str) -> int | None:
 
 
 def quote_token_usd(mint: str, sol_usd: float, http: str, depth: int = 0) -> float | None:
-    """USD for a quote token from its own SOL (or stable) pool. Not Jupiter."""
+    """USD for a quote token from its own SOL or USDC pool. Not Jupiter.
+
+    The pool is cached on ``_quote_pools`` and joined to the watch set, so
+    steady state is the vault subscribe and the per-pool logs socket.
+    """
     if not mint or not sol_usd or sol_usd <= 0:
         return None
     if mint == SOL_MINT:
@@ -1989,11 +2610,11 @@ def quote_token_usd(mint: str, sol_usd: float, http: str, depth: int = 0) -> flo
     now = time.time()
     with _guard:
         cached = _quote_px.get(mint)
-    if cached and now - cached[0] < 2.0 and cached[1] > 0:
+    if cached and now - cached[0] < STREAM_SILENCE_S and cached[1] > 0:
         return cached[1]
     if depth >= 2:
         return None
-    pool = _pool_for(mint, http)
+    pool = _quote_pool_for(mint, http)
     if not pool:
         return None
     if pool.get("kind") == "whirlpool":
@@ -2010,42 +2631,47 @@ def quote_token_usd(mint: str, sol_usd: float, http: str, depth: int = 0) -> flo
         px = whirlpool_swap_usd(raw, mint, sol_usd, decs)
         if px and px > 0:
             with _guard:
-                _quote_px[mint] = (now, px)
+                _quote_px[mint] = (time.time(), px)
+            return px
+        return None
+    if pool.get("kind") == "meteora":
+        info = _account_info(http, str(pool.get("address") or ""))
+        raw = _account_bytes(info) if info else None
+        decs = {
+            str(pool.get("base_mint") or ""): pool.get("base_dec"),
+            str(pool.get("quote_mint") or ""): pool.get("quote_dec"),
+        }
+        px = meteora_dlmm_usd(raw, mint, sol_usd, decs) if raw else None
+        if px and px > 0:
+            with _guard:
+                _quote_px[mint] = (time.time(), px)
+            return px
+        return None
+    if pool.get("kind") == "raydium":
+        info = _account_info(http, str(pool.get("address") or ""))
+        raw = _account_bytes(info) if info else None
+        px = raydium_clmm_usd(raw, mint, sol_usd) if raw else None
+        if px and px > 0:
+            with _guard:
+                _quote_px[mint] = (time.time(), px)
+            return px
+        return None
+    if pool.get("kind") == "pump":
+        info = _account_info(http, str(pool.get("address") or ""))
+        raw = _account_bytes(info) if info else None
+        px = pump_curve_swap_usd(raw, sol_usd) if raw else None
+        if px and px > 0:
+            with _guard:
+                _quote_px[mint] = (time.time(), px)
             return px
         return None
     if pool.get("kind") != "pumpswap":
         return None
-    amounts = _vault_amounts(http, str(pool.get("base_vault") or ""), str(pool.get("quote_vault") or ""))
-    if not amounts:
-        return None
-    base_dec = mint_decimals(http, str(pool.get("base_mint") or ""))
-    quote_dec = mint_decimals(http, str(pool.get("quote_mint") or ""))
-    if base_dec is None or quote_dec is None:
-        return None
-    extra: dict[str, float] = {}
-    for side in (str(pool.get("base_mint") or ""), str(pool.get("quote_mint") or "")):
-        if not side or side == mint or side == SOL_MINT or side in _STABLES:
-            continue
-        side_px = quote_token_usd(side, sol_usd, http, depth + 1)
-        if not side_px:
-            return None
-        extra[side] = side_px
-    px = pumpswap_mid_usd(
-        amounts[0],
-        base_dec,
-        amounts[1],
-        quote_dec,
-        str(pool.get("base_mint") or ""),
-        str(pool.get("quote_mint") or ""),
-        mint,
-        sol_usd,
-        int(pool.get("virtual_quote") or 0),
-        extra or None,
-    )
+    px = _read_vault_mid(http, pool)
     if not px or px <= 0:
         return None
     with _guard:
-        _quote_px[mint] = (now, px)
+        _quote_px[mint] = (time.time(), px)
     return px
 
 
@@ -2063,14 +2689,9 @@ def _extra_for_pool(pool: dict, sol_usd: float, http: str) -> dict | None:
     return extra or None
 
 
-def _read_vault_mid(http: str, pool: dict) -> float | None:
+def _price_vault_pair(http: str, pool: dict, base_raw: int, quote_raw: int) -> float | None:
+    """Turn one vault pair into a published USD mid. Shared by the batch poll."""
     global _pair_seq
-    base_vault = str(pool.get("base_vault") or "")
-    quote_vault = str(pool.get("quote_vault") or "")
-    amounts = _vault_amounts(http, base_vault, quote_vault)
-    if not amounts:
-        return None
-    base_raw, quote_raw = amounts
     mint = str(pool.get("mint") or "")
     base_mint = str(pool.get("base_mint") or "")
     quote_mint = str(pool.get("quote_mint") or "")
@@ -2079,7 +2700,7 @@ def _read_vault_mid(http: str, pool: dict) -> float | None:
     if base_dec is None or quote_dec is None:
         return None
     with _guard:
-        live = _pools.get(mint)
+        live = _live_row_unlocked(mint, address=str(pool.get("address") or ""))
         if live:
             _pair_seq -= 1
             live["base_raw"] = base_raw
@@ -2117,7 +2738,38 @@ def _read_vault_mid(http: str, pool: dict) -> float | None:
         sol_driver = sol if _quote_is_sol_or_stable(snap) else None
         _publish(mint, px, compare_mid=False, source="pool_vault", sol=sol_driver)
         clear_pool_miss(mint)
+        _note_quote_mark(mint, px)
     return px
+
+
+def _read_vault_mid(http: str, pool: dict) -> float | None:
+    base_vault = str(pool.get("base_vault") or "")
+    quote_vault = str(pool.get("quote_vault") or "")
+    amounts = _vault_amounts(http, base_vault, quote_vault)
+    if not amounts:
+        return None
+    return _price_vault_pair(http, pool, amounts[0], amounts[1])
+
+
+def _read_vault_mids_batch(http: str, snaps: list[dict]) -> None:
+    """Price every due pool from one account fetch."""
+    addrs: list[str] = []
+    for snap in snaps:
+        for key in ("base_vault", "quote_vault"):
+            addr = str(snap.get(key) or "")
+            if addr and addr not in addrs:
+                addrs.append(addr)
+    got = _multiple_amounts(http, addrs)
+    if got is None:
+        with ThreadPoolExecutor(max_workers=min(8, len(snaps))) as pool:
+            list(pool.map(lambda snap: _read_vault_mid(http, snap), snaps))
+        return
+    for snap in snaps:
+        base = got.get(str(snap.get("base_vault") or ""))
+        quote = got.get(str(snap.get("quote_vault") or ""))
+        if base is None or quote is None:
+            continue
+        _price_vault_pair(http, snap, base, quote)
 
 
 def _parsed_token_amount(row: dict | None) -> tuple[int, int] | None:
