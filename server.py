@@ -275,6 +275,12 @@ def api_health():
                 "Receipts stay across a server restart and a 24h reset. SKIP is still a paper buy after "
                 "a second confirm. The post-game review cites this run's receipts."
             ),
+            "profile_pnl": (
+                "The Game profile card sums paper P/L from buy receipts: total USD, win rate, "
+                "trades, average hold, best and worst (each opens that receipt), the current streak, "
+                "and P/L by day for the last 7 days. Lifetime keeps every stored receipt across a "
+                "24h reset. This run counts only the current session. Open marks are not included."
+            ),
             "qa_receipt": (
                 "Page ?qa_receipt=1 opens a sample receipt in this browser only so the chart, "
                 "entry dot, STALE age, and Save/Copy controls can be seen. It does not place a trade "
@@ -301,7 +307,7 @@ def api_health():
                 "Absent the query, ticks behave normally."
             ),
             "live_tick_ttl_s": game_mod.LIVE_TICK_TTL_S,
-            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture", "game_ai_review", "gold_scar", "game_follow_tab", "filter_smart", "profile_custom_pic", "final_polish", "live_tick", "game_receipts"],
+            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture", "game_ai_review", "gold_scar", "game_follow_tab", "filter_smart", "profile_custom_pic", "final_polish", "live_tick", "game_receipts", "profile_pnl"],
             "sitting_drop_min": 5.0,
             "sitting_aged_min": 180.0,
             "sitting_keep": True,
