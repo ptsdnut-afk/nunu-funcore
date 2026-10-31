@@ -1,4 +1,4 @@
-"""SHIP Z — paper buy receipts (AC-Z01…Z06). panel_v is not bumped."""
+"""SHIP Z — paper buy receipts (AC-Z01…Z06). panel_v stays at main."""
 
 from __future__ import annotations
 
@@ -232,7 +232,7 @@ class ReceiptBookTests(unittest.TestCase):
         import server
 
         data = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 83)
+        self.assertEqual(data["panel_v"], 84)
         self.assertIn("game_receipts", data["features"])
         self.assertIn("live_tick", data["features"])
         self.assertIn("game_state.json", data["game_receipts"])
@@ -240,10 +240,10 @@ class ReceiptBookTests(unittest.TestCase):
 
 
 class ReceiptPanelTests(unittest.TestCase):
-    def test_panel_draws_receipts_without_bumping_panel_v(self):
+    def test_panel_draws_receipts_at_mains_panel_v(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
-        self.assertIn("const PANEL_V = 83", html)
-        self.assertIn("paper only · v83", html)
+        self.assertIn("const PANEL_V = 84", html)
+        self.assertIn("paper only · v84", html)
         self.assertIn('id="gReceiptSheet"', html)
         self.assertIn('id="gReceiptSave"', html)
         self.assertIn('id="gReceiptCopy"', html)
