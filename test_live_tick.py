@@ -364,7 +364,7 @@ class TradeFillTests(unittest.TestCase):
 class HealthAndChartTests(unittest.TestCase):
     def test_health_is_v82_with_live_tick_and_a_five_second_sla(self):
         data = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 83)
+        self.assertEqual(data["panel_v"], 84)
         self.assertIn("live_tick", data["features"])
         self.assertLessEqual(data["quote_sla_s"], 5.0)
         self.assertEqual(data["quote_sla_s"], 5.0)
