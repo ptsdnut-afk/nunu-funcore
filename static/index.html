@@ -784,6 +784,18 @@
     .game-search input[type="text"] { flex: 1; min-width: 200px; font-size: 0.9rem; padding: 8px 10px; }
     .gfield { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 0.78rem; font-weight: 650; }
     .gfield input { width: 68px; }
+    .tp-settings {
+      margin: -2px 0 8px; padding: 8px 12px;
+      background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    }
+    .tp-settings summary { cursor: pointer; font-weight: 750; font-size: 0.82rem; }
+    .tp-settings .hint { margin: 6px 0; color: var(--muted); font-size: 0.75rem; }
+    .tp-rung {
+      display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+      margin: 4px 0; color: var(--muted); font-size: 0.75rem;
+    }
+    .tp-rung input { width: 72px; }
+    .tp-rung input[data-field="label"] { width: 88px; }
     .gbtn { font-weight: 700; padding: 8px 14px; font-size: 0.84rem; }
     .gbtn:disabled { opacity: 0.45; cursor: not-allowed; }
     .gbtn.restart {
@@ -3042,10 +3054,16 @@
         <button type="button" class="gbtn" id="gQuote">Quote</button>
         <label class="gfield">Stake $<input type="number" id="gStake" value="1" min="0.01" step="0.01" /></label>
         <label class="gfield">SL%<input type="number" id="gSl" value="20" min="0" step="1" /></label>
-        <label class="gfield">TP%<input type="number" id="gTp" value="100" min="0" step="1" /></label>
+        <label class="gfield" title="Optional. Closes whatever the ladder has not sold.">Full exit %<input type="number" id="gTp" value="" min="0" step="1" placeholder="opt" /></label>
         <button type="button" class="gbtn buy" id="gBuy">▲ BUY</button>
         <button type="button" class="gbtn sell" id="gSellAll" title="Sell every open position">▼ SELL ALL</button>
       </div>
+      <details class="tp-settings" id="gTpSettings" data-feature="tp_ladder">
+        <summary>Take-profit ladder</summary>
+        <p class="hint">Default sells 25% at +50%, 2x, 3x, and 4x. Each rung is a partial sell in history. Saved ladder applies to the next buy. Multiple is price ÷ entry (1.5 = +50%).</p>
+        <div id="gTpLadder"></div>
+        <button type="button" class="gbtn" id="gTpSave">Save ladder</button>
+      </details>
       <div class="game-status-row">
         <div class="game-status" id="gLine">Loading game…</div>
         <span id="gSoundChip" class="sound-chip" data-sound="" data-audio="idle" hidden>Sound</span>
@@ -7905,7 +7923,8 @@
             tradeStat("price", "Entry", "token price", fmtPx(p.entry_price_usd)) +
             '<div class="stat-cell" data-family="price"><span class="k">Last</span><span class="unit">token price</span><span class="v" data-role="last-px">' + priceHtml + "</span></div>" +
             (p.sl_pct != null ? '<div class="stat-cell"><span class="k">SL</span><span class="v">' + p.sl_pct + "%</span></div>" : "") +
-            (p.tp_pct != null ? '<div class="stat-cell"><span class="k">TP</span><span class="v">' + p.tp_pct + "%</span></div>" : "") +
+            (ladderCell(p) ? '<div class="stat-cell" data-feature="tp_ladder"><span class="k">TP ladder</span><span class="v">' + ladderCell(p) + "</span></div>" : "") +
+            (p.tp_pct != null ? '<div class="stat-cell"><span class="k">Full exit</span><span class="v">' + p.tp_pct + "%</span></div>" : "") +
             "</div>" +
             '<div class="actions"><button type="button" class="gbtn sell g-sell" data-id="' + esc(p.id) + '">Sell this</button>' +
             (p.pair_url ? ' <a class="dex" href="' + esc(p.pair_url) + '" target="_blank" rel="noopener" style="font-size:0.78rem;color:var(--accent2)">DEX</a>' : "") +
@@ -7919,8 +7938,9 @@
       if (!closed.length) cbox.innerHTML = '<div class="empty">No closed trades this run</div>';
       else {
         cbox.innerHTML = closed.slice(0, 12).map((p) =>
-          '<div class="score-row" data-reason="' + esc(p.close_reason || "") + '" data-price-ts="' + esc(p.price_ts || "") + '" data-feature="usd_price"><span>' + esc(p.symbol || "?") +
+          '<div class="score-row" data-reason="' + esc(p.close_reason || "") + '" data-rung="' + esc(p.tp_rung || "") + '" data-partial="' + (p.partial ? "1" : "0") + '" data-sell-pct="' + esc(p.sell_pct != null ? String(p.sell_pct) : "") + '" data-price-ts="' + esc(p.price_ts || "") + '" data-feature="usd_price"><span>' + esc(p.symbol || "?") +
           " · " + esc(p.close_reason || "closed") +
+          (p.tp_rung ? (" " + esc(p.tp_rung) + (p.sell_pct != null ? (" · sold " + esc(String(p.sell_pct)) + "%") : "")) : "") +
           " · entry " + esc(fmtPx(p.entry_price_usd)) + " · exit " + esc(fmtPx(p.exit_price_usd)) +
           (p.price_ts ? (" · " + esc(String(p.price_ts).slice(11, 19)) + "Z") : "") +
           (p.mint ? (' · <code class="ca-full">' + esc(p.mint) + "</code>") : "") +
@@ -7985,6 +8005,7 @@
       }
       paintFinish(g);
       applySessionChrome(g);
+      paintTpLadder(g.tp_ladder);
       paintTradeChart();
       paintRunReview(g);
       paintFollowTab();
@@ -8675,6 +8696,56 @@
       }
     }
 
+    const DEFAULT_TP_LADDER = [
+      { id: "p50", label: "+50%", multiple: 1.5, sell_pct: 25 },
+      { id: "x2", label: "2x", multiple: 2, sell_pct: 25 },
+      { id: "x3", label: "3x", multiple: 3, sell_pct: 25 },
+      { id: "x4", label: "4x", multiple: 4, sell_pct: 25 },
+    ];
+
+    function ladderCell(pos) {
+      const rows = pos && Array.isArray(pos.tp_ladder) ? pos.tp_ladder : [];
+      if (!rows.length) return "";
+      const fired = new Set(pos.tp_fired || []);
+      return rows.map((rung) => {
+        const mark = fired.has(rung.id) ? "✓ " : "";
+        return esc(mark + (rung.label || rung.id) + " " + rung.sell_pct + "%");
+      }).join(" · ");
+    }
+
+    function currentTpLadder() {
+      const host = document.getElementById("gTpLadder");
+      if (!host || !host.querySelector("[data-rung]")) {
+        return DEFAULT_TP_LADDER.map((row) => Object.assign({}, row));
+      }
+      const rows = [];
+      host.querySelectorAll("[data-rung]").forEach((row) => {
+        const label = row.querySelector("[data-field=label]");
+        const multiple = row.querySelector("[data-field=multiple]");
+        const sell = row.querySelector("[data-field=sell]");
+        rows.push({
+          id: row.getAttribute("data-rung") || "",
+          label: label ? label.value.trim() : "",
+          multiple: multiple ? Number(multiple.value) : NaN,
+          sell_pct: sell ? Number(sell.value) : NaN,
+        });
+      });
+      return rows;
+    }
+
+    function paintTpLadder(ladder) {
+      const host = document.getElementById("gTpLadder");
+      if (!host || host.getAttribute("data-dirty") === "1") return;
+      const rows = Array.isArray(ladder) && ladder.length ? ladder : DEFAULT_TP_LADDER;
+      host.innerHTML = rows.map((rung) =>
+        '<label class="tp-rung" data-rung="' + esc(rung.id || "") + '">' +
+        '<input data-field="label" value="' + esc(rung.label || "") + '" maxlength="24" aria-label="Rung name" />' +
+        '<span>at</span><input data-field="multiple" type="number" min="1.01" step="0.1" value="' + esc(rung.multiple) + '" aria-label="Multiple" />' +
+        '<span>× · sell</span><input data-field="sell" type="number" min="1" max="100" step="1" value="' + esc(rung.sell_pct) + '" aria-label="Sell percent" />' +
+        "<span>%</span></label>"
+      ).join("");
+    }
+
     function newBuyRequestId() {
       return "b" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     }
@@ -8705,7 +8776,7 @@
       setGameLine("Buying…", "warn");
       try {
         if (!(await ensureGameActive(requestedMint))) return;
-        const body = { mint: requestedMint, stake_usd: stake, client_request_id: requestId };
+        const body = { mint: requestedMint, stake_usd: stake, client_request_id: requestId, tp_ladder: currentTpLadder() };
         if (sl !== "") body.sl_pct = Number(sl);
         if (tp !== "") body.tp_pct = Number(tp);
         const res = await fetch("/api/game/buy", {
@@ -9211,6 +9282,35 @@
     });
     document.getElementById("gBuy").addEventListener("click", () => gameBuy());
     document.getElementById("gSellAll").addEventListener("click", () => gameSellAll());
+    const gTpLadder = document.getElementById("gTpLadder");
+    if (gTpLadder) {
+      gTpLadder.addEventListener("input", () => gTpLadder.setAttribute("data-dirty", "1"));
+    }
+    const gTpSave = document.getElementById("gTpSave");
+    if (gTpSave) {
+      gTpSave.addEventListener("click", async () => {
+        const ladder = currentTpLadder();
+        try {
+          const res = await fetch("/api/game/settings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tp_ladder: ladder }),
+          });
+          const data = await res.json();
+          if (!res.ok || data.ok === false) {
+            toast(data.error || "Ladder not saved", true);
+            return;
+          }
+          if (gTpLadder) gTpLadder.setAttribute("data-dirty", "0");
+          if (state.game) state.game.tp_ladder = data.tp_ladder;
+          paintTpLadder(data.tp_ladder);
+          toast("Take-profit ladder saved");
+        } catch (e) {
+          toast("Ladder not saved", true);
+        }
+      });
+    }
+    paintTpLadder(DEFAULT_TP_LADDER);
     document.getElementById("gMint").addEventListener("keydown", (ev) => {
       if (ev.key === "Enter") { ev.preventDefault(); gameQuote(); }
     });
@@ -9768,6 +9868,18 @@
       return '<svg viewBox="0 0 150 110" width="150" height="110" role="img" aria-label="Holder bubbles. Amber marks the linked funding cluster.">' + marks + "</svg>";
     }
 
+    function checklistBandLine(rules) {
+      const bands = rules && Array.isArray(rules.bands) ? rules.bands : [];
+      const bits = bands.map((band) => {
+        const lo = band.min_pass;
+        const hi = band.max_pass;
+        const span = lo === hi ? String(lo) : (lo + "–" + hi);
+        return span + " = " + (band.name || "");
+      });
+      const head = bits.length ? (bits.join(" · ") + ". ") : "";
+      return head + "Unknown does not pass. A rug-history dev or a linked cluster ≥10% forces SKIP. Paper research only — not financial advice.";
+    }
+
     function checklistCards(checklist) {
       const origin = checklist.origin || {};
       const dev = checklist.dev || {};
@@ -9807,7 +9919,7 @@
         const icon = status === "pass" ? "✓" : (status === "fail" ? "✕" : "?");
         const cls = status === "pass" ? "p" : (status === "fail" ? "f" : "u");
         const pill = status === "pass" ? "good" : (status === "fail" ? "bad" : "unk");
-        return "<li><span class=\"ck-ic " + cls + "\">" + icon + "</span><span>" + esc(item.label || "") +
+        return "<li data-check=\"" + esc(item.id || "") + "\" data-status=\"" + esc(status) + "\"><span class=\"ck-ic " + cls + "\">" + icon + "</span><span>" + esc(item.label || "") +
           '<span class="ck-why">' + esc(item.detail || "Unknown") + ckSrc(item.source) + "</span></span>" +
           '<span class="ck-pill ' + pill + '">' + esc(status === "unknown" ? "unknown" : status) + "</span></li>";
       }).join("");
@@ -9853,8 +9965,7 @@
         "</section>" +
         '<section class="ck-card" id="ck-list"><h2>Checklist · ' + passN + "/" + total + ' pass <span class="ck-pill ' + pillCls + '">' + esc(verdictName) + "</span></h2>" +
           bar + '<ul class="ck-check">' + rows + "</ul>" +
-          '<div class="ck-paper">8/8 = BUY-WATCH · 6–7 = WATCH · 5 or lower = SKIP. Unknown does not pass. ' +
-          "A rug-history dev or a linked cluster ≥10% forces SKIP. Paper research only — not financial advice.</div>" +
+          '<div class="ck-paper">' + esc(checklistBandLine(checklist.rules)) + "</div>" +
         "</section></div>";
     }
 

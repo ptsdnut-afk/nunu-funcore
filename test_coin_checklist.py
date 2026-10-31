@@ -80,30 +80,41 @@ def _clean_sources(**overrides):
 
 class VerdictBandTests(unittest.TestCase):
     def test_bands_are_explicit_and_unknown_does_not_pass(self):
-        self.assertEqual(cc.verdict_for(8, forced_skip=False), "BUY-WATCH")
+        self.assertEqual(cc.verdict_for(10, forced_skip=False), "BUY-WATCH")
+        self.assertEqual(cc.verdict_for(9, forced_skip=False), "BUY-WATCH")
+        self.assertEqual(cc.verdict_for(8, forced_skip=False), "WATCH")
         self.assertEqual(cc.verdict_for(7, forced_skip=False), "WATCH")
-        self.assertEqual(cc.verdict_for(6, forced_skip=False), "WATCH")
+        self.assertEqual(cc.verdict_for(6, forced_skip=False), "SKIP")
         self.assertEqual(cc.verdict_for(5, forced_skip=False), "SKIP")
         self.assertEqual(cc.verdict_for(0, forced_skip=False), "SKIP")
-        self.assertEqual(cc.verdict_for(8, forced_skip=True), "SKIP")
+        self.assertEqual(cc.verdict_for(10, forced_skip=True), "SKIP")
         self.assertFalse(cc.rules_payload()["unknown_passes"])
+        self.assertEqual(cc.rules_payload()["narrative_window_days"], 7)
         self.assertEqual(cc.TOP10_PASS_BELOW, 30.0)
         self.assertEqual(cc.CLUSTER_BUNDLE_AT, 10.0)
         self.assertEqual(cc.ORGANIC_MIN_TRADERS, 100)
         self.assertEqual([row[0] for row in cc.CHECKS], [
-            "lp", "mint_freeze", "dev_history", "not_bundled", "top10", "socials", "organic", "narrative",
+            "lp", "mint_freeze", "dev_history", "not_bundled", "top10", "socials", "organic",
+            "narrative", "buyers", "catalyst",
         ])
+        self.assertEqual(cc.CHECKS[7][1], "New narrative")
+        self.assertEqual(cc.CHECKS[8][1], "Who's buying")
+        self.assertEqual(cc.CHECKS[9][1], "Catalyst")
 
-    def test_watch_is_the_best_honest_score_while_narrative_is_unwired(self):
+    def test_watch_is_the_best_honest_score_while_x2_rows_are_unfetched(self):
         out = cc.assemble(MINT, _clean_sources(), now=1_700_000_500)
         by_id = {row["id"]: row for row in out["checks"]}
         self.assertEqual(by_id["narrative"]["status"], "unknown")
-        self.assertEqual(by_id["narrative"]["source"], "not wired")
+        self.assertIn("not returned", by_id["narrative"]["detail"])
+        self.assertEqual(by_id["narrative"]["source"], "Dexscreener + Pump.fun")
+        self.assertEqual(by_id["buyers"]["status"], "unknown")
+        self.assertEqual(by_id["catalyst"]["status"], "unknown")
+        self.assertEqual(by_id["catalyst"]["detail"], "Unknown")
         self.assertEqual(out["pass_count"], 7)
         self.assertEqual(out["verdict"], "WATCH")
         self.assertEqual(out["count_verdict"], "WATCH")
         self.assertFalse(out["forced_skip"])
-        self.assertEqual(len(out["checks"]), 8)
+        self.assertEqual(len(out["checks"]), 10)
         self.assertEqual(out["header"]["price_usd"], 0.0000913)
         self.assertEqual(out["header"]["price_source"], "Dexscreener")
         self.assertEqual(out["origin"]["launchpad"], "Pump.fun → bonded to PumpSwap")
@@ -115,7 +126,11 @@ class VerdictBandTests(unittest.TestCase):
 
 class HardRuleTests(unittest.TestCase):
     def test_rug_history_forces_skip_even_when_the_count_would_watch(self):
+        pump = dict(_clean_sources()["pump"])
+        pump["symbol"] = "NUNU"
+        pump["name"] = "Nunu Coin"
         out = cc.assemble(MINT, _clean_sources(
+            pump=pump,
             creator_coins={
                 "count": 2,
                 "coins": [
@@ -125,6 +140,7 @@ class HardRuleTests(unittest.TestCase):
             },
             prior_rugs=1,
             prior_rugs_checked=1,
+            launches={"checked": ["Dexscreener", "Pump.fun"], "failed": [], "hits": []},
         ), now=1_700_000_500)
         self.assertEqual(out["verdict"], "SKIP")
         self.assertTrue(out["forced_skip"])
@@ -287,7 +303,7 @@ class CacheAndApiTests(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         data = res.get_json()
         self.assertEqual(data["verdict"], "WATCH")
-        self.assertEqual(data["check_count"], 8)
+        self.assertEqual(data["check_count"], 10)
         self.assertEqual([row["id"] for row in data["checks"]], [row[0] for row in cc.CHECKS])
         self.assertNotIn("EXAMPLE", res.get_data(as_text=True))
 

@@ -259,13 +259,22 @@ def api_health():
             ),
             "coin_checklist": (
                 "Coin sheet checklist. GET /api/coin/checklist?mint= returns verdict "
-                "(BUY-WATCH, WATCH, or SKIP) plus 8 rows. Unknown is not a pass. "
-                "BUY-WATCH is 8/8, WATCH is 6–7, SKIP is 5 or lower. A rug-history dev "
+                "(BUY-WATCH, WATCH, or SKIP) plus 10 rows. Unknown is not a pass. "
+                "BUY-WATCH is 9–10, WATCH is 7–8, SKIP is 6 or lower. A rug-history dev "
                 "or a linked cluster at or above 10% forces SKIP. Top-10 under 30% passes. "
                 "Organic volume needs 100 unique traders in 1h and no wallet over 10% of "
-                "that volume. Narrative fit stays Unknown until a source exists. "
+                "that volume. New narrative FAILs when the same ticker or name launched "
+                "in the last 7 days on Dexscreener or Pump.fun search. Who's buying passes "
+                "when a trader_watchlist.json wallet holds the mint and shows that name. "
+                "Catalyst shows a real Dexscreener or Pump.fun signal, or Unknown. "
                 "Lookups are cached on the server. Strict Filter and AI traders should "
                 "key off the verdict name."
+            ),
+            "x2_rules": (
+                "Four rules on the coin sheet and in Game. New narrative, who's buying, "
+                "and catalyst are checklist rows. Game's default take-profit ladder sells "
+                "25% at +50%, 2x, 3x, and 4x. The ladder is editable from Game settings "
+                "and each rung is a partial sell in trade history. panel_v is unchanged."
             ),
             "usd_price": (
                 "Token prices, entries, exits, and P/L render in USD. "
@@ -273,7 +282,7 @@ def api_health():
                 "Game fills stay on the live USD tick."
             ),
             "live_tick_ttl_s": game_mod.LIVE_TICK_TTL_S,
-            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture", "game_ai_review", "gold_scar", "game_follow_tab", "filter_smart", "profile_custom_pic", "final_polish", "live_tick", "coin_checklist", "usd_price"],
+            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture", "game_ai_review", "gold_scar", "game_follow_tab", "filter_smart", "profile_custom_pic", "final_polish", "live_tick", "coin_checklist", "usd_price", "x2_rules"],
             "sitting_drop_min": 5.0,
             "sitting_aged_min": 180.0,
             "sitting_keep": True,
@@ -714,6 +723,21 @@ def api_game_end():
     return jsonify({"ok": True, "state": game_mod.public_state(st), "sound": "end"})
 
 
+@app.get("/api/game/settings")
+def api_game_settings_get():
+    """Take-profit ladder. Missing file returns the 25% / +50% / 2x / 3x / 4x default."""
+    return jsonify({"ok": True, "tp_ladder": game_mod.load_tp_ladder()})
+
+
+@app.post("/api/game/settings")
+def api_game_settings_post():
+    """Replace the saved take-profit ladder. Does not rewrite an open position."""
+    body = request.get_json(silent=True) or {}
+    result = game_mod.save_tp_ladder(body.get("tp_ladder"))
+    code = 200 if result.get("ok") else 400
+    return jsonify(result), code
+
+
 @app.post("/api/game/start")
 def api_game_start():
     body = request.get_json(silent=True) or {}
@@ -734,7 +758,10 @@ def api_game_buy():
     sl = body.get("sl_pct", body.get("stop_loss_pct"))
     tp = body.get("tp_pct", body.get("take_profit_pct"))
     rid = body.get("client_request_id") or body.get("request_id")
-    result = game_mod.buy(mint, stake, sl_pct=sl, tp_pct=tp, client_request_id=rid)
+    ladder = body.get("tp_ladder") if "tp_ladder" in body else None
+    result = game_mod.buy(
+        mint, stake, sl_pct=sl, tp_pct=tp, client_request_id=rid, tp_ladder=ladder,
+    )
     code = 200 if result.get("ok") else 400
     if result.get("state") is not None:
         result["state"] = game_mod.public_state(result.get("state"))

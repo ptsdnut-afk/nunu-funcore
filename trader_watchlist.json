@@ -1,0 +1,11 @@
+{
+  "doc": "Server-side trader watchlist for the checklist row Who's buying. A wallet counts as bought only when it currently holds this mint: either it is in the Solana holder list with a balance above zero, or getTokenAccountsByOwner returns a balance above zero. Names are Pump.fun usernames from GET https://frontend-api-v3.pump.fun/users/{address}. They are not invented handles. The panel prints a name only when that wallet holds the coin being checked. Add a row to track another wallet. Rows without a name or address are ignored.",
+  "seeded": "2026-10-31",
+  "wallets": [
+    {
+      "name": "PeatFossilYarn",
+      "address": "G6CApKDic3y74aB8pgu4kpTwEBbpnbKc4NtubL3vgmeW",
+      "note": "Pump.fun username returned for this address. On 2026-10-31 the wallet held 5M35JweGp34ZLhzE6Ke6CuRjrNNR9Z4n4RAEMcpepump, a Solana coin on the Dexscreener boost list. The checklist rechecks the balance for every coin."
+    }
+  ]
+}

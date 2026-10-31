@@ -2,10 +2,14 @@
 
 Paper research only. Missing inputs stay Unknown. Nothing here is a buy.
 
-Verdict bands are pass-counts. Unknown is not a pass. X2 can retune
-VERDICT_BANDS and CHECKS when the sheet grows to 10 rows
-(BUY-WATCH 9–10, WATCH 7–8, SKIP at 6 or lower). Callers must key off
-the verdict name, not the pass count.
+Verdict bands are pass-counts over 10 rows. Unknown is not a pass.
+BUY-WATCH is 9–10, WATCH is 7–8, SKIP is 6 or lower. Callers must key
+off the verdict name, not the pass count.
+
+Row 8 is New narrative: FAIL when the same ticker or name launched again
+in the last 7 days (Dexscreener search and Pump.fun search). Who's buying
+passes when a wallet on trader_watchlist.json holds the mint. Catalyst
+prints a real Dexscreener or Pump.fun signal, or Unknown.
 """
 
 from __future__ import annotations
@@ -17,15 +21,18 @@ import urllib.error
 import urllib.request
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import filter as filter_mod
 
 # Inclusive pass-count bands, highest first. Forced SKIP ignores the count.
+# 10 rows: BUY-WATCH 9–10, WATCH 7–8, SKIP at 6 or lower.
 VERDICT_BANDS = (
-    ("BUY-WATCH", 8, 8),
-    ("WATCH", 6, 7),
-    ("SKIP", 0, 5),
+    ("BUY-WATCH", 9, 10),
+    ("WATCH", 7, 8),
+    ("SKIP", 0, 6),
 )
 
 CHECKS = (
@@ -36,7 +43,9 @@ CHECKS = (
     ("top10", "Top-10 holders under 30%"),
     ("socials", "Real socials"),
     ("organic", "Organic volume"),
-    ("narrative", "Narrative fit"),
+    ("narrative", "New narrative"),
+    ("buyers", "Who's buying"),
+    ("catalyst", "Catalyst"),
 )
 
 # Pass when strictly under this percent.
@@ -52,12 +61,33 @@ ORGANIC_WALLET_MAX_PCT = 10.0
 CACHE_TTL_S = 150.0
 FUNDER_TTL_S = 6 * 3600.0
 FUNDER_MISS_TTL_S = 90.0
-CACHE_VERSION = "x83"
+CACHE_VERSION = "x2a"
+NARRATIVE_WINDOW_S = 7 * 86400.0
+BOOST_TTL_S = 60.0
 
 PUMP_COIN = "https://frontend-api-v3.pump.fun/coins-v2/{mint}"
 PUMP_CREATOR = "https://frontend-api-v3.pump.fun/coins-v2/user-created-coins/{creator}?offset=0&limit=20"
+PUMP_SEARCH = (
+    "https://frontend-api-v3.pump.fun/coins/search-v2"
+    "?searchTerm={q}&limit=20&offset=0&sort=created_timestamp&order=DESC&includeNsfw=true"
+)
 DEX_TOKEN = "https://api.dexscreener.com/latest/dex/tokens/{mint}"
+DEX_SEARCH = "https://api.dexscreener.com/latest/dex/search?q={q}"
+DEX_ORDERS = "https://api.dexscreener.com/orders/v1/solana/{mint}"
+DEX_BOOSTS_LATEST = "https://api.dexscreener.com/token-boosts/latest/v1"
+DEX_BOOSTS_TOP = "https://api.dexscreener.com/token-boosts/top/v1"
 BUBBLE_MAP = "https://api.bubblemaps.io/v0/tokens/map/solana/{mint}?return_clusters=true&limit=80"
+WATCHLIST_PATH = Path(__file__).resolve().parent / "trader_watchlist.json"
+
+# Exact name matches this short are not a narrative. They match everything.
+_NAME_STOPS = {"coin", "token", "sol", "solana", "official", "inu", "meme", "the"}
+_ORDER_LABELS = {
+    "tokenProfile": "Dexscreener token profile",
+    "communityTakeover": "Dexscreener community takeover",
+    "tokenAd": "Dexscreener token ad",
+    "trendingBarAd": "Dexscreener trending bar",
+}
+_LIVE_ORDER = {"approved", "processing"}
 
 PUBLIC_RPCS = (
     "https://public.rpc.solanavibestation.com",
@@ -72,6 +102,7 @@ BURN_OWNERS = {
 
 _mem: dict[str, tuple[float, dict[str, Any]]] = {}
 _bubble_blocked = False
+_boost_mem: tuple[float, dict[str, dict[str, Any]] | None] | None = None
 
 
 def helius_key() -> str:
@@ -104,8 +135,179 @@ def rules_payload() -> dict[str, Any]:
         "lp_lock_min": LP_LOCK_MIN,
         "organic_min_traders": ORGANIC_MIN_TRADERS,
         "organic_wallet_max_pct": ORGANIC_WALLET_MAX_PCT,
+        "narrative_window_days": 7,
         "unknown_passes": False,
     }
+
+
+def _norm_symbol(value: Any) -> str:
+    text = str(value or "").strip().upper()
+    if text.startswith("$"):
+        text = text[1:]
+    return "".join(ch for ch in text if ch.isalnum())
+
+
+def _norm_name(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    text = "".join(ch if ch.isalnum() else " " for ch in text)
+    return " ".join(text.split())
+
+
+def _same_launch(symbol: str, name: str, hit: dict[str, Any]) -> str | None:
+    """'ticker' or 'name' when this hit is the same coin story. Else None."""
+    sym = _norm_symbol(symbol)
+    other_sym = _norm_symbol(hit.get("symbol"))
+    if len(sym) >= 2 and sym == other_sym:
+        return "ticker"
+    mine = _norm_name(name)
+    other = _norm_name(hit.get("name"))
+    if len(mine) >= 4 and mine not in _NAME_STOPS and mine == other:
+        return "name"
+    return None
+
+
+def narrative_verdict(
+    symbol: str | None,
+    name: str | None,
+    launches: dict[str, Any] | None,
+    mint: str,
+    now: float,
+) -> tuple[str, str, str]:
+    """PASS, FAIL, or unknown for New narrative. Does not invent a rerun."""
+    source = "Dexscreener + Pump.fun"
+    if not isinstance(launches, dict):
+        return "unknown", "Unknown — Dexscreener and Pump.fun search were not returned", source
+    failed = [str(item) for item in (launches.get("failed") or []) if item]
+    checked = [str(item) for item in (launches.get("checked") or []) if item]
+    if checked:
+        source = " + ".join(checked)
+    if not _norm_symbol(symbol) and len(_norm_name(name)) < 4:
+        return "unknown", "Unknown — ticker and name were not returned", source
+    hits = [hit for hit in (launches.get("hits") or []) if isinstance(hit, dict)]
+    reruns = []
+    undated = []
+    for hit in hits:
+        other = str(hit.get("mint") or "").strip()
+        if not other or other == mint:
+            continue
+        kind = _same_launch(symbol or "", name or "", hit)
+        if not kind:
+            continue
+        created = _when(hit.get("created_at"))
+        if created is None:
+            undated.append(hit)
+            continue
+        if now - created <= NARRATIVE_WINDOW_S and now - created >= -60:
+            reruns.append((created, kind, hit))
+    if reruns:
+        reruns.sort(key=lambda item: item[0], reverse=True)
+        created, kind, hit = reruns[0]
+        age = _age_text(now - created) or "just now"
+        label = _present(str(hit.get("symbol") or "")) or _present(str(hit.get("name") or "")) or "a coin"
+        where = hit.get("source") or source
+        noun = "ticker" if kind == "ticker" else "name"
+        detail = (
+            f"Rerun — same {noun} {label} launched {age} ago"
+            f" ({_short(str(hit.get('mint')))})"
+        )
+        if len(reruns) > 1:
+            detail += f" · {len(reruns)} in 7 days"
+        return "fail", detail, str(where)
+    if undated:
+        hit = undated[0]
+        where = hit.get("source") or source
+        label = _present(str(hit.get("symbol") or "")) or "a match"
+        return (
+            "unknown",
+            f"Unknown — {label} matched on {where} but launch time was not returned",
+            str(where),
+        )
+    if failed or not checked:
+        missing = ", ".join(failed) if failed else "Dexscreener and Pump.fun"
+        return "unknown", f"Unknown — {missing} search did not answer", source
+    return "pass", "No same ticker or name in the last 7 days", source
+
+
+def load_watchlist() -> list[dict[str, str]]:
+    """Named wallets from trader_watchlist.json. Skips rows with no name or address."""
+    try:
+        raw = json.loads(WATCHLIST_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    rows = raw.get("wallets") if isinstance(raw, dict) else raw
+    if not isinstance(rows, list):
+        return []
+    out = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        address = str(row.get("address") or "").strip()
+        name = str(row.get("name") or "").strip()
+        if len(address) < 32 or not name:
+            continue
+        out.append({"name": name, "address": address})
+    return out
+
+
+def buyers_verdict(payload: dict[str, Any] | None) -> tuple[str, str, str]:
+    """PASS when at least one watchlist wallet holds the mint. Names are real labels."""
+    source = "watchlist · Solana RPC"
+    if not isinstance(payload, dict):
+        return "unknown", "Unknown — trader watchlist was not checked", source
+    names = [str(name).strip() for name in (payload.get("names") or []) if str(name).strip()]
+    if payload.get("empty"):
+        return "unknown", "Unknown — trader watchlist is empty", source
+    buyers = [str(name).strip() for name in (payload.get("buyers") or []) if str(name).strip()]
+    if payload.get("ok") and buyers:
+        shown = ", ".join(buyers)
+        verb = "bought" if len(buyers) == 1 else "bought"
+        return "pass", f"{shown} {verb}", source
+    if payload.get("ok"):
+        listed = ", ".join(names) if names else "the watchlist"
+        return "fail", f"None of the tracked wallets bought ({listed})", source
+    return "unknown", "Unknown — wallet balances were not returned", source
+
+
+def catalyst_signal(
+    pump: dict[str, Any] | None,
+    orders: list[Any] | None,
+    boost: dict[str, Any] | None,
+    now: float | None = None,
+) -> dict[str, str | None]:
+    """A real catalyst, or no signal. Price action is not a catalyst."""
+    amount = _num(boost.get("amount")) if isinstance(boost, dict) else None
+    if amount is not None and amount > 0:
+        return {"signal": f"Dexscreener boost {amount:.0f}", "source": "Dexscreener"}
+    if isinstance(pump, dict) and pump.get("is_currently_live") is True:
+        return {"signal": "Live on Pump.fun", "source": "Pump.fun"}
+    if isinstance(orders, list):
+        for order in orders:
+            if not isinstance(order, dict):
+                continue
+            if str(order.get("status") or "") not in _LIVE_ORDER:
+                continue
+            label = _ORDER_LABELS.get(str(order.get("type") or ""))
+            if not label:
+                continue
+            return {"signal": f"{label} ({order.get('status')})", "source": "Dexscreener"}
+    clock = float(now if now is not None else time.time())
+    koth = _when(pump.get("king_of_the_hill_timestamp")) if isinstance(pump, dict) else None
+    if koth is not None and 0 <= clock - koth <= NARRATIVE_WINDOW_S:
+        return {"signal": "Pump.fun King of the Hill", "source": "Pump.fun"}
+    return {"signal": None, "source": None}
+
+
+def catalyst_verdict(payload: dict[str, Any] | None) -> tuple[str, str, str]:
+    source = "Dexscreener + Pump.fun"
+    if not isinstance(payload, dict):
+        return "unknown", "Unknown", source
+    signal = _present(str(payload.get("signal") or "")) if payload.get("signal") else None
+    where = _present(str(payload.get("source") or "")) if payload.get("source") else None
+    if signal and where:
+        return "pass", signal, where
+    if where:
+        source = where
+    return "unknown", "Unknown", source
 
 
 def _check(cid: str, label: str, status: str, detail: str, source: str) -> dict[str, Any]:
@@ -524,7 +726,7 @@ def assemble(mint: str, sources: dict[str, Any] | None, now: float | None = None
             "cluster": row.get("owner") in cluster_owners,
         })
 
-    # —— eight rows ——
+    # —— ten rows ——
     lp = _lp_pct(rug)
     if lp is None:
         lp_row = _check("lp", CHECKS[0][1], "unknown", "Unknown — RugCheck did not return a lock percent", "RugCheck")
@@ -707,13 +909,24 @@ def assemble(mint: str, sources: dict[str, Any] | None, now: float | None = None
             organic_source,
         )
 
-    narrative_row = _check(
-        "narrative", CHECKS[7][1], "unknown",
-        "Unknown — no narrative source on this panel",
-        "not wired",
+    n_status, n_detail, n_source = narrative_verdict(
+        symbol, name, sources.get("launches") if isinstance(sources.get("launches"), dict) else None,
+        mint, now_s,
     )
+    narrative_row = _check("narrative", CHECKS[7][1], n_status, n_detail, n_source)
+    b_status, b_detail, b_source = buyers_verdict(
+        sources.get("buyers") if isinstance(sources.get("buyers"), dict) else None
+    )
+    buyers_row = _check("buyers", CHECKS[8][1], b_status, b_detail, b_source)
+    c_status, c_detail, c_source = catalyst_verdict(
+        sources.get("catalyst") if isinstance(sources.get("catalyst"), dict) else None
+    )
+    catalyst_row = _check("catalyst", CHECKS[9][1], c_status, c_detail, c_source)
 
-    checks = [lp_row, auth_row, dev_row, bundle_row, top_row, social_row, organic_row, narrative_row]
+    checks = [
+        lp_row, auth_row, dev_row, bundle_row, top_row, social_row, organic_row,
+        narrative_row, buyers_row, catalyst_row,
+    ]
     pass_count = sum(1 for row in checks if row["status"] == "pass")
     fail_count = sum(1 for row in checks if row["status"] == "fail")
     unknown_count = sum(1 for row in checks if row["status"] == "unknown")
@@ -1099,6 +1312,239 @@ def trace_funder(wallet: str) -> dict[str, Any]:
     return out
 
 
+def _search_terms(symbol: str | None, name: str | None) -> list[str]:
+    terms: list[str] = []
+    raw_symbol = str(symbol or "").strip()
+    if len(_norm_symbol(raw_symbol)) >= 2:
+        terms.append(raw_symbol[:32])
+    raw_name = str(name or "").strip()
+    folded = _norm_name(raw_name)
+    if len(folded) >= 4 and folded not in _NAME_STOPS and folded != _norm_symbol(raw_symbol).lower():
+        if raw_name.lower() not in {term.lower() for term in terms}:
+            terms.append(raw_name[:48])
+    return terms[:2]
+
+
+def _dex_hits(payload: Any) -> list[dict[str, Any]]:
+    pairs = payload.get("pairs") if isinstance(payload, dict) else None
+    if not isinstance(pairs, list):
+        return []
+    hits = []
+    for pair in pairs:
+        if not isinstance(pair, dict):
+            continue
+        if str(pair.get("chainId") or "").lower() not in {"solana", ""}:
+            continue
+        base = pair.get("baseToken") if isinstance(pair.get("baseToken"), dict) else {}
+        mint = str(base.get("address") or "").strip()
+        if len(mint) < 32:
+            continue
+        hits.append({
+            "mint": mint,
+            "symbol": base.get("symbol"),
+            "name": base.get("name"),
+            "created_at": _when(pair.get("pairCreatedAt")),
+            "source": "Dexscreener",
+        })
+    return hits
+
+
+def _pump_hits(payload: Any) -> list[dict[str, Any]]:
+    coins = payload if isinstance(payload, list) else None
+    if isinstance(payload, dict):
+        coins = payload.get("coins") if isinstance(payload.get("coins"), list) else None
+    if not isinstance(coins, list):
+        return []
+    hits = []
+    for coin in coins:
+        if not isinstance(coin, dict):
+            continue
+        mint = str(coin.get("mint") or "").strip()
+        if len(mint) < 32:
+            continue
+        hits.append({
+            "mint": mint,
+            "symbol": coin.get("symbol"),
+            "name": coin.get("name"),
+            "created_at": _when(coin.get("created_timestamp")),
+            "source": "Pump.fun",
+        })
+    return hits
+
+
+def search_launches(symbol: str | None, name: str | None) -> dict[str, Any]:
+    """Same ticker or name on Dexscreener and Pump.fun. Failed sources stay failed."""
+    terms = _search_terms(symbol, name)
+    if not terms:
+        return {"checked": [], "failed": ["Dexscreener", "Pump.fun"], "hits": []}
+    hits: list[dict[str, Any]] = []
+    ok_kind = {"Dexscreener": False, "Pump.fun": False}
+    bad_kind = {"Dexscreener": False, "Pump.fun": False}
+    seen: set[tuple[str, str]] = set()
+
+    def _one(kind: str, term: str) -> tuple[str, list[dict[str, Any]] | None]:
+        if kind == "Dexscreener":
+            cached = filter_mod.cache_get("dex_search_x2", term.lower(), CACHE_TTL_S)
+            if isinstance(cached, dict) and "hits" in cached:
+                return kind, cached["hits"]
+            status, data = _http_json(DEX_SEARCH.format(q=quote(term)), timeout=10)
+            parsed = _dex_hits(data)
+            if status == 200 and isinstance(data, dict):
+                filter_mod.cache_put("dex_search_x2", term.lower(), {"hits": parsed})
+                return kind, parsed
+            return kind, None
+        cached = filter_mod.cache_get("pump_search_x2", term.lower(), CACHE_TTL_S)
+        if isinstance(cached, dict) and "hits" in cached:
+            return kind, cached["hits"]
+        status, data = _http_json(PUMP_SEARCH.format(q=quote(term)), timeout=10)
+        parsed = _pump_hits(data)
+        if status == 200 and (isinstance(data, list) or isinstance(data, dict)):
+            filter_mod.cache_put("pump_search_x2", term.lower(), {"hits": parsed})
+            return kind, parsed
+        return kind, None
+
+    jobs = [(kind, term) for term in terms for kind in ("Dexscreener", "Pump.fun")]
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        for kind, parsed in pool.map(lambda job: _one(*job), jobs):
+            if parsed is None:
+                bad_kind[kind] = True
+                continue
+            ok_kind[kind] = True
+            for hit in parsed:
+                key = (hit["mint"], hit["source"])
+                if key in seen:
+                    continue
+                seen.add(key)
+                hits.append(hit)
+    checked = [kind for kind, ok in ok_kind.items() if ok]
+    failed = [kind for kind, bad in bad_kind.items() if bad and not ok_kind[kind]]
+    return {"checked": checked, "failed": failed, "hits": hits}
+
+
+def _token_balance(owner: str, mint: str) -> float | None:
+    """Token amount this wallet holds. None when RPC does not answer."""
+    result, _label = _rpc(
+        "getTokenAccountsByOwner",
+        [owner, {"mint": mint}, {"encoding": "jsonParsed"}],
+        timeout=10,
+    )
+    if not isinstance(result, dict):
+        return None
+    values = result.get("value") if isinstance(result.get("value"), list) else []
+    total = 0.0
+    for row in values:
+        if not isinstance(row, dict):
+            continue
+        info = (((row.get("account") or {}).get("data") or {}).get("parsed") or {}).get("info")
+        token = info.get("tokenAmount") if isinstance(info, dict) and isinstance(info.get("tokenAmount"), dict) else {}
+        amount = _num(token.get("uiAmountString") if token.get("uiAmountString") is not None else token.get("uiAmount"))
+        if amount:
+            total += amount
+    return total
+
+
+def fetch_tracked_buys(mint: str, holders: list[dict[str, Any]] | None) -> dict[str, Any]:
+    """Which watchlist wallets currently hold this mint. Does not invent a buy."""
+    book = load_watchlist()
+    names = [row["name"] for row in book]
+    if not book:
+        return {"ok": False, "empty": True, "buyers": [], "names": []}
+    held_by = {}
+    for row in holders or []:
+        if not isinstance(row, dict) or row.get("excluded"):
+            continue
+        owner = row.get("owner")
+        pct = _num(row.get("pct"))
+        if isinstance(owner, str) and pct is not None and pct > 0:
+            held_by[owner] = pct
+    buyers: list[str] = []
+    rpc_miss = False
+    for row in book:
+        if row["address"] in held_by:
+            buyers.append(row["name"])
+            continue
+        balance = _token_balance(row["address"], mint)
+        if balance is None:
+            rpc_miss = True
+            continue
+        if balance > 0:
+            buyers.append(row["name"])
+    if rpc_miss and not buyers:
+        return {"ok": False, "empty": False, "buyers": [], "names": names}
+    return {"ok": True, "empty": False, "buyers": buyers, "names": names}
+
+
+def _boost_index() -> dict[str, dict[str, Any]] | None:
+    """Solana mints on the Dexscreener boost lists. None when both lists fail."""
+    global _boost_mem
+    now = time.time()
+    if _boost_mem and now - _boost_mem[0] < BOOST_TTL_S:
+        return _boost_mem[1]
+    found: dict[str, dict[str, Any]] = {}
+    answered = False
+    for url in (DEX_BOOSTS_LATEST, DEX_BOOSTS_TOP):
+        status, data = _http_json(url, timeout=8)
+        if status != 200 or not isinstance(data, list):
+            continue
+        answered = True
+        for row in data:
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("chainId") or "").lower() != "solana":
+                continue
+            token = str(row.get("tokenAddress") or "").strip()
+            amount = _num(row.get("amount"))
+            if len(token) < 32 or amount is None:
+                continue
+            prev = found.get(token)
+            if prev is None or amount > float(prev.get("amount") or 0):
+                found[token] = {"amount": amount}
+    payload = found if answered else None
+    _boost_mem = (now, payload)
+    return payload
+
+
+def fetch_orders(mint: str) -> list[Any] | None:
+    status, data = _http_json(DEX_ORDERS.format(mint=mint), timeout=8)
+    if isinstance(data, dict) and isinstance(data.get("orders"), list):
+        return data["orders"]
+    if isinstance(data, list):
+        return data
+    if status == 200:
+        return []
+    return None
+
+
+def fetch_catalyst(mint: str, pump: dict[str, Any] | None) -> dict[str, Any]:
+    boosts = _boost_index()
+    boost = boosts.get(mint) if isinstance(boosts, dict) else None
+    orders = fetch_orders(mint)
+    found = catalyst_signal(pump if isinstance(pump, dict) else None, orders, boost)
+    checked = []
+    if boosts is not None or orders is not None:
+        checked.append("Dexscreener")
+    if isinstance(pump, dict) and not pump.get("error") and not pump.get("missing"):
+        checked.append("Pump.fun")
+    return {
+        "signal": found.get("signal"),
+        "source": found.get("source"),
+        "checked": checked,
+    }
+
+
+def _identity(pump: dict[str, Any] | None, dex: dict[str, Any] | None) -> tuple[str | None, str | None]:
+    symbol = None
+    name = None
+    if isinstance(pump, dict) and not pump.get("missing") and not pump.get("error"):
+        symbol = _present(pump.get("symbol"))
+        name = _present(pump.get("name"))
+    if isinstance(dex, dict) and not dex.get("error"):
+        base = dex.get("baseToken") if isinstance(dex.get("baseToken"), dict) else {}
+        symbol = symbol or _present(base.get("symbol"))
+        name = name or _present(base.get("name"))
+    return symbol, name
+
+
 def gather(mint: str) -> dict[str, Any]:
     """Fetch RugCheck, Pump.fun, Dexscreener, and a public funding trace."""
     with ThreadPoolExecutor(max_workers=4) as pool:
@@ -1163,6 +1609,16 @@ def gather(mint: str) -> dict[str, Any]:
     if helius_key():
         organic = {"known": False, "source": "Helius", "note": "key set but 1h wallet volume is not parsed here"}
 
+    symbol, name = _identity(pump if isinstance(pump, dict) else None, dex if isinstance(dex, dict) else None)
+    holder_rows = holders if isinstance(holders, list) else []
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        fut_launch = pool.submit(search_launches, symbol, name)
+        fut_buyers = pool.submit(fetch_tracked_buys, mint, holder_rows)
+        fut_catalyst = pool.submit(fetch_catalyst, mint, pump if isinstance(pump, dict) else None)
+        launches = fut_launch.result()
+        buyers = fut_buyers.result()
+        catalyst = fut_catalyst.result()
+
     return {
         "pump": pump,
         "dex": dex,
@@ -1177,6 +1633,9 @@ def gather(mint: str) -> dict[str, Any]:
         "prior_rugs_checked": prior_checked if prior_rugs is not None else 0,
         "organic": organic,
         "bubblemaps": bubble,
+        "launches": launches,
+        "buyers": buyers,
+        "catalyst": catalyst,
     }
 
 
@@ -1205,7 +1664,9 @@ def for_mint(mint: str, bypass: bool = False) -> dict[str, Any]:
 
 
 def clear_cache() -> None:
+    global _boost_mem
     _mem.clear()
+    _boost_mem = None
     folder = filter_mod.CACHE_DIR
     if not folder.exists():
         return

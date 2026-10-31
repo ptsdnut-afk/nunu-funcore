@@ -31,6 +31,15 @@ _ALT_PAPER = DIR.parent / "papertrades.csv"
 START_BANKROLL = 5.0
 SESSION_HOURS = 24
 MAX_SCORES = 50
+SETTINGS_PATH = DIR / "game_settings.json"
+# Default take-profit ladder. Each rung sells sell_pct of the original size
+# once price / entry reaches multiple. +50% is 1.5x. Editable via settings.
+DEFAULT_TP_LADDER = (
+    {"id": "p50", "label": "+50%", "multiple": 1.5, "sell_pct": 25},
+    {"id": "x2", "label": "2x", "multiple": 2.0, "sell_pct": 25},
+    {"id": "x3", "label": "3x", "multiple": 3.0, "sell_pct": 25},
+    {"id": "x4", "label": "4x", "multiple": 4.0, "sell_pct": 25},
+)
 DEX_TOKEN_URL = "https://api.dexscreener.com/latest/dex/tokens/{mint}"
 _UA = "nunu-filter-paper/1.0"
 
@@ -1381,6 +1390,63 @@ def equip_cosmetic(skin_id: str) -> dict:
         return {"ok": True, "sound": "equip", "skin": skin["id"], "profile": public_profile(profile)}
 
 
+def default_tp_ladder() -> list[dict]:
+    return [dict(row) for row in DEFAULT_TP_LADDER]
+
+
+def normalize_tp_ladder(raw: Any) -> list[dict] | None:
+    """Accept a ladder of {multiple, sell_pct}. None when a rung is not usable."""
+    if not isinstance(raw, list) or not raw or len(raw) > 8:
+        return None
+    out = []
+    seen: set[str] = set()
+    for index, row in enumerate(raw):
+        if not isinstance(row, dict):
+            return None
+        multiple = _f(row.get("multiple"))
+        sell = _f(row.get("sell_pct"))
+        if multiple is None or sell is None:
+            return None
+        if multiple < 1.01 or multiple > 100:
+            return None
+        if sell <= 0 or sell > 100:
+            return None
+        label = str(row.get("label") or "").strip()[:24]
+        if not label:
+            label = f"{multiple:g}x"
+        rid = str(row.get("id") or "").strip()[:24] or f"r{index}"
+        if rid in seen:
+            rid = f"{rid}-{index}"
+        seen.add(rid)
+        out.append({
+            "id": rid,
+            "label": label,
+            "multiple": round(multiple, 4),
+            "sell_pct": round(sell, 2),
+        })
+    return out
+
+
+def load_tp_ladder() -> list[dict]:
+    data = _read_json(SETTINGS_PATH, None)
+    if isinstance(data, dict):
+        parsed = normalize_tp_ladder(data.get("tp_ladder"))
+        if parsed:
+            return parsed
+    return default_tp_ladder()
+
+
+def save_tp_ladder(raw: Any) -> dict:
+    parsed = normalize_tp_ladder(raw)
+    if not parsed:
+        return {
+            "ok": False,
+            "error": "Each rung needs a multiple above 1 and a sell percent from 1 to 100",
+        }
+    _write_json(SETTINGS_PATH, {"tp_ladder": parsed})
+    return {"ok": True, "tp_ladder": parsed}
+
+
 def equity(st: dict) -> float:
     eq = float(st.get("cash_usd") or 0)
     for p in st.get("positions") or []:
@@ -1518,6 +1584,97 @@ def _close_position(st: dict, pos: dict, price: float, reason: str, price_ts: st
     _maybe_early_sell_points(pos, reason)
 
 
+def _sell_rung(st: dict, pos: dict, price: float, rung: dict, price_ts: str | None) -> None:
+    """Sell one ladder rung. Logs a partial close. Leaves the rest open."""
+    entry = float(pos.get("entry_price_usd") or 0)
+    original_qty = float(pos.get("qty_original") or pos.get("qty_tokens") or 0)
+    original_stake = float(pos.get("stake_original") or pos.get("stake_usd") or 0)
+    remain_qty = float(pos.get("qty_tokens") or 0)
+    remain_stake = float(pos.get("stake_usd") or 0)
+    sell_pct = float(rung.get("sell_pct") or 0)
+    if original_qty <= 0 or remain_qty <= 0 or sell_pct <= 0 or entry <= 0 or price <= 0:
+        return
+    want = original_qty * (sell_pct / 100.0)
+    sell_qty = min(remain_qty, want)
+    if remain_qty - sell_qty <= original_qty * 0.02:
+        sell_qty = remain_qty
+    if sell_qty <= 0:
+        return
+    stake_bit = original_stake * (sell_qty / original_qty) if original_qty else 0.0
+    stake_bit = min(remain_stake, stake_bit)
+    proceeds = round(price * sell_qty, 6)
+    pnl = round(proceeds - stake_bit, 6)
+    pnl_pct = round((price / entry - 1.0) * 100, 2)
+    actual_pct = round(sell_qty / original_qty * 100.0, 2)
+    ts = price_ts or pos.get("price_ts") or _utc()
+    st["cash_usd"] = round(float(st.get("cash_usd") or 0) + proceeds, 6)
+    pos["qty_tokens"] = max(0.0, remain_qty - sell_qty)
+    pos["stake_usd"] = round(max(0.0, remain_stake - stake_bit), 6)
+    label = str(rung.get("label") or rung.get("id") or "tp")
+    closed = {
+        "id": f"{pos.get('id')}:{rung.get('id')}",
+        "position_id": pos.get("id"),
+        "mint": pos.get("mint"),
+        "symbol": pos.get("symbol"),
+        "name": pos.get("name"),
+        "stake_usd": round(stake_bit, 6),
+        "entry_price_usd": entry,
+        "entry_price_ts": pos.get("entry_price_ts"),
+        "qty_tokens": sell_qty,
+        "partial": True,
+        "tp_rung": label,
+        "tp_rung_id": rung.get("id"),
+        "sell_pct": actual_pct,
+        "exit_price_usd": price,
+        "exit_price_ts": ts,
+        "price_ts": ts,
+        "exit_usd": proceeds,
+        "pnl_usd": pnl,
+        "pnl_pct": pnl_pct,
+        "closed_at": _utc(),
+        "close_reason": "tp",
+        "image_url": pos.get("image_url"),
+        "pair_url": pos.get("pair_url"),
+    }
+    st.setdefault("closed", []).insert(0, closed)
+    _push_event(
+        st,
+        "tp",
+        f"{pos.get('symbol')} tp {label} · sold {actual_pct:g}% · PnL ${pnl:+.3f} ({pnl_pct:+.1f}%)",
+        position_id=pos.get("id"),
+        pnl_usd=pnl,
+        tp_rung=label,
+    )
+
+
+def _apply_tp_ladder(st: dict, pos: dict, price: float, price_ts: str | None) -> bool:
+    """Fire every unfired rung this price has reached. True when the position is gone."""
+    ladder = pos.get("tp_ladder")
+    if not isinstance(ladder, list) or not ladder:
+        return False
+    entry = float(pos.get("entry_price_usd") or 0)
+    if entry <= 0 or price <= 0:
+        return False
+    multiple = price / entry
+    fired = [str(item) for item in (pos.get("tp_fired") or [])]
+    rungs = sorted(
+        (row for row in ladder if isinstance(row, dict)),
+        key=lambda row: float(row.get("multiple") or 0),
+    )
+    for rung in rungs:
+        rid = str(rung.get("id") or "")
+        need = float(rung.get("multiple") or 0)
+        if not rid or rid in fired or multiple + 1e-9 < need:
+            continue
+        _sell_rung(st, pos, price, rung, price_ts)
+        fired.append(rid)
+        pos["tp_fired"] = list(fired)
+        if float(pos.get("qty_tokens") or 0) <= 1e-9:
+            st["positions"] = [p for p in (st.get("positions") or []) if p.get("id") != pos.get("id")]
+            return True
+    return False
+
+
 def tick_session(st: dict | None = None) -> dict:
     """Refresh open prices, hit SL/TP, force-close at 24h."""
     with _lock:
@@ -1587,11 +1744,14 @@ def tick_session(st: dict | None = None) -> dict:
             # the fill past the mark the player was shown.
             if fresh and entry and px:
                 chg = (px / entry - 1.0) * 100
+                price_ts = tick.get("price_ts") if tick else None
                 if sl is not None and chg <= -abs(float(sl)):
-                    _close_position(st, pos, px, "stop", price_ts=tick.get("price_ts") if tick else None)
+                    _close_position(st, pos, px, "stop", price_ts=price_ts)
+                    continue
+                if _apply_tp_ladder(st, pos, px, price_ts):
                     continue
                 if tp is not None and chg >= abs(float(tp)):
-                    _close_position(st, pos, px, "tp", price_ts=tick.get("price_ts") if tick else None)
+                    _close_position(st, pos, px, "tp", price_ts=price_ts)
                     continue
             still.append(pos)
         st["positions"] = still
@@ -1629,12 +1789,22 @@ def _record_score(st: dict) -> None:
     save_scores(scores)
 
 
+def _ladder_for_buy(raw: Any) -> list[dict] | None:
+    """None means the caller sent a ladder this server will not use."""
+    if raw is None:
+        return load_tp_ladder()
+    if raw == [] or raw is False:
+        return []
+    return normalize_tp_ladder(raw)
+
+
 def buy(
     mint: str,
     stake_usd: float,
     sl_pct: float | None = None,
     tp_pct: float | None = None,
     client_request_id: str | None = None,
+    tp_ladder: Any = None,
 ) -> dict:
     with _lock:
         st = tick_session()
@@ -1661,6 +1831,9 @@ def buy(
         cash = float(st.get("cash_usd") or 0)
         if stake > cash + 1e-9:
             return _fail(f"Need ${stake:.3f} but cash is ${cash:.3f}", st)
+        ladder = _ladder_for_buy(tp_ladder)
+        if ladder is None:
+            return _fail("Each rung needs a multiple above 1 and a sell percent from 1 to 100", st)
         resolved, err, src = resolve_mint(mint)
         if not resolved:
             return _fail(err or "mint required", st)
@@ -1693,6 +1866,10 @@ def buy(
             "qty_tokens": qty,
             "sl_pct": float(sl_pct) if sl_pct is not None else None,
             "tp_pct": float(tp_pct) if tp_pct is not None else None,
+            "tp_ladder": [dict(row) for row in ladder],
+            "tp_fired": [],
+            "qty_original": qty,
+            "stake_original": round(stake, 6),
             "opened_at": _utc(),
             "pair_url": (q or {}).get("pair_url"),
             "image_url": image_for_mint(mint, (q or {}).get("image_url") or None),
@@ -2214,7 +2391,11 @@ def public_state(st: dict | None = None) -> dict:
         entry = _f(pp.get("entry_price_usd")) or 0.0
         last = _f(pp.get("last_price_usd")) or entry
         stake = float(pp.get("stake_usd") or 0)
-        mark = stake * (last / entry) if entry else stake
+        qty = _f(pp.get("qty_tokens"))
+        if qty is not None and qty >= 0 and last:
+            mark = qty * last
+        else:
+            mark = stake * (last / entry) if entry else stake
         pnl_usd = mark - stake
         pnl_pct = ((last / entry) - 1.0) * 100 if entry else 0.0
         pp["mark_usd"] = round(mark, 6)
@@ -2229,6 +2410,7 @@ def public_state(st: dict | None = None) -> dict:
     out["open_count"] = len(enriched)
     out["server_time"] = _utc()
     out["profile"] = public_profile()
+    out["tp_ladder"] = load_tp_ladder()
     out["review"] = build_run_review(st, equity_usd=eq)
     return out
 
