@@ -220,7 +220,7 @@ class ShipKRestartTests(unittest.TestCase):
         res = server.app.test_client().get("/api/health")
         data = res.get_json()
         self.assertTrue(data["ok"])
-        self.assertEqual(data["panel_v"], 89)
+        self.assertEqual(data["panel_v"], 90)
         self.assertIn("game_24h_restart", data["features"])
         self.assertIn("dismiss_back", data["features"])
         self.assertIn("game_polish", data["features"])
@@ -232,7 +232,7 @@ class ShipKRestartTests(unittest.TestCase):
 class ShipKPanelTests(unittest.TestCase):
     def test_panel_resets_rocket_and_hides_ghost_open(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
-        self.assertIn("const PANEL_V = 89", html)
+        self.assertIn("const PANEL_V = 90", html)
         self.assertIn("data-panel-v", html)
         self.assertIn("paintPanelVersion", html)
         self.assertNotIn("?v=76", html)

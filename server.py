@@ -259,7 +259,7 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 89,
+            "panel_v": 90,
             "time": _utc(),
             "qa_tick": "page ?qa_tick=both|up|down",
             "qa_end": "page ?qa_end=1 (one-shot) or POST /api/game/end",
@@ -306,8 +306,12 @@ def api_health():
             "live_tick": (
                 "Game price and the rocket chart share one tick cache. "
                 "The displayed price is the last real swap on the coin's main pool. "
-                "PumpSwap and pump.fun curves use logsSubscribe (mentions the pool) and parse "
-                "Buy/Sell Program data into a per-trade price. Vault accountSubscribe is the second source. "
+                "PumpSwap and pump.fun curves use logsSubscribe (mentions the pool, commitment "
+                "confirmed) and parse Buy/Sell Program data into the executed fill. "
+                "processed logsSubscribe acks and then pushes nothing on the public socket. "
+                "Each pool's logsSubscribe has its own websocket: a shared socket delivers "
+                "notifications for only the first one. "
+                "Vault accountSubscribe is the second source. "
                 "Orca keeps accountSubscribe. PumpPortal trade sockets are not used: "
                 "they require a funded API key. No getTransaction. "
                 "Jupiter Price API usdPrice is one batched call per second for the SOL anchor. "
@@ -316,17 +320,25 @@ def api_health():
                 "sell, or stop. The first tick resolves the pool and reads vaults synchronously "
                 "(base64, within about 3s). A non-SOL quote is the pool ratio times that quote token's "
                 "own SOL-pool USD price. Every watched PumpSwap pool gets logsSubscribe before vault "
-                "accounts take subscription room. The HTTP vault poll still prices the coin if the "
-                "socket is quiet. /api/health stream reports ws_state, ws_error, "
-                "subscriptions, and last_event. "
+                "accounts take subscription room. A coin with an open position, or viewed in the last "
+                "5 minutes, keeps those subscriptions. A pool with no vault subscription is HTTP-polled "
+                "at least once a second. The socket thread does not do that HTTP, so acks and "
+                "notifications are not stuck behind a poll. /api/health stream reports ws_state, "
+                "ws_error, subscriptions (logs: and vault: ids), and last_event. "
                 "Browsers poll /api/game/tick every 500ms and never call Jupiter or RPC. "
                 "stale is true exactly when quote_age_s > quote_sla_s (5s). Past that, Buy, Sell, and stops "
                 "will not fill. A fresh tick stores price_ts, trade_ts, render_ts, src, driver, and fetched_at. "
                 "src is pool_swap, pool_vault, jupiter, or jupiter_fallback. "
+                "For 5 seconds after a swap the mark is that executed fill (pool_swap). Between swaps "
+                "the mark is the vault ratio plus virtual_quote_reserves. The raw vault ratio runs "
+                "about 7% under the fill on these pools; the fee schedule (20 bps LP, 5 bps protocol) "
+                "is not that gap. "
                 "driver is swap, or sol_usd when only the SOL price moved. "
-                "A single print more than 15% from the last published price is held "
-                "until the other source or the next paired vault read agrees. "
-                "Held spikes are stream.spike_rejects and are not a stop or a take-profit."
+                "A single print more than 15% from the last published price is held until two "
+                "consecutive independent reads agree within 2%. That pair is accepted even when it "
+                "is far from the baseline. A baseline older than 5s cannot veto them. "
+                "Held spikes and overrides are stream.spike_rejects and are not a stop or a take-profit "
+                "until the override publishes."
             ),
             "qa_tick_down": (
                 "Server ?qa_tick=down on /api/game/tick (also buy, sell, and quote) walks this browser "
@@ -383,7 +395,7 @@ def api_gold():
     return jsonify(
         {
             "ok": True,
-            "panel_v": 89,
+            "panel_v": 90,
             "feature": "gold_scar",
             "count": len(picks),
             "empty_ok": True,
