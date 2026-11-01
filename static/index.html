@@ -3259,7 +3259,7 @@
 
   <script>
 
-    const PANEL_V = 94;
+    const PANEL_V = 95;
     function paintPanelVersion() {
       const label = String(PANEL_V);
       document.querySelectorAll("[data-panel-v]").forEach((el) => {
@@ -5945,6 +5945,7 @@
       if (!watchedCoinOpen()) return false;
       const t = state.lastTickResponse;
       if (!t) return true;
+      if (tickPriceMissing(t)) return true;
       if (t.stale === true || t.stale === false) return !!t.stale;
       return sharedFeedStale(feedAgeS(), t.quote_sla_s, false, true);
     }
@@ -5958,7 +5959,7 @@
       // One flag from one tick. A local clock must not mark the header LIVE while the trade pane is STALE.
       let age = feedAgeS();
       if (!qaStaleOn() && watchedCoinOpen()) {
-        if (!tick || (tick.stale !== true && tick.stale !== false)) age = Number(sla) + 1;
+        if (!tick || tickPriceMissing(tick) || (tick.stale !== true && tick.stale !== false)) age = Number(sla) + 1;
         else if (tick.stale) {
           const reported = Number(tick.quote_age_s);
           age = Number.isFinite(reported) && reported > sla ? reported : (Number(sla) + 1);
@@ -6037,23 +6038,27 @@
       const chrome = currentChrome();
       const stale = chrome.stale;
       const busy = !!(state.gameBusy || state.buyInFlight);
+      const tick = state.lastTickResponse;
+      const block = stale || (!!tick && !buyEnabledOnTick(tick));
       const buy = document.getElementById("gBuy");
       if (buy) {
-        buy.disabled = busy || stale;
+        buy.disabled = busy || block;
         buy.textContent = chrome.buy;
       }
       const sellAll = document.getElementById("gSellAll");
       if (sellAll) {
-        sellAll.disabled = busy;
+        sellAll.disabled = busy || block;
         sellAll.textContent = chrome.sellAll;
       }
       const quoted = document.getElementById("gBuyQuoted");
       if (quoted) {
-        quoted.disabled = busy || stale;
-        quoted.textContent = tradeButtonLabel("quote", stale);
+        quoted.disabled = busy || block;
+        quoted.textContent = tradeButtonLabel("quote", block);
       }
+      const sl = document.getElementById("gSl");
+      if (sl) sl.disabled = !!block;
       document.querySelectorAll(".g-sell, .gf-sell, [data-follow-sell]").forEach((el) => {
-        el.disabled = busy;
+        el.disabled = busy || block;
         el.textContent = chrome.sell;
       });
     }
@@ -6334,8 +6339,26 @@
       return tickSrcName({ source: src });
     }
 
+    function tickPriceMissing(tick) {
+      if (!tick) return true;
+      if (tick.price_usd == null || tick.price_usd === "") return true;
+      const px = Number(tick.price_usd);
+      return !(px > 0);
+    }
+
+    function buyEnabledOnTick(tick) {
+      if (!tick || tickPriceMissing(tick)) return false;
+      if (tick.stale === true) return false;
+      if (tick.stale === false) return true;
+      return !feedStale(tick.quote_age_s, tick.quote_sla_s);
+    }
+
     function tickDriver(tick) {
-      return String((tick && tick.driver) || "swap") === "sol_usd" ? "sol_usd" : "swap";
+      tick = tick || {};
+      const raw = String(tick.driver || "");
+      if (raw === "sol_usd" || raw === "jupiter_fallback" || raw === "cold" || raw === "no_baseline") return raw;
+      if (tickSrcName(tick) === "jupiter_fallback") return "jupiter_fallback";
+      return "swap";
     }
 
     function tickDebugLine(tick, px, renderTs) {
@@ -7403,7 +7426,8 @@
       const badge = document.getElementById("gTickStale");
       if (badge) {
         badge.hidden = !chrome.stale;
-        badge.textContent = chrome.stale ? (chrome.label || "STALE") : "";
+        const missingPx = !!(state.lastTickResponse && tickPriceMissing(state.lastTickResponse));
+        badge.textContent = chrome.stale ? (missingPx ? "STALE" : (chrome.label || "STALE")) : "";
       }
       paintTradeLocks();
       paintEquityFreshness();
@@ -8478,6 +8502,7 @@
         cbox.innerHTML = closed.slice(0, 12).map((p) =>
           '<div class="score-row" data-reason="' + esc(p.close_reason || "") + '" data-price-ts="' + esc(p.price_ts || "") + '"><span>' + esc(p.symbol || "?") +
           " · " + esc(p.close_reason || "closed") +
+          (p.fill_label ? (" · " + esc(p.fill_label)) : "") +
           (p.price_ts ? (" · " + esc(String(p.price_ts).slice(11, 19)) + "Z") : "") +
           (p.mint ? (' · <code class="ca-full">' + esc(p.mint) + "</code>") : "") +
           '</span><span class="' + (Number(p.pnl_usd) >= 0 ? "chg-up" : "chg-dn") + '">' +

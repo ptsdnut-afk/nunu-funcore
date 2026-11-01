@@ -280,7 +280,7 @@ class FixtureRouteTests(unittest.TestCase):
 
     def test_health_is_v77_with_gold_scar(self):
         data = self.client.get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 94)
+        self.assertEqual(data["panel_v"], 95)
         self.assertIn("gold_scar", data["features"])
         for feature in (
             "game_ai_review",
@@ -380,7 +380,7 @@ class FixtureRouteTests(unittest.TestCase):
 class PanelTests(unittest.TestCase):
     def test_gold_section_is_separate_and_versioned(self):
         html = _panel()
-        self.assertIn("const PANEL_V = 94", html)
+        self.assertIn("const PANEL_V = 95", html)
         self.assertIn("data-panel-v", html)
         self.assertIn("paintPanelVersion", html)
         self.assertIn("paintPanelVersion", html)

@@ -73,8 +73,13 @@ within 5%. The hold is at most 3.0 seconds from hold start. At that
 deadline the held price publishes only when a swap and a vault (or two
 independent on-chain reads) agree within 5%. Otherwise the coin is marked
 stale: Buy, Sell, and a new stop stay blocked, and an open stop is not
-filled at the unconfirmed price. A real crash whose reads agree still
-publishes within 3 seconds. A one-off bounce is rejected when a later
+filled at an unconfirmed price. When the latest executed swap and the
+vault disagree by more than 5%, the coin is stale immediately and Buy
+is refused, whichever side moved. The stop still fills at that executed
+swap when both legs are below it, or when the executed swap itself is
+below it. A dust fill is not that swap. A quiet vault echo keeps the
+last confirmed price fresh instead of aging it out. A real crash whose
+reads agree still publishes within 3 seconds. A one-off bounce is rejected when a later
 read disagrees. There is no real baseline when none has been accepted,
 or baseline_age is huge. The guard does not publish an override in that
 case. It publishes only once a swap price and a vault price agree within
@@ -217,6 +222,8 @@ _rejects: list[dict] = []
 _spike_rejects: list[dict] = []
 _pending_spikes: dict[str, dict] = {}
 _pairs: dict[str, dict[str, dict]] = {}
+# Latest size-bearing fill. A dust quote is never stored here.
+_executed: dict[str, dict] = {}
 _hold_timers: dict[str, threading.Timer] = {}
 _hold_gen: dict[str, int] = {}
 _awaiting_pair: set[str] = set()
@@ -528,6 +535,7 @@ def reset_for_tests() -> None:
         _spike_rejects.clear()
         _pending_spikes.clear()
         _pairs.clear()
+        _executed.clear()
         _awaiting_pair.clear()
         _swap_at.clear()
         _native.clear()
@@ -667,6 +675,68 @@ def _pair_agreement(mint: str) -> tuple[float, float] | None:
         return None
     px = a if float(swap.get("at") or 0) >= float(vault.get("at") or 0) else b
     return px, agree
+
+
+def note_executed_swap(mint: str, px: float, quote_raw: int | None = None) -> bool:
+    """Remember a size-bearing fill. A dust quote is not an executed swap."""
+    if not mint:
+        return False
+    if quote_raw is not None:
+        try:
+            if int(quote_raw) < DUST_QUOTE_RAW:
+                return False
+        except (TypeError, ValueError):
+            return False
+    try:
+        price = float(px)
+    except (TypeError, ValueError):
+        return False
+    if price <= 0:
+        return False
+    with _guard:
+        _executed[mint] = {"px": price, "at": time.time()}
+    return True
+
+
+def latest_executed_swap(mint: str) -> float | None:
+    """Last non-dust executed fill, or None."""
+    with _guard:
+        row = _executed.get(mint)
+    if not row:
+        return None
+    try:
+        price = float(row.get("px") or 0)
+    except (TypeError, ValueError):
+        return None
+    return price if price > 0 else None
+
+
+def latest_legs(mint: str) -> tuple[float | None, float | None]:
+    """Latest non-dust swap print and latest vault print."""
+    with _guard:
+        bucket = _pairs.get(mint) or {}
+        swap = dict(bucket["pool_swap"]) if bucket.get("pool_swap") else None
+        vault = dict(bucket["pool_vault"]) if bucket.get("pool_vault") else None
+
+    def _px(row: dict | None) -> float | None:
+        if not row or row.get("dust"):
+            return None
+        try:
+            price = float(row.get("px") or 0)
+        except (TypeError, ValueError):
+            return None
+        return price if price > 0 else None
+
+    return _px(swap), _px(vault)
+
+
+def legs_disagree(mint: str) -> bool:
+    """True when the executed swap and the vault are more than 5% apart."""
+    executed = latest_executed_swap(mint)
+    _swap, vault = latest_legs(mint)
+    if executed is None or vault is None or min(executed, vault) <= 0:
+        return False
+    return abs(executed - vault) / min(executed, vault) > SPIKE_PAIR
 
 
 def _real_baseline(mint: str, now: float | None = None) -> tuple[float | None, float]:
@@ -1002,6 +1072,8 @@ def ingest_swap(
     seed_ok: bool = False,
     source: str = "pool_swap",
     sol: float | None = None,
+    executed: bool = False,
+    quote_raw: int | None = None,
 ) -> str:
     """Publish one real swap or pool mid into the shared tick cache.
 
@@ -1024,6 +1096,15 @@ def ingest_swap(
         return "bad"
     if not mint or px <= 0:
         return "bad"
+    src_name = public_src(source)
+    if src_name == "pool_swap" and quote_raw is not None:
+        try:
+            if int(quote_raw) < DUST_QUOTE_RAW:
+                return "dust"
+        except (TypeError, ValueError):
+            pass
+    if src_name == "pool_swap" and executed:
+        note_executed_swap(mint, px, quote_raw=quote_raw)
     anchor_px = anchor
     if anchor_px is None:
         anchor_px = anchor_price(mint)
@@ -1038,6 +1119,10 @@ def ingest_swap(
     real_px, baseline_age = _real_baseline(mint, now_mono)
     same_agree = _remember_pair(mint, px, source, signature)
     agreed = _pair_agreement(mint)
+    # Swap and vault more than 5% apart: the last price is not a fill.
+    # Whichever leg just moved, Buy stays off until they agree.
+    if legs_disagree(mint):
+        _force_quote_stale(mint)
 
     if real_px is None:
         # No accepted tick. Do not publish the guard's own override.
@@ -1094,6 +1179,9 @@ def ingest_swap(
             pend_px = (_pending_spikes.get(mint) or {}).get("px")
         status, hold_start, arm = _spike_confirmed(mint, px, source, baseline, signature, sol)
         if status == "confirm":
+            if legs_disagree(mint):
+                _force_quote_stale(mint)
+                return "spike"
             _cancel_hold_timer(mint)
             agree = None
             try:
@@ -1119,9 +1207,16 @@ def ingest_swap(
     echo = baseline > 0 and move <= SPIKE_AGREE
     with _guard:
         pend = _pending_spikes.get(mint)
-    # A baseline older than 5s must not refresh itself by echoing, or it
-    # vetoes the fresh reads that already agree with each other.
+    # A flat or near print must not clear a real swap/vault disagreement.
+    if legs_disagree(mint):
+        _force_quote_stale(mint)
+        return "spike"
+    # An echo must not erase a crash candidate or refresh baseline_age, or it
+    # vetoes the reads that already agree with each other. A quiet vault with
+    # no disagreeing swap still keeps the last confirmed price on the clock,
+    # so that one-off does not count as stale.
     if echo and pend and baseline_age > BASELINE_VETO_S:
+        _refresh_quote_age(mint)
         return "spike"
     _cancel_hold_timer(mint)
     with _guard:
@@ -1404,6 +1499,55 @@ def price_from_program_logs(
             if px and px > 0:
                 found = px
     return found
+
+
+def executed_fill_from_logs(
+    logs: list,
+    pool: dict,
+    sol_usd: float,
+    extra_usd: dict | None = None,
+) -> tuple[float | None, int]:
+    """USD of a size-bearing PumpSwap fill, and the quote atoms.
+
+    A dust quote is not an executed swap. The reserve spot is not returned
+    in its place: callers keep the previous fill.
+    """
+    if not isinstance(logs, list) or not pool or not sol_usd or sol_usd <= 0:
+        return None, 0
+    if pool.get("kind") != "pumpswap":
+        return None, 0
+    watched = str(pool.get("mint") or "")
+    base_dec = int(pool.get("base_dec") if pool.get("base_dec") is not None else 6)
+    quote_dec = int(pool.get("quote_dec") if pool.get("quote_dec") is not None else 9)
+    base_mint = str(pool.get("base_mint") or "")
+    quote_mint = str(pool.get("quote_mint") or "")
+    found_px = None
+    found_atoms = 0
+    for line in logs:
+        if not isinstance(line, str) or not line.startswith("Program data:"):
+            continue
+        b64 = line.split("Program data:", 1)[1].strip()
+        try:
+            raw = base64.b64decode(b64)
+        except Exception:
+            continue
+        fill = pumpswap_event_fill(raw)
+        if not fill:
+            continue
+        base, quote_atoms, pool_pk = fill
+        if pool_pk and pool.get("address") and pool_pk != pool.get("address"):
+            continue
+        found_atoms = int(quote_atoms)
+        if found_atoms < DUST_QUOTE_RAW:
+            found_px = None
+            continue
+        px = pumpswap_mid_usd(
+            base, base_dec, quote_atoms, quote_dec,
+            base_mint, quote_mint, watched, sol_usd, 0, extra_usd,
+        )
+        if px and px > 0:
+            found_px = float(px)
+    return found_px, found_atoms
 
 
 def _sided_usd(
@@ -2500,6 +2644,9 @@ def _on_logs(msg: dict, meta: dict[int, dict]) -> None:
     if sol is None or sol <= 0:
         return
     extra = _extra_for_pool(pool, sol, endpoints()[1])
+    fill_px, fill_atoms = executed_fill_from_logs(logs, pool, sol, extra)
+    if fill_px:
+        note_executed_swap(mint, fill_px, quote_raw=fill_atoms)
     px = price_from_program_logs(logs, pool, sol, extra)
     if px is None or px <= 0:
         return
@@ -2513,7 +2660,7 @@ def _on_logs(msg: dict, meta: dict[int, dict]) -> None:
         slot=_slot_of(result),
         signature=sig,
         sol=sol_driver,
-        executed=True,
+        executed=fill_px is not None,
     )
 
 
@@ -2526,15 +2673,23 @@ def _touch_live(mint: str) -> None:
         if mint not in _seen:
             return
         _seen[mint] = now
+    _refresh_quote_age(mint, now)
+
+
+def _refresh_quote_age(mint: str, now: float | None = None) -> None:
+    """Move the displayed quote clock forward. Does not touch baseline_age."""
+    if not mint:
+        return
     import game
 
+    stamped = time.time() if now is None else now
     with game._live_lock(mint):
         hit = game._live_cache.get(mint)
         if not hit:
             return
         payload = dict(hit[1])
-        payload["fetched_at"] = _iso_ms(now)
-        game._live_cache[mint] = (now, payload)
+        payload["fetched_at"] = _iso_ms(stamped)
+        game._live_cache[mint] = (stamped, payload)
 
 
 def _slot_of(result: dict) -> int | None:
@@ -2563,6 +2718,8 @@ def _publish(
     if source == "pool_vault" and _recent_swap(mint):
         # The fill stays the mark. The vault read still happened, so the
         # quote age must not sit on the 5s line until the hold expires.
+        # The raw vault ratio runs about 7% under the fill; that gap is not
+        # a swap/vault crash, and it must not mark the coin stale.
         _touch_live(mint)
         return "held"
     had = mid_price(mint, max_age=120.0)
@@ -2578,6 +2735,7 @@ def _publish(
         signature=signature,
         source=source,
         sol=sol,
+        executed=executed,
     )
     if status in ("ok", "same"):
         note_mid(mint, px)
@@ -3254,6 +3412,49 @@ def _chain_baseline_thread(http: str, pools: list[dict]) -> None:
         print(f"[trade-stream] chain baseline failed ({exc})", flush=True)
     finally:
         _finish_due_baselines(pools)
+
+
+def fetch_latest_executed_swap(mint: str, budget_s: float = 10.0) -> float | None:
+    """Newest size-bearing on-chain fill. None when the pool has no such swap.
+
+    Tests skip the RPC unless NUNU_STOP_FETCH=1. A cached executed fill is
+    not returned here; the caller already checked it.
+    """
+    if _under_test() and os.environ.get("NUNU_STOP_FETCH") != "1":
+        return None
+    started = time.monotonic()
+    with _guard:
+        pool = _pools.get(mint)
+        pool = dict(pool) if isinstance(pool, dict) else None
+    if not pool or not pool.get("address"):
+        return None
+    http = endpoints()[1]
+    if time.monotonic() - started >= budget_s:
+        return None
+    timeout = max(0.2, min(4.0, budget_s - (time.monotonic() - started)))
+    rows, _limited = _rpc_batch(http, [(
+        "getSignaturesForAddress",
+        [str(pool.get("address")), {"limit": SIG_LOOKBACK, "commitment": "confirmed"}],
+    )], timeout)
+    sigs: list[str] = []
+    row = rows[0] if rows else None
+    if isinstance(row, list):
+        for item in row:
+            if isinstance(item, dict) and not item.get("err") and item.get("signature"):
+                sigs.append(str(item["signature"]))
+    sol = anchor_price(SOL_MINT, max_age=60.0) or 0.0
+    for sig in sigs[:SIG_LOOKBACK]:
+        if time.monotonic() - started >= budget_s:
+            return None
+        status, tx = _fetch_transaction(http, sig)
+        if status != "tx" or not isinstance(tx, dict):
+            continue
+        logs = (tx.get("meta") or {}).get("logMessages") or []
+        px, atoms = executed_fill_from_logs(logs, pool, sol, None)
+        if px and atoms >= DUST_QUOTE_RAW:
+            note_executed_swap(mint, px, quote_raw=atoms)
+            return px
+    return None
 
 
 def _run_chain_baselines(http: str, mints: list[str]) -> None:
