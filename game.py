@@ -915,6 +915,7 @@ def fetch_live_tick(
 
     # First look at an unwatched mint resolves the pool and reads vaults
     # before Jupiter. The 1s poll keeps that price fresh for WATCH_TTL_S.
+    # Callers must not hold game._lock: cold_vault_price takes the stream locks.
     if not trade_stream.stream_is_fresh(mint):
         trade_stream.cold_vault_price(mint)
 
@@ -1177,11 +1178,44 @@ def empty_state() -> dict:
     }
 
 
+# Open-position mints for the trade stream. The tuple is replaced as a whole,
+# so a reader never takes _lock. Stream code must not call load_state.
+_open_mints: tuple[str, ...] = ()
+
+
+def _mints_from_book(st: dict | None) -> tuple[str, ...]:
+    if not isinstance(st, dict) or st.get("status") != "active":
+        return ()
+    out: list[str] = []
+    seen: set[str] = set()
+    for pos in st.get("positions") or []:
+        if not isinstance(pos, dict):
+            continue
+        mint = str(pos.get("mint") or "")
+        if mint in seen or not looks_like_mint(mint):
+            continue
+        seen.add(mint)
+        out.append(mint)
+    return tuple(out)
+
+
+def publish_open_mints(st: dict | None) -> None:
+    """Publish open mints without taking ``_lock``. load_state and save_state call this."""
+    global _open_mints
+    _open_mints = _mints_from_book(st)
+
+
+def open_position_mints() -> list[str]:
+    """Snapshot of open mints. Does not take ``_lock``."""
+    return list(_open_mints)
+
+
 def load_state() -> dict:
     with _lock:
         st = _read_json(STATE_PATH, None)
         base = empty_state()
         if not isinstance(st, dict):
+            publish_open_mints(base)
             return base
         # merge so corrupt/partial files never crash the UI
         for k, v in base.items():
@@ -1197,12 +1231,14 @@ def load_state() -> dict:
             st["cash_usd"] = float(st.get("cash_usd") if st.get("cash_usd") is not None else START_BANKROLL)
         except (TypeError, ValueError):
             st["cash_usd"] = START_BANKROLL
+        publish_open_mints(st)
         return st
 
 
 def save_state(st: dict) -> None:
     with _lock:
         _write_json(STATE_PATH, st)
+        publish_open_mints(st)
 
 
 def load_scores() -> list:
@@ -1714,34 +1750,46 @@ def force_end_session(session_id: str | None = None) -> dict:
         past = datetime.now(timezone.utc) - timedelta(seconds=2)
         st["ends_at"] = past.strftime("%Y-%m-%dT%H:%M:%SZ")
         save_state(st)
-        return tick_session(st)
+    # tick_session fetches outside _lock. Holding the RLock across it would
+    # keep cold_vault_price inside the lock.
+    return tick_session()
+
+
+def _begin_session() -> dict:
+    """Open a new 24h book. Caller holds ``_lock``."""
+    now = datetime.now(timezone.utc)
+    ends = now + timedelta(hours=SESSION_HOURS)
+    st = {
+        "session_id": uuid.uuid4().hex[:12],
+        "status": "active",
+        "started_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "ends_at": ends.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "cash_usd": START_BANKROLL,
+        "start_bankroll": START_BANKROLL,
+        "peak_equity": START_BANKROLL,
+        "positions": [],
+        "closed": [],
+        "events": [],
+        "disclaimer": "Paper research only. Not financial advice. No real trades.",
+    }
+    _push_event(st, "start", f"New 24h run — ${START_BANKROLL:.2f} paper bankroll")
+    save_state(st)
+    return st
 
 
 def start_session(force: bool = False) -> dict:
     with _lock:
         st = load_state()
-        if st.get("status") == "active" and not force:
-            st = tick_session(st)
-            if st.get("status") == "active":
-                return st
-        now = datetime.now(timezone.utc)
-        ends = now + timedelta(hours=SESSION_HOURS)
-        st = {
-            "session_id": uuid.uuid4().hex[:12],
-            "status": "active",
-            "started_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "ends_at": ends.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "cash_usd": START_BANKROLL,
-            "start_bankroll": START_BANKROLL,
-            "peak_equity": START_BANKROLL,
-            "positions": [],
-            "closed": [],
-            "events": [],
-            "disclaimer": "Paper research only. Not financial advice. No real trades.",
-        }
-        _push_event(st, "start", f"New 24h run — ${START_BANKROLL:.2f} paper bankroll")
-        save_state(st)
+        if not (st.get("status") == "active" and not force):
+            return _begin_session()
+    st = tick_session()
+    if st.get("status") == "active":
         return st
+    with _lock:
+        st = load_state()
+        if st.get("status") == "active" and not force:
+            return st
+        return _begin_session()
 
 
 def _close_position(
@@ -1833,36 +1881,52 @@ def pm_crash_stop(mint: str, entry: float, sl_pct: float) -> tuple[float, str] |
     return None
 
 
+def _fetch_position_ticks(mints: list[str]) -> dict[str, dict]:
+    """Live prices for open mints. Caller must not hold ``_lock``."""
+    ticks: dict[str, dict] = {}
+    if not mints:
+        return ticks
+    futs = {_fetch_pool.submit(fetch_live_tick, m, False, None, False): m for m in mints}
+    try:
+        for fut in as_completed(futs, timeout=max(4.0, _LIVE_TIMEOUT + 1)):
+            m = futs[fut]
+            try:
+                tick = fut.result()
+            except Exception:
+                tick = None
+            if isinstance(tick, dict):
+                ticks[m] = tick
+    except TimeoutError:
+        pass
+    return ticks
+
+
 def tick_session(st: dict | None = None) -> dict:
-    """Refresh open prices, hit SL/TP, force-close at 24h."""
+    """Refresh open prices, hit SL/TP, force-close at 24h.
+
+    Prices are fetched outside ``_lock`` and applied after the lock is taken
+    again. Callers must not already hold ``_lock``: it is an RLock, so their
+    hold would keep the fetch inside the lock. A passed-in book is snapshotted
+    for the mint list; fills are applied to the book reloaded under the lock.
+    """
     with _lock:
         if st is None:
             st = load_state()
         if st.get("status") != "active":
             return st
-
-        now = datetime.now(timezone.utc)
-        timed_out = _run_expired(st, now)
-
+        session_id = st.get("session_id")
+        timed_out = _run_expired(st, datetime.now(timezone.utc))
         mints = list({p.get("mint") for p in (st.get("positions") or []) if p.get("mint")})
-        ticks: dict[str, dict] = {}
         # Real prices go in the shared book. A walked price is used only to
         # stop or take profit on a position this same browser opened.
         qa_sid = _qa_sid.get()
-        if mints:
-            futs = {_fetch_pool.submit(fetch_live_tick, m, False, None, False): m for m in mints}
-            try:
-                for fut in as_completed(futs, timeout=max(4.0, _LIVE_TIMEOUT + 1)):
-                    m = futs[fut]
-                    try:
-                        tick = fut.result()
-                    except Exception:
-                        tick = None
-                    if isinstance(tick, dict):
-                        ticks[m] = tick
-            except TimeoutError:
-                pass
-
+    ticks = _fetch_position_ticks(mints)
+    with _lock:
+        st = load_state()
+        if st.get("status") != "active":
+            return st
+        if st.get("session_id") != session_id:
+            return st
         still = []
         for pos in list(st.get("positions") or []):
             mint = pos.get("mint")
@@ -1992,8 +2056,11 @@ def buy(
     client_request_id: str | None = None,
     displayed_price: float | None = None,
 ) -> dict:
+    # Stops fire before the fill. The fetch is outside _lock.
+    st = tick_session()
+    import trade_stream
     with _lock:
-        st = tick_session()
+        st = load_state()
         if st.get("status") != "active":
             return _fail("No active session — POST /api/game/start first", st)
         rid = (client_request_id or "").strip()[:80]
@@ -2021,9 +2088,32 @@ def buy(
         if not resolved:
             return _fail(err or "mint required", st)
         mint = resolved
-        q = fetch_dex_token(mint, bypass_cache=True) or {}
-        tick = fetch_live_tick(mint, apply_qa=False)
-        import trade_stream
+    q = fetch_dex_token(mint, bypass_cache=True) or {}
+    tick = fetch_live_tick(mint, apply_qa=False)
+    shown = None
+    try:
+        if displayed_price is not None and displayed_price != "":
+            shown = float(displayed_price)
+    except (TypeError, ValueError):
+        shown = None
+    with _lock:
+        st = load_state()
+        if st.get("status") != "active":
+            return _fail("No active session — POST /api/game/start first", st)
+        if rid:
+            prev = _position_for_request(st, rid)
+            if prev:
+                return {
+                    "ok": True,
+                    "position": prev,
+                    "state": st,
+                    "sound": "buy",
+                    "deduped": True,
+                    "resolved_mint": prev.get("mint"),
+                }
+        cash = float(st.get("cash_usd") or 0)
+        if stake > cash + 1e-9:
+            return _fail(f"Need ${stake:.3f} but cash is ${cash:.3f}", st)
         if trade_stream.legs_disagree(mint) or not fillable_tick(tick) or _f(tick.get("price_usd") if tick else None) is None:
             return _fail(
                 "STALE — no fill until a live price lands.",
@@ -2036,12 +2126,6 @@ def buy(
         px = float(tick["price_usd"])
         if px <= 0:
             return _fail("Bad price", st)
-        shown = None
-        try:
-            if displayed_price is not None and displayed_price != "":
-                shown = float(displayed_price)
-        except (TypeError, ValueError):
-            shown = None
         if shown is not None and shown > 0 and abs(px - shown) / shown > QUOTE_BAND:
             return _fail(
                 "Price moved more than 5% from the price on screen — not filled.",
@@ -2100,18 +2184,23 @@ def sell(position_id: str) -> dict:
         pos = next((p for p in (st.get("positions") or []) if p.get("id") == position_id), None)
         if not pos:
             return _fail("Position not found", st)
-        tick = fetch_live_tick(str(pos.get("mint") or ""), apply_qa=False)
-        import trade_stream
-        if trade_stream.legs_disagree(str(pos.get("mint") or "")) or not fillable_tick(tick):
-            return _fail("Price stale — can't sell yet", st)
-        px = float(tick["price_usd"])
-        ts = tick.get("price_ts")
-        # Same tick the stop would use. If it already crossed, the fill is that price.
-        st = tick_session(st)
+        mint = str(pos.get("mint") or "")
+    tick = fetch_live_tick(mint, apply_qa=False)
+    import trade_stream
+    if trade_stream.legs_disagree(mint) or not fillable_tick(tick):
+        with _lock:
+            return _fail("Price stale — can't sell yet", load_state())
+    px = float(tick["price_usd"])
+    ts = tick.get("price_ts")
+    # Same tick the stop would use. If it already crossed, the fill is that price.
+    tick_session()
+    with _lock:
+        st = load_state()
         pos = next((p for p in (st.get("positions") or []) if p.get("id") == position_id), None)
         if not pos:
-            save_state(st)
             return {"ok": True, "state": st, "sound": "sell", "closed_by": "stop", "price_usd": px, "price_ts": ts}
+        if st.get("status") != "active":
+            return _fail("No active session", st)
         _close_position(st, pos, px, "manual", price_ts=ts)
         save_state(st)
         return {"ok": True, "state": st, "sound": "sell", "price_usd": px, "price_ts": ts}
@@ -2677,7 +2766,9 @@ def sell_all() -> dict:
         st = load_state()
         if st.get("status") != "active":
             return _fail("No active session", st)
-        st = tick_session(st)
+    st = tick_session()
+    with _lock:
+        st = load_state()
         positions = [p for p in list(st.get("positions") or []) if p.get("id")]
         if not positions:
             return _fail("No open positions", st)
@@ -2897,3 +2988,12 @@ def quote_payload(mint: str, fresh: bool = False) -> dict:
         "red_flags": flags_for_mint(resolved),
         "disclaimer": "Paper research only.",
     }
+
+
+def _seed_open_mints_from_disk() -> None:
+    """Watch positions that were already open when this process started."""
+    raw = _read_json(STATE_PATH, None)
+    publish_open_mints(raw if isinstance(raw, dict) else None)
+
+
+_seed_open_mints_from_disk()
