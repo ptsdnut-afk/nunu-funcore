@@ -534,7 +534,7 @@ class TradeFillTests(unittest.TestCase):
 class HealthAndChartTests(unittest.TestCase):
     def test_health_is_v82_with_live_tick_and_a_five_second_sla(self):
         data = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 95)
+        self.assertEqual(data["panel_v"], 96)
         self.assertIn("live_tick", data["features"])
         self.assertLessEqual(data["quote_sla_s"], 5.0)
         self.assertEqual(data["quote_sla_s"], 5.0)
@@ -1061,7 +1061,7 @@ class ShipW3Tests(unittest.TestCase):
 
     def test_health_documents_the_stream_and_panel_87(self):
         data = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 95)
+        self.assertEqual(data["panel_v"], 96)
         self.assertIn("trade_stream", data["features"])
         self.assertIn("stream", data["live_tick"])
         self.assertIn("PumpPortal", data["live_tick"])
@@ -1073,7 +1073,7 @@ class ShipW3Tests(unittest.TestCase):
 
     def test_w20_w22_w23_w26_w27_w28_panel_contract(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
-        self.assertIn("const PANEL_V = 95", html)
+        self.assertIn("const PANEL_V = 96", html)
         self.assertIn("paintPanelVersion", html)
         self.assertIn("data-panel-v", html)
         pure = html[html.index("/* ship-w-pure-start */"):html.index("/* ship-w-pure-end */")]
@@ -1923,8 +1923,13 @@ class ShipW91Tests(unittest.TestCase):
         with mock.patch.object(trade_stream, "_post_rpc", side_effect=post), \
              mock.patch.object(trade_stream, "mint_decimals", side_effect=lambda http, mint: 9 if mint == trade_stream.SOL_MINT else 6):
             trade_stream._refresh_pump_mids("http://rpc")
-        self.assertEqual([row["method"] for row in calls], ["getMultipleAccounts"])
-        self.assertEqual(len(calls[0]["params"][0]), 12)
+        self.assertTrue(calls)
+        self.assertTrue(all(row["method"] == "getMultipleAccounts" for row in calls))
+        # publicnode allows 10 accounts per getMultipleAccounts. Twelve vaults
+        # are two calls, not one rejected batch and not one call per pool.
+        self.assertTrue(all(len(row["params"][0]) <= 10 for row in calls))
+        self.assertEqual(sum(len(row["params"][0]) for row in calls), 12)
+        self.assertLess(len(calls), 6)
         for pool in pools:
             # One shared poll still priced every vault. It is not a live tick
             # until a swap agrees, so a lone read cannot publish an override.
