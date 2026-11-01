@@ -259,7 +259,7 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 98,
+            "panel_v": 99,
             "time": _utc(),
             "qa_tick": "page ?qa_tick=both|up|down",
             "qa_end": "page ?qa_end=1 (one-shot) or POST /api/game/end",
@@ -323,7 +323,9 @@ def api_health():
                 "Raydium AMM v4 and CPMM are priced from their vaults on the same poll as PumpSwap. "
                 "At 12 or fewer watched coins a supported pool is the price. "
                 "Above that, a coin that misses the on-chain budget is stale rather than a fresh Jupiter print. "
-                "Quote age is the last swap or vault observation, not a SOL/USD conversion. "
+                "Quote age is the last successful read of this coin's own pool: a swap, or a vault read that returned, even when the balances did not change. "
+                "A SOL/USD conversion, or another pool's trade, does not refresh it. "
+                "A quote-token USD move on a non-SOL pair is the same as SOL/USD. "
                 "/api/health and /api/game/tick read cached state and do not wait on RPC. "
                 "It is not the steady-state coin price. A pool that stays unreachable for more than "
                 "10s may return src jupiter_fallback, and that tick is stale so it cannot fill a buy, "
@@ -431,7 +433,7 @@ def api_gold():
     return jsonify(
         {
             "ok": True,
-            "panel_v": 98,
+            "panel_v": 99,
             "feature": "gold_scar",
             "count": len(picks),
             "empty_ok": True,

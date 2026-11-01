@@ -1126,6 +1126,7 @@ def _commit_price(
     signature: str,
     slot: int | None,
     trade_epoch: float | None,
+    observed: bool | None = None,
 ) -> str:
     """Write one accepted price into the shared tick cache."""
     import game
@@ -1149,9 +1150,11 @@ def _commit_price(
         "signature": signature or "",
         "slot": slot,
     }
-    # sol_usd is a conversion of the last reserves. It must not move the age.
-    # Age is the last swap or vault observation whose base/quote changed.
-    observed = payload["driver"] != "sol_usd"
+    # Age is the last successful observation of this pool. A SOL/USD or
+    # quote-token conversion is not one. Callers that just read this pool
+    # pass observed=True even when the balances did not change.
+    if observed is None:
+        observed = payload["driver"] != "sol_usd"
     stamp = now
     with game._live_lock(mint):
         prev_hit = game._live_cache.get(mint)
@@ -1220,6 +1223,7 @@ def ingest_swap(
     sol: float | None = None,
     executed: bool = False,
     quote_raw: int | None = None,
+    observed: bool | None = None,
 ) -> str:
     """Publish one real swap or pool mid into the shared tick cache.
 
@@ -1278,9 +1282,9 @@ def ingest_swap(
                 mint, px, 0.0, baseline_age, 0.0, source, now_mono,
                 kind="pair", agree=agree, reason="swap-vault",
             ))
-            return _commit_price(mint, px, source, sol, signature, slot, trade_epoch)
+            return _commit_price(mint, px, source, sol, signature, slot, trade_epoch, observed=observed)
         if seed_ok:
-            return _commit_price(mint, px, source, sol, signature, slot, trade_epoch)
+            return _commit_price(mint, px, source, sol, signature, slot, trade_epoch, observed=observed)
         # No swap in the recent signatures. Two vault reads within 1% are enough.
         # A decoded swap that missed the 5% band stays stale: it is in the pair bucket.
         if (
@@ -1293,7 +1297,7 @@ def ingest_swap(
                 mint, px, 0.0, baseline_age, 0.0, source, now_mono,
                 kind="pair", agree=same_agree, reason="vault-pair",
             ))
-            return _commit_price(mint, px, source, sol, signature, slot, trade_epoch)
+            return _commit_price(mint, px, source, sol, signature, slot, trade_epoch, observed=observed)
         with _guard:
             _awaiting_pair.add(mint)
         baseline_for_log = float(anchor_px) if anchor_px else 0.0
@@ -1318,7 +1322,7 @@ def ingest_swap(
             mint, px, baseline, baseline_age, abs(px - baseline) / baseline, source, now_mono,
             kind="override", agree=agree, hold_start=hold_start or None, reason="pair",
         ))
-        return _commit_price(mint, px, source, sol, signature, slot, trade_epoch)
+        return _commit_price(mint, px, source, sol, signature, slot, trade_epoch, observed=observed)
 
     if move > SPIKE_MOVE:
         with _guard:
@@ -1339,7 +1343,7 @@ def ingest_swap(
                 mint, px, baseline, baseline_age, move, source, time.time(),
                 kind="override", agree=agree, hold_start=hold_start, reason="confirm",
             ))
-            return _commit_price(mint, px, source, sol, signature, slot, trade_epoch)
+            return _commit_price(mint, px, source, sol, signature, slot, trade_epoch, observed=observed)
         if status == "reject":
             _cancel_hold_timer(mint)
         elif arm:
@@ -1367,7 +1371,7 @@ def ingest_swap(
     _cancel_hold_timer(mint)
     with _guard:
         _pending_spikes.pop(mint, None)
-    return _commit_price(mint, px, source, sol, signature, slot, trade_epoch)
+    return _commit_price(mint, px, source, sol, signature, slot, trade_epoch, observed=observed)
 
 
 def _iso_ms(epoch: float) -> str:
@@ -3393,7 +3397,7 @@ def _on_account(msg: dict, meta: dict[int, dict]) -> None:
         px = meteora_dlmm_usd(raw, mint, sol, decs)
     if px is None or px <= 0:
         return
-    _publish(mint, px, compare_mid=compare_mid, slot=slot, sol=sol)
+    _publish(mint, px, compare_mid=compare_mid, slot=slot, sol=sol, observed=True)
 
 
 def _on_logs(msg: dict, meta: dict[int, dict]) -> None:
@@ -3431,6 +3435,7 @@ def _on_logs(msg: dict, meta: dict[int, dict]) -> None:
         signature=sig,
         sol=sol_driver,
         executed=fill_px is not None,
+        observed=True,
     )
 
 
@@ -3480,6 +3485,7 @@ def _publish(
     source: str = "pool_swap",
     sol: float | None = None,
     executed: bool = False,
+    observed: bool | None = None,
 ) -> str:
     """Publish against the previous mid. A spike does not move that mid.
 
@@ -3506,13 +3512,15 @@ def _publish(
         source=source,
         sol=sol,
         executed=executed,
+        observed=observed,
     )
     if status in ("ok", "same"):
         import game as _game
         hit = _game._live_cache.get(mint)
-        sol_only = bool(hit) and str((hit[1] or {}).get("driver") or "") == "sol_usd"
-        # A SOL conversion keeps the previous mid time. It is not an observation.
-        if not sol_only:
+        driver = str((hit[1] or {}).get("driver") or "") if hit else ""
+        # A conversion keeps the old mid. A vault read of this pool does not.
+        is_obs = observed if observed is not None else driver != "sol_usd"
+        if is_obs:
             note_mid(mint, px)
             _note_quote_mark(mint, px)
             with _guard:
@@ -3531,6 +3539,8 @@ def _apply_vault_amount(pool: dict, vault: str, amount: int, sol: float, slot: i
         live = _live_row_unlocked(mint, address=str(pool.get("address") or ""), vault=vault)
         if not live:
             return
+        old_base = live.get("base_raw")
+        old_quote = live.get("quote_raw")
         if vault == live.get("base_vault"):
             live["base_raw"] = int(amount)
             live["base_slot"] = slot
@@ -3551,7 +3561,8 @@ def _apply_vault_amount(pool: dict, vault: str, amount: int, sol: float, slot: i
     extra = _extra_for_pool(snap, sol, endpoints()[1])
     if extra is None and not _quote_is_sol_or_stable(snap):
         return
-    base_raw, quote_raw = _net_vault_raw(snap, int(base_raw), int(quote_raw))
+    raw_base, raw_quote = int(base_raw), int(quote_raw)
+    base_raw, quote_raw = _net_vault_raw(snap, raw_base, raw_quote)
     if base_raw <= 0 or quote_raw <= 0:
         return
     px = pumpswap_mid_usd(
@@ -3568,7 +3579,13 @@ def _apply_vault_amount(pool: dict, vault: str, amount: int, sol: float, slot: i
     )
     if px and px > 0:
         sol_driver = sol if _quote_is_sol_or_stable(snap) else None
-        _publish(mint, px, compare_mid=False, slot=slot, source="pool_vault", sol=sol_driver)
+        prior = dict(snap)
+        prior["base_raw"] = old_base
+        prior["quote_raw"] = old_quote
+        _publish(
+            mint, px, compare_mid=False, slot=slot, source="pool_vault", sol=sol_driver,
+            observed=_pool_read_observed(prior, raw_base, raw_quote),
+        )
 
 
 def _pool_for(mint: str, http: str) -> dict | None:
@@ -4556,6 +4573,7 @@ def _warm_decimals(http: str, snaps: list[dict]) -> None:
 
 
 def _poll_interval(tier: int) -> float:
+    """Quiet watched coins still get a vault read inside the 5s stale window."""
     return 1.0 if tier <= 1 else 2.0
 
 
@@ -4668,6 +4686,28 @@ def _net_vault_raw(pool: dict, base_raw: int, quote_raw: int) -> tuple[int, int]
     except (TypeError, ValueError):
         return int(base_raw), int(quote_raw)
     return base, quote
+
+
+def _pool_read_observed(pool: dict, base_raw: int, quote_raw: int) -> bool:
+    """A returned vault read of this pool. SOL pools count even if unchanged.
+
+    A non-SOL pair whose reserves did not move only changed because the quote
+    token's USD moved. That is not an observation of this pool.
+    """
+    try:
+        prev_b = pool.get("base_raw")
+        prev_q = pool.get("quote_raw")
+        same = (
+            prev_b is not None
+            and prev_q is not None
+            and int(prev_b) == int(base_raw)
+            and int(prev_q) == int(quote_raw)
+        )
+    except (TypeError, ValueError):
+        same = False
+    if _quote_is_sol_or_stable(pool):
+        return True
+    return not same
 
 
 def _quote_is_sol_or_stable(pool: dict) -> bool:
@@ -4876,6 +4916,8 @@ def _price_vault_pair(http: str, pool: dict, base_raw: int, quote_raw: int) -> f
         return None
     with _guard:
         live = _live_row_unlocked(mint, address=str(pool.get("address") or ""))
+        old_base = live.get("base_raw") if live else pool.get("base_raw")
+        old_quote = live.get("quote_raw") if live else pool.get("quote_raw")
         if live:
             _pair_seq -= 1
             live["base_raw"] = base_raw
@@ -4897,7 +4939,8 @@ def _price_vault_pair(http: str, pool: dict, base_raw: int, quote_raw: int) -> f
     extra = _extra_for_pool(snap, sol, http)
     if extra is None and not _quote_is_sol_or_stable(snap):
         return None
-    base_raw, quote_raw = _net_vault_raw(snap, int(base_raw), int(quote_raw))
+    raw_base, raw_quote = int(base_raw), int(quote_raw)
+    base_raw, quote_raw = _net_vault_raw(snap, raw_base, raw_quote)
     if base_raw <= 0 or quote_raw <= 0:
         return None
     px = pumpswap_mid_usd(
@@ -4914,7 +4957,13 @@ def _price_vault_pair(http: str, pool: dict, base_raw: int, quote_raw: int) -> f
     )
     if px and px > 0:
         sol_driver = sol if _quote_is_sol_or_stable(snap) else None
-        _publish(mint, px, compare_mid=False, source="pool_vault", sol=sol_driver)
+        prior = dict(snap)
+        prior["base_raw"] = old_base
+        prior["quote_raw"] = old_quote
+        _publish(
+            mint, px, compare_mid=False, source="pool_vault", sol=sol_driver,
+            observed=_pool_read_observed(prior, raw_base, raw_quote),
+        )
         clear_pool_miss(mint)
         _note_quote_mark(mint, px)
     return px

@@ -91,7 +91,7 @@ class LiveHttpPathTests(unittest.TestCase):
         self.assertEqual(saved["positions"], [])
         self.assertEqual(len(saved["closed"]), 2)
         bases = {row.get("fill_basis") for row in saved["closed"]}
-        self.assertTrue(bases <= {"live", "last_known"}, bases)
+        self.assertTrue(bases <= {"live", "last_known", "fallback"}, bases)
         self.assertEqual(len(bases), len([b for b in bases if b]))
 
     def _warm(self, mint, px=1.0):
@@ -158,7 +158,7 @@ class LiveHttpPathTests(unittest.TestCase):
 
     def test_health_reports_stream_attachment(self):
         data = self.client.get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 98)
+        self.assertEqual(data["panel_v"], 99)
         stream = data["stream"]
         self.assertIn("why", stream)
         self.assertIn("ws_state", stream)
@@ -169,7 +169,7 @@ class LiveHttpPathTests(unittest.TestCase):
 
     def test_version_labels_share_one_constant_and_score_is_its_own_cell(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
-        self.assertIn("const PANEL_V = 98", html)
+        self.assertIn("const PANEL_V = 99", html)
         self.assertGreaterEqual(html.count("data-panel-v"), 2)
         self.assertIn("function paintPanelVersion()", html)
         self.assertIn("/* w31-score-cell", html)

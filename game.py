@@ -2280,7 +2280,8 @@ def sell(position_id: str) -> dict:
             return {"ok": True, "state": st, "sound": "sell", "closed_by": "stop", "price_usd": px, "price_ts": ts}
         if st.get("status") != "active":
             return _fail("No active session", st)
-        _close_position(st, pos, px, "manual", price_ts=ts)
+        basis, label = _close_receipt(tick.get("source") if tick else None, manual=True)
+        _close_position(st, pos, px, "manual", price_ts=ts, fill_label=label, fill_basis=basis)
         save_state(st)
         return {"ok": True, "state": st, "sound": "sell", "price_usd": px, "price_ts": ts}
 
@@ -2818,9 +2819,21 @@ def qa_tick_view(payload: dict | None, mode: str | None) -> dict:
     return out
 
 
+def _close_receipt(source: str | None, manual: bool = False) -> tuple[str, str | None]:
+    """Manual fills stay 'live' unless the price itself is a Jupiter fallback."""
+    src = str(source or "")
+    if src in ("jupiter", "jupiter_fallback", "jup"):
+        return "fallback", "Fallback"
+    if manual:
+        return "live", None
+    return stop_receipt(source)
+
+
 def stop_receipt(source: str | None) -> tuple[str, str]:
     """Basis stored on a close, and the label the receipt shows."""
     src = str(source or "")
+    if src in ("jupiter", "jupiter_fallback", "jup"):
+        return "fallback", "Fallback"
     if src == "qa_tick":
         return "qa_tick", "qa_tick"
     if src == "pool_swap":
@@ -2892,14 +2905,14 @@ def sell_all() -> dict:
             if fillable_tick(tick):
                 px = float(tick["price_usd"])
                 ts = tick.get("price_ts")
-                basis = "live"
+                basis, label = _close_receipt(tick.get("source"), manual=True)
             else:
                 px = _f(pos.get("last_price_usd")) or _f(pos.get("entry_price_usd")) or 0.0
                 ts = pos.get("price_ts")
-                basis = "last_known"
-            _close_position(st, pos, float(px), "manual", price_ts=ts)
-            if st.get("closed"):
-                st["closed"][0]["fill_basis"] = basis
+                basis, label = "last_known", None
+            _close_position(
+                st, pos, float(px), "manual", price_ts=ts, fill_label=label, fill_basis=basis,
+            )
         save_state(st)
         still = {str(p.get("id")) for p in (st.get("positions") or []) if p.get("id")}
         sold = len([pid for pid in wanted if pid not in still])
