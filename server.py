@@ -259,7 +259,7 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 97,
+            "panel_v": 98,
             "time": _utc(),
             "qa_tick": "page ?qa_tick=both|up|down",
             "qa_end": "page ?qa_end=1 (one-shot) or POST /api/game/end",
@@ -317,6 +317,14 @@ def api_health():
                 "Orca keeps accountSubscribe. PumpPortal trade sockets are not used: "
                 "they require a funded API key. "
                 "Jupiter Price API usdPrice is one batched call per second for the SOL anchor. "
+                "A coin with no supported pool may show fallback_label Fallback next to that price. "
+                "Buy is allowed on it only while the quote is under 5s and the re-quote is within 5%. "
+                "A fallback quote 5s or older is stale. Stops do not fill at a Jupiter price. "
+                "Raydium AMM v4 and CPMM are priced from their vaults on the same poll as PumpSwap. "
+                "At 12 or fewer watched coins a supported pool is the price. "
+                "Above that, a coin that misses the on-chain budget is stale rather than a fresh Jupiter print. "
+                "Quote age is the last swap or vault observation, not a SOL/USD conversion. "
+                "/api/health and /api/game/tick read cached state and do not wait on RPC. "
                 "It is not the steady-state coin price. A pool that stays unreachable for more than "
                 "10s may return src jupiter_fallback, and that tick is stale so it cannot fill a buy, "
                 "sell, or stop. The first tick resolves the pool and reads vaults synchronously "
@@ -384,7 +392,7 @@ def api_health():
                 "Absent the query, ticks behave normally."
             ),
             "live_tick_ttl_s": game_mod.LIVE_TICK_TTL_S,
-            "stream": trade_stream_mod.stream_health(),
+            "stream": trade_stream_mod.stream_health_cached(),
             "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture", "game_ai_review", "gold_scar", "game_follow_tab", "filter_smart", "profile_custom_pic", "final_polish", "live_tick", "trade_stream"],
             "sitting_drop_min": 5.0,
             "sitting_aged_min": 180.0,
@@ -423,7 +431,7 @@ def api_gold():
     return jsonify(
         {
             "ok": True,
-            "panel_v": 97,
+            "panel_v": 98,
             "feature": "gold_scar",
             "count": len(picks),
             "empty_ok": True,
@@ -876,7 +884,8 @@ def api_game_tick():
         mint = resolved
     import trade_stream
     trade_stream.note_view(mint)
-    tick = game_mod.fetch_live_tick(mint)
+    # Cached only. Jupiter and RPC stay on the vault thread.
+    tick = game_mod.fetch_live_tick(mint, network=False)
     if not isinstance(tick, dict):
         reason = "no_baseline" if trade_stream.awaiting_baseline(mint) else "cold"
         return jsonify({
@@ -895,6 +904,14 @@ def api_game_tick():
     sla = game_mod.QUOTE_FRESH_SLA_S
     # stale is exactly age > quote_sla_s, even if a caller marked quote_live.
     stale = game_mod.tick_is_stale(age, sla)
+    # A fallback quote at 5s is already stale. SOL-only reprices keep the old age.
+    fb_src = str(tick.get("source") or tick.get("src") or "")
+    if tick.get("fallback_label") or fb_src == "jupiter_fallback":
+        try:
+            if age is None or float(age) >= float(sla):
+                stale = True
+        except (TypeError, ValueError):
+            stale = True
     px = tick.get("price_usd")
     try:
         px_ok = px is not None and float(px) > 0
@@ -926,6 +943,7 @@ def api_game_tick():
         "trade_ts": tick.get("trade_ts") or tick.get("price_ts"),
         "render_ts": tick.get("render_ts") or _utc(),
         "stale": stale,
+        "fallback_label": tick.get("fallback_label") or "",
         "stale_label": (
             "STALE" if missing_reason else (("stale %ss" % int(round(float(age)))) if stale and age is not None else ("STALE" if stale else ""))
         ),

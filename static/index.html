@@ -1102,6 +1102,20 @@
       color: var(--muted);
       margin-bottom: 1px;
     }
+    .px-fallback {
+      display: inline-block;
+      margin-left: 8px;
+      padding: 1px 6px;
+      border-radius: 999px;
+      font-size: 0.62rem;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--amber);
+      border: 1px solid #6a5320;
+      background: #241e10;
+      vertical-align: middle;
+    }
     .live-px.flash-up {
       color: var(--good);
       background: rgba(40,120,70,.28);
@@ -2471,6 +2485,13 @@
       #modeFilter .metric .mval,
       #modeFilter .mcap-cell .mval,
       #modeFilter .sit .val { white-space: nowrap; }
+      /* w98-full-name: a long single word wraps inside the coin column */
+      #modeFilter .coin .name {
+        white-space: normal;
+        overflow: visible;
+        text-overflow: unset;
+        overflow-wrap: anywhere;
+      }
       /* w23-flow-numbers-end */
     }
     @media (max-width: 980px) {
@@ -3259,7 +3280,7 @@
 
   <script>
 
-    const PANEL_V = 97;
+    const PANEL_V = 98;
     function paintPanelVersion() {
       const label = String(PANEL_V);
       document.querySelectorAll("[data-panel-v]").forEach((el) => {
@@ -7114,10 +7135,12 @@
           last.setAttribute("data-driver", driver);
         }
         paintLiveUsd(pos.querySelector("[data-role=live-px]"), text);
+        paintFallbackLabel(pos.querySelector("[data-role=live-px]"), tick);
       });
       const quote = document.querySelector("#gQuoteBox .quote-card");
       if (quote && (quote.getAttribute("data-mint") || "") === mint) {
         paintLiveUsd(quote.querySelector(".live-px"), text);
+        paintFallbackLabel(quote.querySelector(".live-px"), tick);
         const qpx = quote.querySelector("[data-role=quote-px]");
         if (qpx) qpx.textContent = text;
       }
@@ -7126,6 +7149,32 @@
         dot.setAttribute("data-px", String(px));
         dot.setAttribute("data-driver", driver);
       }
+    }
+
+    function isFallbackTick(tick) {
+      tick = tick || {};
+      if (tick.fallback_label) return true;
+      return tickSrcName(tick) === "jupiter_fallback";
+    }
+
+    function paintFallbackLabel(el, tick) {
+      if (!el) return;
+      let node = el.querySelector("[data-role=fallback]");
+      if (!isFallbackTick(tick)) {
+        if (node) node.remove();
+        el.removeAttribute("data-fallback");
+        return;
+      }
+      if (!node) {
+        node = document.createElement("span");
+        node.className = "px-fallback";
+        node.setAttribute("data-role", "fallback");
+        const usd = el.querySelector("[data-role=live-usd]");
+        if (usd && usd.nextSibling) el.insertBefore(node, usd.nextSibling);
+        else el.appendChild(node);
+      }
+      node.textContent = tick.fallback_label || "Fallback";
+      el.setAttribute("data-fallback", "1");
     }
 
     function paintLiveUsd(el, text) {
@@ -8477,7 +8526,7 @@
           return '<div class="pos-card' + heat + '" data-id="' + esc(p.id) + '" data-mint="' + esc(p.mint || "") + '" data-price-ts="' + esc(p.price_ts || "") + '" title="Show this coin on the chart">' +
             coinHeadHtml(p.symbol, p.name, p.mint, imgUrl, flags) +
             (p.mint ? ('<div class="ca-line"><code class="ca-full">' + esc(p.mint) + "</code></div>") : "") +
-            '<div class="live-px' + flash + (liveOn ? "" : " is-unknown") + '" data-role="live-px" data-family="price" data-quote-live="' + (liveOn ? "1" : "0") + '"><span class="live-lab">' + (liveOn ? "Live USD" : (staleTxt ? "Last" : "Unknown")) + '</span><span class="unit">token price</span><span data-role="live-usd">' + priceHtml + "</span>" + staleHtml + "</div>" +
+            '<div class="live-px' + flash + (liveOn ? "" : " is-unknown") + '" data-role="live-px" data-family="price" data-quote-live="' + (liveOn ? "1" : "0") + '"' + (isFallbackTick(tickNow) ? ' data-fallback="1"' : '') + '><span class="live-lab">' + (liveOn ? "Live USD" : (staleTxt ? "Last" : "Unknown")) + '</span><span class="unit">token price</span><span data-role="live-usd">' + priceHtml + "</span>" + (isFallbackTick(tickNow) ? ('<span class="px-fallback" data-role="fallback">' + esc(tickNow.fallback_label || "Fallback") + "</span>") : "") + staleHtml + "</div>" +
             '<div class="pnl-big ' + pnlCls + '" data-family="paper"><span class="pnl-k">P&L · paper $</span>' + (pnlUsdP >= 0 ? "+" : "-") + "$" + Math.abs(pnlUsdP).toFixed(2) + " · " + fmtPct(pnlPctP) + "</div>" +
             mcapHeroHtml(p, { trade: true }) +
             '<div class="stats">' +
@@ -8503,6 +8552,7 @@
           '<div class="score-row" data-reason="' + esc(p.close_reason || "") + '" data-price-ts="' + esc(p.price_ts || "") + '"><span>' + esc(p.symbol || "?") +
           " · " + esc(p.close_reason || "closed") +
           (p.fill_label ? (" · " + esc(p.fill_label)) : "") +
+          (p.fill_basis && p.fill_basis !== p.fill_label ? (" · " + esc(p.fill_basis)) : "") +
           (p.price_ts ? (" · " + esc(String(p.price_ts).slice(11, 19)) + "Z") : "") +
           (p.mint ? (' · <code class="ca-full">' + esc(p.mint) + "</code>") : "") +
           '</span><span class="' + (Number(p.pnl_usd) >= 0 ? "chg-up" : "chg-dn") + '">' +

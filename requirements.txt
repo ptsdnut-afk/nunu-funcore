@@ -1,3 +1,4 @@
 flask>=3.0,<4
 flask-cors>=4.0,<6
 websocket-client>=1.8,<2
+pynacl>=1.5,<2

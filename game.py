@@ -728,6 +728,15 @@ def _decorate_live(payload: dict, fetched_at: float, now: float) -> dict:
     out["quote_live"] = live
     if not live:
         out["price_usd"] = px if px is not None and px > 0 else None
+    src = str(out.get("source") or out.get("src") or "")
+    if src == "jupiter_fallback" or out.get("src") == "jupiter_fallback":
+        out["fallback_label"] = "Fallback"
+        # A fallback quote 5s or older is stale. Under 5s can still be bought.
+        if out.get("quote_age_s") is None or float(out["quote_age_s"]) >= QUOTE_FRESH_SLA_S:
+            out["quote_live"] = False
+            out["stale"] = True
+        else:
+            out["stale"] = False
     return out
 
 
@@ -883,11 +892,46 @@ def watch_mint(mint: str) -> None:
     trade_stream.ensure_started()
 
 
+def _serve_cached_tick(mint: str, sid: str | None) -> dict | None:
+    """Tick for an HTTP handler. Cache and the QA overlay only. No Jupiter, no RPC."""
+    import trade_stream
+
+    now = time.time()
+    with _live_lock(mint):
+        hit = _live_cache.get(mint)
+        if hit and str((hit[1] or {}).get("source") or "") in ("qa_tick", "qa"):
+            _live_cache.pop(mint, None)
+            hit = None
+    if not hit:
+        if trade_stream.awaiting_baseline(mint):
+            old = now - (QUOTE_FRESH_SLA_S + 0.05)
+            waiting = {
+                "mint": mint,
+                "price_usd": None,
+                "price_ts": _utc(),
+                "trade_ts": _utc_ms(),
+                "trade_epoch": old,
+                "fetched_at": _utc_ms(),
+                "source": "pool_swap",
+                "src": "pool_swap",
+                "driver": "no_baseline",
+                "stale_reason": "no_baseline",
+            }
+            return _force_stale(_decorate_live(waiting, old, now) if not sid else _qa_overlay(sid, _decorate_live(waiting, old, now)))
+        return None
+    real = _decorate_live(dict(hit[1]), float(hit[0]), now)
+    if not sid:
+        return real
+    return _qa_overlay(sid, real)
+
+
 def fetch_live_tick(
     mint: str,
     bypass_cache: bool = False,
     qa_sid: str | None = None,
     apply_qa: bool = True,
+    await_pool: bool = True,
+    network: bool = True,
 ) -> dict | None:
     """Fresh USD price for one mint.
 
@@ -913,11 +957,16 @@ def fetch_live_tick(
     if apply_qa:
         sid = _qa_sid.get() if qa_sid is None else qa_sid
 
-    # First look at an unwatched mint resolves the pool and reads vaults
-    # before Jupiter. The 1s poll keeps that price fresh for WATCH_TTL_S.
-    # Callers must not hold game._lock: cold_vault_price takes the stream locks.
-    if not trade_stream.stream_is_fresh(mint):
+    # /api/game/tick and /api/health never wait on Jupiter or RPC. The vault
+    # thread refreshes the cache. Buy still may, and must not hold game._lock.
+    if not network:
+        return _serve_cached_tick(mint, sid)
+    if await_pool and not trade_stream.stream_is_fresh(mint):
         trade_stream.cold_vault_price(mint)
+    over_budget = (
+        trade_stream.watched_count() > trade_stream.POOL_ONCHAIN_MAX
+        and not trade_stream.pool_confirmed_absent(mint)
+    )
 
     def _out(payload: dict, fetched_at: float, now: float) -> dict:
         real = _decorate_live(payload, fetched_at, now)
@@ -1001,6 +1050,22 @@ def fetch_live_tick(
             if poolish:
                 return _force_stale(_out(hit[1], hit[0], now))
             return None
+        if over_budget:
+            # The scheduler did not get an on-chain read. Not a fresh Jupiter price.
+            old = now - (QUOTE_FRESH_SLA_S + 0.05)
+            waiting = {
+                "mint": mint,
+                "price_usd": None,
+                "price_ts": _utc(),
+                "trade_ts": _utc_ms(),
+                "trade_epoch": old,
+                "fetched_at": _utc_ms(),
+                "source": "pool_vault",
+                "src": "pool_vault",
+                "driver": "cold",
+                "stale_reason": "budget",
+            }
+            return _force_stale(_out(waiting, old, now))
         cache_fresh = cache_age is not None and cache_age < LIVE_TICK_TTL_S
         # 429 holds the next try for under a second, then a poll refetches
         # even when usdPrice did not change. Quote passes bypass_cache.
@@ -1799,6 +1864,7 @@ def _close_position(
     reason: str,
     price_ts: str | None = None,
     fill_label: str | None = None,
+    fill_basis: str | None = None,
 ) -> None:
     qty = float(pos.get("qty_tokens") or 0)
     proceeds = round(price * qty, 6)
@@ -1821,6 +1887,8 @@ def _close_position(
     }
     if fill_label:
         closed["fill_label"] = fill_label
+    if fill_basis:
+        closed["fill_basis"] = fill_basis
     st.setdefault("closed", []).insert(0, closed)
     st["positions"] = [p for p in (st.get("positions") or []) if p.get("id") != pos.get("id")]
     msg = f"{pos.get('symbol')} {reason} · PnL ${pnl:+.3f} ({pnl_pct:+.1f}%)"
@@ -1992,12 +2060,22 @@ def tick_session(st: dict | None = None) -> dict:
                 )
                 if fill_source:
                     pos["price_source"] = fill_source
-                if sl is not None and chg <= -abs(float(sl)):
+                # A Jupiter print is not a stop or a target. The executed swap is.
+                jupiter_fill = fill_source in ("jupiter", "jupiter_fallback", "jup")
+                if not jupiter_fill and sl is not None and chg <= -abs(float(sl)):
                     fill_px = stop_fill_price(entry, stop_px, float(sl))
-                    _close_position(st, pos, fill_px, "stop", price_ts=stop_ts)
+                    basis, label = stop_receipt(fill_source)
+                    _close_position(
+                        st, pos, fill_px, "stop", price_ts=stop_ts,
+                        fill_label=label, fill_basis=basis,
+                    )
                     continue
-                if tp is not None and chg >= abs(float(tp)):
-                    _close_position(st, pos, stop_px, "tp", price_ts=stop_ts)
+                if not jupiter_fill and tp is not None and chg >= abs(float(tp)):
+                    basis, label = stop_receipt(fill_source)
+                    _close_position(
+                        st, pos, stop_px, "tp", price_ts=stop_ts,
+                        fill_label=label, fill_basis=basis,
+                    )
                     continue
             # Disagreement crash: do not wait for a fresh agreed tick.
             # The walked price stays on the browser that armed it. This fill
@@ -2009,7 +2087,8 @@ def tick_session(st: dict | None = None) -> dict:
                     pos["price_source"] = "pool_swap"
                     pos["fill_label"] = label
                     _close_position(
-                        st, pos, fill_px, "stop", price_ts=_utc(), fill_label=label,
+                        st, pos, fill_px, "stop", price_ts=_utc(),
+                        fill_label=label, fill_basis="last_executed_swap",
                     )
                     continue
             still.append(pos)
@@ -2737,6 +2816,20 @@ def qa_tick_view(payload: dict | None, mode: str | None) -> dict:
     out["qa_tick"] = token
     out["qa_tick_delta_usd"] = delta
     return out
+
+
+def stop_receipt(source: str | None) -> tuple[str, str]:
+    """Basis stored on a close, and the label the receipt shows."""
+    src = str(source or "")
+    if src == "qa_tick":
+        return "qa_tick", "qa_tick"
+    if src == "pool_swap":
+        return "last_executed_swap", "filled at last executed swap"
+    if src == "pool_vault":
+        return "pool_vault", "filled at pool vault"
+    if src:
+        return src, src
+    return "live", "live"
 
 
 def stop_fill_price(entry: float, tick_px: float, sl_pct: float) -> float:

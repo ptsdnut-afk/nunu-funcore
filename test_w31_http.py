@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tempfile
+import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -93,8 +94,20 @@ class LiveHttpPathTests(unittest.TestCase):
         self.assertTrue(bases <= {"live", "last_known"}, bases)
         self.assertEqual(len(bases), len([b for b in bases if b]))
 
+    def _warm(self, mint, px=1.0):
+        now = time.time()
+        game._live_cache[mint] = (now, {
+            "mint": mint,
+            "price_usd": px,
+            "price_ts": _utc(datetime.now(timezone.utc)),
+            "source": "pool_vault",
+            "src": "pool_vault",
+            "driver": "swap",
+        })
+
     def test_tick_walk_reaches_twenty_percent_in_sixty_polls(self):
         self._book([self._pos("one", SOL, 1.0)])
+        self._warm(SOL, 1.0)
         first = self.client.get("/api/game/tick?mint=" + SOL + "&qa_tick=down")
         self.assertEqual(first.status_code, 200, first.get_json())
         start = float(first.get_json()["price_usd"])
@@ -110,6 +123,7 @@ class LiveHttpPathTests(unittest.TestCase):
 
     def test_stop_fills_within_one_tick_of_the_trigger(self):
         self.client.set_cookie(game.CLIENT_COOKIE, "client-http")
+        self._warm(SOL, 1.0)
         probe = self.client.get("/api/game/tick?mint=" + SOL)
         self.assertEqual(probe.status_code, 200, probe.get_json())
         spot = float(probe.get_json()["price_usd"])
@@ -144,7 +158,7 @@ class LiveHttpPathTests(unittest.TestCase):
 
     def test_health_reports_stream_attachment(self):
         data = self.client.get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 97)
+        self.assertEqual(data["panel_v"], 98)
         stream = data["stream"]
         self.assertIn("why", stream)
         self.assertIn("ws_state", stream)
@@ -155,7 +169,7 @@ class LiveHttpPathTests(unittest.TestCase):
 
     def test_version_labels_share_one_constant_and_score_is_its_own_cell(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
-        self.assertIn("const PANEL_V = 97", html)
+        self.assertIn("const PANEL_V = 98", html)
         self.assertGreaterEqual(html.count("data-panel-v"), 2)
         self.assertIn("function paintPanelVersion()", html)
         self.assertIn("/* w31-score-cell", html)
