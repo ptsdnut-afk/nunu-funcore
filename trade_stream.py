@@ -600,6 +600,8 @@ def reset_for_tests() -> None:
     for timer in timers:
         timer.cancel()
     _reset_rpc_state()
+    import game
+    game.publish_open_mints(None)
 
 
 def _remember_reject(row: dict) -> None:
@@ -1692,22 +1694,18 @@ def raydium_clmm_usd(raw: bytes, watched: str, sol_usd: float, extra_usd: dict |
 
 
 def _position_mints() -> list[str]:
+    """Open-position mints. Lock-free: does not call ``game.load_state``.
+
+    ``/api/health`` and the resolve/poll paths both read this. The book publishes
+    the set on load and save. Calling ``load_state`` here waits on ``game._lock``
+    while this thread may already hold ``_resolve_lock``, ``_poll_lock``, or ``_guard``.
+    """
     import game
 
     try:
-        st = game.load_state()
+        return list(game.open_position_mints())
     except Exception:
         return []
-    if st.get("status") != "active":
-        return []
-    out: list[str] = []
-    for pos in st.get("positions") or []:
-        if not isinstance(pos, dict):
-            continue
-        mint = str(pos.get("mint") or "")
-        if game.looks_like_mint(mint):
-            out.append(mint)
-    return out
 
 
 def view_mints(now: float | None = None) -> list[str]:
@@ -1717,11 +1715,13 @@ def view_mints(now: float | None = None) -> list[str]:
         return [mint for mint, seen in _views.items() if stamped - seen <= WATCH_TTL_S]
 
 
-def watched_mints(now: float | None = None) -> list[str]:
+def watched_mints(now: float | None = None, *, positions: list[str] | None = None) -> list[str]:
     stamped = time.monotonic() if now is None else now
     with _guard:
         views = [mint for mint, seen in _views.items() if stamped - seen <= WATCH_TTL_S]
-    return select_watched(_position_mints(), views)
+    if positions is None:
+        positions = _position_mints()
+    return select_watched(positions, views)
 
 
 def ensure_started() -> None:
@@ -2007,7 +2007,15 @@ def _refresh_account_mids(http: str, mints: list[str]) -> None:
         add(row)
     if not snaps:
         return
-    snaps.sort(key=lambda row: (_mint_tier(str(row.get("mint") or "")), str(row.get("address") or "")))
+    try:
+        positions = set(_position_mints())
+    except Exception:
+        positions = set()
+    viewed = _viewed_mint()
+    snaps.sort(key=lambda row: (
+        _mint_tier(str(row.get("mint") or ""), positions, viewed),
+        str(row.get("address") or ""),
+    ))
     addrs = [str(snap.get("address") or "") for snap in snaps]
     with _priority(2):
         infos = _multiple_accounts(http, addrs) or {}
@@ -3361,13 +3369,18 @@ def _quote_pool_for(mint: str, http: str) -> dict | None:
 
 def _resolve_watched_pools(http: str, mints: list[str]) -> None:
     """Resolve missing pools. Many mints share one getMultipleAccounts call."""
+    positions = _position_mints()
     with _resolve_lock:
-        _resolve_watched_pools_locked(http, mints)
+        _resolve_watched_pools_locked(http, mints, positions)
 
 
-def _resolve_watched_pools_locked(http: str, mints: list[str]) -> None:
+def _resolve_watched_pools_locked(
+    http: str,
+    mints: list[str],
+    positions: list[str] | None = None,
+) -> None:
     missing = []
-    for mint in _order_mints(mints):
+    for mint in _order_mints(mints, positions):
         with _guard:
             pool = _pools.get(mint)
         if not (pool and pool.get("address")):
@@ -3995,12 +4008,17 @@ def _mint_tier(mint: str, positions: set[str] | None = None, viewed: str | None 
     return 2
 
 
-def _order_mints(mints: list[str]) -> list[str]:
-    """Positions, then the viewed coin, then cold and active, then quiet."""
-    try:
-        positions = _position_mints()
-    except Exception:
-        positions = []
+def _order_mints(mints: list[str], positions: list[str] | None = None) -> list[str]:
+    """Positions, then the viewed coin, then cold and active, then quiet.
+
+    Pass ``positions`` when the caller already holds a stream lock. This does
+    not load the game book.
+    """
+    if positions is None:
+        try:
+            positions = _position_mints()
+        except Exception:
+            positions = []
     pos = set(positions)
     viewed = _viewed_mint()
 
@@ -4057,7 +4075,7 @@ def _poll_interval(tier: int) -> float:
     return 1.0 if tier <= 1 else 2.0
 
 
-def _due_pump_snaps() -> list[dict]:
+def _due_pump_snaps(positions: list[str] | None = None) -> list[dict]:
     """PumpSwap pools whose vaults should be read on this pass.
 
     Watched coins and the SOL/USDC pools that price their quote tokens share
@@ -4068,10 +4086,12 @@ def _due_pump_snaps() -> list[dict]:
     now = time.time()
     snaps = []
     seen: set[str] = set()
-    try:
-        positions = set(_position_mints())
-    except Exception:
-        positions = set()
+    if positions is None:
+        try:
+            positions = _position_mints()
+        except Exception:
+            positions = []
+    pos_set = set(positions)
     viewed = _viewed_mint()
 
     def consider(pool: dict | None) -> None:
@@ -4087,14 +4107,14 @@ def _due_pump_snaps() -> list[dict]:
         # poll is the price, even when an accountSubscribe id is already up.
         if logs_sub_live(addr) and _vault_sub_covered(pool) and seen_mid and now - seen_mid[0] < 1.0:
             return
-        tier = _mint_tier(mint, positions, viewed)
+        tier = _mint_tier(mint, pos_set, viewed)
         last = _poll_at.get(addr, 0.0)
         if last and now - last < _poll_interval(tier) - 0.05:
             return
         seen.add(addr)
         snap = dict(pool)
         snap["_tier"] = tier
-        if mint in positions:
+        if mint in pos_set:
             snap["_rank"] = 0
         elif mint == viewed:
             snap["_rank"] = 1
@@ -4102,7 +4122,7 @@ def _due_pump_snaps() -> list[dict]:
             snap["_rank"] = 2
         snaps.append(snap)
 
-    for mint in watched_mints():
+    for mint in watched_mints(positions=list(positions)):
         with _guard:
             pool = _pools.get(mint)
             snap = dict(pool) if pool else None
@@ -4121,12 +4141,13 @@ def _refresh_pump_mids(http: str) -> None:
     public host's 10-account limit. The next group waits a fraction of a
     second. A failed batch is not fanned out into one HTTP call per pool.
     """
+    positions = _position_mints()
     with _poll_lock:
-        _refresh_pump_mids_locked(http)
+        _refresh_pump_mids_locked(http, positions)
 
 
-def _refresh_pump_mids_locked(http: str) -> None:
-    snaps = _due_pump_snaps()
+def _refresh_pump_mids_locked(http: str, positions: list[str] | None = None) -> None:
+    snaps = _due_pump_snaps(positions)
     if not snaps:
         return
     snaps.sort(key=lambda row: (
