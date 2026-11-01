@@ -37,7 +37,10 @@ a coin that misses the on-chain budget is stale instead of a fresh Jupiter
 print. Any quote mint that is not SOL or USDC/USDT is the pool
 ratio times that quote token's own SOL or USDC pool. That pool is resolved,
 cached, and subscribed, including when it is not the quote token's busiest
-pair. BABA (发发) and an SPCX-quoted coin such as SIS both take this path.
+pair, and it is vault-polled on the same cadence as a quiet watched coin.
+A vault read of the watched pool refreshes its age even when the reserves
+did not move. The quote token's USD price does not. BABA (发发) and an
+SPCX-quoted coin such as SIS both take this path.
 
 ``logsSubscribe`` uses commitment ``confirmed``. On the public mainnet
 socket, ``processed`` returns a subscription id and then pushes nothing.
@@ -4689,25 +4692,14 @@ def _net_vault_raw(pool: dict, base_raw: int, quote_raw: int) -> tuple[int, int]
 
 
 def _pool_read_observed(pool: dict, base_raw: int, quote_raw: int) -> bool:
-    """A returned vault read of this pool. SOL pools count even if unchanged.
+    """A returned vault read of this pool, including a non-SOL pair.
 
-    A non-SOL pair whose reserves did not move only changed because the quote
-    token's USD moved. That is not an observation of this pool.
+    Unchanged balances still confirm the pool price. A SOL/USD print or a
+    quote-token USD print never reaches this helper, so those do not refresh
+    the watched coin.
     """
-    try:
-        prev_b = pool.get("base_raw")
-        prev_q = pool.get("quote_raw")
-        same = (
-            prev_b is not None
-            and prev_q is not None
-            and int(prev_b) == int(base_raw)
-            and int(prev_q) == int(quote_raw)
-        )
-    except (TypeError, ValueError):
-        same = False
-    if _quote_is_sol_or_stable(pool):
-        return True
-    return not same
+    del pool, base_raw, quote_raw
+    return True
 
 
 def _quote_is_sol_or_stable(pool: dict) -> bool:
