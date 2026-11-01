@@ -374,8 +374,13 @@ class TradeFillTests(unittest.TestCase):
         game._live_backoff_s.clear()
         game._qa_walks.clear()
         game.set_qa_walk_sid(None)
+        # A Jupiter print is not a stop. The on-chain tick at the same price is.
         with mock.patch.object(game, "_http_json", return_value=_jup(trigger)):
-            closed = game.tick_session()
+            still = game.tick_session()
+        self.assertEqual(len(still["positions"]), 1)
+        import trade_stream
+        self.assertEqual(trade_stream.ingest_swap(MINT, trigger, seed_ok=True, source="pool_swap"), "ok")
+        closed = game.tick_session()
         self.assertEqual(closed["positions"], [])
         row = closed["closed"][0]
         self.assertEqual(row["close_reason"], "stop")
@@ -406,11 +411,14 @@ class TradeFillTests(unittest.TestCase):
             "sl_pct": 20,
             "tp_pct": 100,
         }])
-        with mock.patch.object(game, "_http_json", return_value=_jup(trigger)):
-            closed = game.tick_session()
+        import trade_stream
+        self.assertEqual(trade_stream.ingest_swap(MINT, trigger, seed_ok=True, source="pool_swap"), "ok")
+        closed = game.tick_session()
         row = closed["closed"][0]
         self.assertEqual(row["close_reason"], "stop")
         self.assertAlmostEqual(row["pnl_pct"], -21.0, places=2)
+        self.assertTrue(row.get("fill_basis"))
+        self.assertTrue(row.get("fill_label"))
         self.assertLess(abs(row["pnl_pct"] - (-20)), 2.0)
 
     def test_qa_walk_reaches_a_twenty_percent_stop_within_sixty_seconds(self):
@@ -534,7 +542,7 @@ class TradeFillTests(unittest.TestCase):
 class HealthAndChartTests(unittest.TestCase):
     def test_health_is_v82_with_live_tick_and_a_five_second_sla(self):
         data = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 97)
+        self.assertEqual(data["panel_v"], 98)
         self.assertIn("live_tick", data["features"])
         self.assertLessEqual(data["quote_sla_s"], 5.0)
         self.assertEqual(data["quote_sla_s"], 5.0)
@@ -804,6 +812,7 @@ class ShipW3Tests(unittest.TestCase):
         a = server.app.test_client()
         b = server.app.test_client()
         with mock.patch.object(game, "_http_json", return_value=_jup(1.0)):
+            game.fetch_live_tick(MINT, apply_qa=False)
             armed = a.get("/api/game/tick?mint=" + MINT + "&qa_tick=down")
             self.assertEqual(armed.status_code, 200)
             raw_cookie = armed.headers.get("Set-Cookie") or ""
@@ -1061,7 +1070,7 @@ class ShipW3Tests(unittest.TestCase):
 
     def test_health_documents_the_stream_and_panel_87(self):
         data = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 97)
+        self.assertEqual(data["panel_v"], 98)
         self.assertIn("trade_stream", data["features"])
         self.assertIn("stream", data["live_tick"])
         self.assertIn("PumpPortal", data["live_tick"])
@@ -1073,7 +1082,7 @@ class ShipW3Tests(unittest.TestCase):
 
     def test_w20_w22_w23_w26_w27_w28_panel_contract(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
-        self.assertIn("const PANEL_V = 97", html)
+        self.assertIn("const PANEL_V = 98", html)
         self.assertIn("paintPanelVersion", html)
         self.assertIn("data-panel-v", html)
         pure = html[html.index("/* ship-w-pure-start */"):html.index("/* ship-w-pure-end */")]
@@ -2997,6 +3006,360 @@ class ShipW95Tests(unittest.TestCase):
             refused = game.buy(MINT, 1.0, sl_pct=20)
         self.assertFalse(refused["ok"], refused)
         self.assertEqual(refused["state"]["positions"], [])
+
+
+class ShipW98Tests(unittest.TestCase):
+    """Fallback buys, Raydium vaults, cached health/tick, SOL age, close tier."""
+
+    def setUp(self):
+        import trade_stream
+        game._live_cache.clear()
+        game._live_backoff_until.clear()
+        game._live_backoff_s.clear()
+        game._qa_walks.clear()
+        game.set_qa_walk_sid(None)
+        game.set_client_sid(None)
+        trade_stream.reset_for_tests()
+
+    def tearDown(self):
+        import trade_stream
+        game._live_cache.clear()
+        game._qa_walks.clear()
+        game.set_qa_walk_sid(None)
+        game.set_client_sid(None)
+        trade_stream.reset_for_tests()
+
+    def _book(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        patch = mock.patch.object(game, "STATE_PATH", Path(tmp.name) / "state.json")
+        patch.start()
+        self.addCleanup(patch.stop)
+        game.start_session(force=True)
+
+    def test_sol_usd_updates_do_not_keep_a_frozen_pool_fresh(self):
+        import trade_stream
+        trade_stream.mark_pool_kind(MINT, "pumpswap")
+        self.assertEqual(
+            trade_stream.ingest_swap(MINT, 1.0, seed_ok=True, source="pool_swap", sol=100.0),
+            "ok",
+        )
+        old = time.time() - 6.0
+        payload = dict(game._live_cache[MINT][1])
+        game._live_cache[MINT] = (old, payload)
+        trade_stream._seen[MINT] = old
+        for step in range(1, 6):
+            sol = 100.0 + step
+            px = (1.0 / 100.0) * sol
+            trade_stream.ingest_swap(MINT, px, source="pool_swap", sol=sol)
+        self.assertEqual(game._live_cache[MINT][1]["driver"], "sol_usd")
+        self.assertAlmostEqual(game._live_cache[MINT][1]["price_usd"], 1.05, places=6)
+        tick = game.fetch_live_tick(MINT, apply_qa=False, network=False)
+        self.assertGreater(tick["quote_age_s"], 5.0)
+        self.assertFalse(tick.get("quote_live"))
+        body = server.app.test_client().get("/api/game/tick?mint=" + MINT).get_json()
+        self.assertTrue(body["stale"])
+        self.assertFalse(body["quote_live"])
+        self.assertGreater(body["quote_age_s"], 5.0)
+
+    def test_fresh_fallback_with_a_passing_requote_is_buyable(self):
+        self._book()
+        with mock.patch.object(game, "_http_json", return_value=_jup(1.0)), \
+             mock.patch.object(game, "fetch_dex_token", return_value={"symbol": "N", "name": "N"}):
+            tick = game.fetch_live_tick(MINT, apply_qa=False)
+            self.assertEqual(tick["fallback_label"], "Fallback")
+            self.assertEqual(tick["source"], "jupiter_fallback")
+            self.assertLess(tick["quote_age_s"], 5.0)
+            self.assertTrue(tick["quote_live"])
+            self.assertFalse(tick.get("stale"))
+            filled = game.buy(MINT, 1.0, sl_pct=20, displayed_price=1.02)
+        self.assertTrue(filled["ok"], filled)
+        self.assertAlmostEqual(filled["fill_price_usd"], 1.0, places=6)
+
+    def test_fallback_five_seconds_or_older_is_refused(self):
+        self._book()
+        old = time.time() - 5.0
+        game._live_cache[MINT] = (old, {
+            "mint": MINT,
+            "price_usd": 1.0,
+            "price_ts": "2026-01-01T00:00:00Z",
+            "source": "jupiter_fallback",
+            "driver": "jupiter_fallback",
+        })
+        with mock.patch.object(game, "_http_json", return_value=(0, None)), \
+             mock.patch.object(game, "fetch_dex_token", return_value={"symbol": "N", "name": "N"}):
+            tick = game.fetch_live_tick(MINT, apply_qa=False)
+            refused = game.buy(MINT, 1.0, sl_pct=20, displayed_price=1.0)
+        self.assertEqual(tick["fallback_label"], "Fallback")
+        self.assertGreaterEqual(tick["quote_age_s"], 5.0)
+        self.assertFalse(tick.get("quote_live"))
+        self.assertFalse(game.fillable_tick(tick))
+        self.assertFalse(refused["ok"], refused)
+        self.assertEqual(refused["state"]["positions"], [])
+
+    def test_raydium_amm_v4_and_cpmm_price_from_vault_accounts(self):
+        import base64
+        import struct
+        import trade_stream
+        base = _pk(11)
+        quote = trade_stream.SOL_MINT
+        watched = _pk(12)
+
+        amm = bytearray(752)
+        struct.pack_into("<Q", amm, trade_stream.AMM_BASE_DEC, 6)
+        struct.pack_into("<Q", amm, trade_stream.AMM_QUOTE_DEC, 9)
+        struct.pack_into("<Q", amm, trade_stream.AMM_NEED_BASE, 0)
+        struct.pack_into("<Q", amm, trade_stream.AMM_NEED_QUOTE, 0)
+        amm[trade_stream.AMM_BASE_VAULT:trade_stream.AMM_BASE_VAULT + 32] = trade_stream.b58decode(_pk(13))
+        amm[trade_stream.AMM_QUOTE_VAULT:trade_stream.AMM_QUOTE_VAULT + 32] = trade_stream.b58decode(_pk(14))
+        amm[trade_stream.AMM_BASE_MINT:trade_stream.AMM_BASE_MINT + 32] = trade_stream.b58decode(base)
+        amm[trade_stream.AMM_QUOTE_MINT:trade_stream.AMM_QUOTE_MINT + 32] = trade_stream.b58decode(quote)
+        view = trade_stream.raydium_amm_v4_view(bytes(amm))
+        self.assertEqual(view["base_mint"], base)
+        self.assertEqual(view["quote_mint"], quote)
+        px = trade_stream.raydium_vault_usd(view, 1_000_000, 2_000_000_000, base, 100.0)
+        self.assertAlmostEqual(px, 200.0, places=4)
+        info = {
+            "owner": trade_stream.RAYDIUM_AMM_V4_OWNER,
+            "data": [base64.b64encode(bytes(amm)).decode(), "base64"],
+        }
+        pool = trade_stream._interpret_pool_account(base, _pk(15), info, "http://rpc")
+        self.assertEqual(pool["kind"], "raydium_amm")
+
+        cpmm = bytearray(400)
+        cpmm[:8] = trade_stream.CPMM_DISC
+        cpmm[trade_stream.CPMM_VAULT_0:trade_stream.CPMM_VAULT_0 + 32] = trade_stream.b58decode(_pk(16))
+        cpmm[trade_stream.CPMM_VAULT_1:trade_stream.CPMM_VAULT_1 + 32] = trade_stream.b58decode(_pk(17))
+        cpmm[trade_stream.CPMM_MINT_0:trade_stream.CPMM_MINT_0 + 32] = trade_stream.b58decode(watched)
+        cpmm[trade_stream.CPMM_MINT_1:trade_stream.CPMM_MINT_1 + 32] = trade_stream.b58decode(quote)
+        cpmm[trade_stream.CPMM_DEC_0] = 6
+        cpmm[trade_stream.CPMM_DEC_1] = 9
+        struct.pack_into("<Q", cpmm, trade_stream.CPMM_PROTO_0, 100_000)
+        struct.pack_into("<Q", cpmm, trade_stream.CPMM_FUND_0, 0)
+        cview = trade_stream.raydium_cpmm_view(bytes(cpmm))
+        self.assertEqual(cview["fee_base"], 100_000)
+        # 0.9 tokens and 2 SOL after the fee → about $222.22
+        cpx = trade_stream.raydium_vault_usd(cview, 1_000_000, 2_000_000_000, watched, 100.0)
+        self.assertAlmostEqual(cpx, 200.0 / 0.9, places=3)
+        cinfo = {
+            "owner": trade_stream.RAYDIUM_CPMM_OWNER,
+            "data": [base64.b64encode(bytes(cpmm)).decode(), "base64"],
+        }
+        cpool = trade_stream._interpret_pool_account(watched, _pk(18), cinfo, "http://rpc")
+        self.assertEqual(cpool["kind"], "raydium_cpmm")
+
+    def test_vice_prices_from_its_pool_at_nine_watched(self):
+        import base64
+        import struct
+        import trade_stream
+        vice = _pk(21)
+        others = [_pk(30 + i) for i in range(8)]
+        pool_addr = _pk(22)
+        base_vault = _pk(23)
+        quote_vault = _pk(24)
+        raw = bytearray(752)
+        struct.pack_into("<Q", raw, trade_stream.AMM_BASE_DEC, 6)
+        struct.pack_into("<Q", raw, trade_stream.AMM_QUOTE_DEC, 9)
+        raw[trade_stream.AMM_BASE_VAULT:trade_stream.AMM_BASE_VAULT + 32] = trade_stream.b58decode(base_vault)
+        raw[trade_stream.AMM_QUOTE_VAULT:trade_stream.AMM_QUOTE_VAULT + 32] = trade_stream.b58decode(quote_vault)
+        raw[trade_stream.AMM_BASE_MINT:trade_stream.AMM_BASE_MINT + 32] = trade_stream.b58decode(vice)
+        raw[trade_stream.AMM_QUOTE_MINT:trade_stream.AMM_QUOTE_MINT + 32] = trade_stream.b58decode(trade_stream.SOL_MINT)
+        view = trade_stream.raydium_amm_v4_view(bytes(raw))
+        trade_stream._pools[vice] = {
+            "mint": vice,
+            "kind": "raydium_amm",
+            "address": pool_addr,
+            "owner": trade_stream.RAYDIUM_AMM_V4_OWNER,
+            **view,
+        }
+        trade_stream.note_anchor(trade_stream.SOL_MINT, 100.0, force=True)
+        trade_stream._decimals[vice] = 6
+        for mint in [vice] + others:
+            trade_stream.note_view(mint)
+        self.assertEqual(trade_stream.watched_count(), 9)
+        self.assertLessEqual(trade_stream.watched_count(), 12)
+
+        def post(http, body, timeout):
+            payload = json.loads(body.decode())
+            vals = []
+            for addr in payload["params"][0]:
+                buf = bytearray(80)
+                amount = 1_000_000 if addr == base_vault else 2_000_000_000
+                struct.pack_into("<Q", buf, 64, amount)
+                vals.append({"data": [base64.b64encode(bytes(buf)).decode(), "base64"]})
+            return {"result": {"value": vals}}
+
+        with mock.patch.object(trade_stream, "_post_rpc", side_effect=post), \
+             mock.patch.object(game, "_http_json", side_effect=AssertionError("jupiter")):
+            trade_stream._refresh_pump_mids("http://rpc")
+            tick = game.fetch_live_tick(vice, apply_qa=False, network=False)
+        self.assertEqual(tick["source"], "pool_vault")
+        self.assertAlmostEqual(tick["price_usd"], 200.0, places=3)
+        self.assertNotEqual(tick.get("src"), "jupiter_fallback")
+        self.assertFalse(tick.get("fallback_label"))
+
+    def test_health_and_ticks_stay_fast_while_rpc_sleeps(self):
+        import trade_stream
+        mints = [trade_stream.b58encode((i + 1).to_bytes(32, "big")) for i in range(16)]
+        now = time.time()
+        for i, mint in enumerate(mints):
+            game._live_cache[mint] = (now, {
+                "mint": mint,
+                "price_usd": 1.0 + i * 0.01,
+                "price_ts": "2026-01-01T00:00:00Z",
+                "source": "pool_vault",
+                "driver": "swap",
+            })
+            trade_stream.note_view(mint)
+        trade_stream.stream_health_cached()
+
+        def slow(*_a, **_k):
+            time.sleep(10)
+            return None
+
+        held = threading.Event()
+        release = threading.Event()
+
+        def blocker():
+            trade_stream._guard.acquire()
+            held.set()
+            release.wait(3)
+            trade_stream._guard.release()
+
+        worker = threading.Thread(target=blocker, daemon=True)
+        worker.start()
+        self.assertTrue(held.wait(1))
+        client = server.app.test_client()
+        try:
+            with mock.patch.object(trade_stream, "_post_rpc", side_effect=slow), \
+                 mock.patch.object(game, "_http_json", side_effect=slow):
+                started = time.monotonic()
+                health = client.get("/api/health").get_json()
+                health_s = time.monotonic() - started
+                samples = []
+                for mint in mints:
+                    t0 = time.monotonic()
+                    body = client.get("/api/game/tick?mint=" + mint).get_json()
+                    samples.append(time.monotonic() - t0)
+                    self.assertGreater(float(body.get("price_usd") or 0), 0, body)
+        finally:
+            release.set()
+            worker.join(2)
+        self.assertLess(health_s, 0.5)
+        self.assertEqual(health["panel_v"], 98)
+        self.assertIn("watched", health["stream"])
+        samples.sort()
+        p99 = samples[max(0, int(0.99 * (len(samples) - 1)))]
+        self.assertLess(p99, 1.0)
+        self.assertLess(max(samples), 1.0)
+
+    def test_closing_a_position_keeps_the_viewed_coin_on_the_vault_poll(self):
+        import trade_stream
+        pool = {
+            "mint": MINT,
+            "kind": "pumpswap",
+            "address": _pk(41),
+            "base_mint": MINT,
+            "quote_mint": trade_stream.SOL_MINT,
+            "base_vault": _pk(42),
+            "quote_vault": _pk(43),
+            "base_dec": 6,
+            "quote_dec": 9,
+            "virtual_quote": 0,
+        }
+        trade_stream._pools[MINT] = pool
+        trade_stream.note_view(MINT)
+        other = _pk(44)
+        trade_stream.note_view(other)
+        now = time.time()
+        trade_stream._seen[MINT] = now
+        trade_stream._last_px[MINT] = 1.0
+        trade_stream._poll_at[pool["address"]] = now - 1.2
+        self._book()
+        st = game.load_state()
+        st["positions"] = [{"mint": MINT, "id": "p", "stake_usd": 1}]
+        game.save_state(st)
+        self.assertEqual(trade_stream._mint_tier(MINT), 0)
+        st["positions"] = []
+        game.save_state(st)
+        self.assertNotIn(MINT, trade_stream._position_mints())
+        self.assertEqual(trade_stream._mint_tier(MINT), 0)
+        due = [row["mint"] for row in trade_stream._due_pump_snaps()]
+        self.assertIn(MINT, due)
+
+    def test_pumpswap_canonical_pda_is_tried_when_dex_has_no_pair(self):
+        import base64
+        import trade_stream
+        addr = trade_stream.pumpswap_canonical_pool(MINT)
+        self.assertTrue(addr)
+        self.assertGreaterEqual(len(addr), 32)
+        self.assertEqual(trade_stream.pumpswap_canonical_pool(MINT), addr)
+        raw = bytearray(260)
+        raw[:8] = trade_stream.PUMPSWAP_DISC
+        raw[trade_stream.PS_BASE_MINT:trade_stream.PS_BASE_MINT + 32] = trade_stream.b58decode(MINT)
+        raw[trade_stream.PS_QUOTE_MINT:trade_stream.PS_QUOTE_MINT + 32] = trade_stream.b58decode(trade_stream.SOL_MINT)
+        raw[trade_stream.PS_BASE_VAULT:trade_stream.PS_BASE_VAULT + 32] = trade_stream.b58decode(_pk(51))
+        raw[trade_stream.PS_QUOTE_VAULT:trade_stream.PS_QUOTE_VAULT + 32] = trade_stream.b58decode(_pk(52))
+        info = {
+            "owner": trade_stream.PUMPSWAP_OWNER,
+            "data": [base64.b64encode(bytes(raw)).decode(), "base64"],
+        }
+
+        def acct(http, asked):
+            if asked == addr:
+                return info
+            return None
+
+        with mock.patch.object(trade_stream, "_dex_pairs_fetched", return_value=[]), \
+             mock.patch.object(trade_stream, "_account_info", side_effect=acct):
+            pool = trade_stream._resolve_pool(MINT, "http://rpc")
+        self.assertIsNotNone(pool)
+        self.assertEqual(pool["kind"], "pumpswap")
+        self.assertEqual(pool["address"], addr)
+        self.assertEqual(pool["base_mint"], MINT)
+
+    def test_stop_receipt_carries_its_basis(self):
+        import trade_stream
+        self._book()
+        now = datetime.now(timezone.utc)
+        game.save_state({
+            "session_id": "w98",
+            "status": "active",
+            "started_at": _utc(now - timedelta(hours=1)),
+            "ends_at": _utc(now + timedelta(hours=20)),
+            "cash_usd": 4.0,
+            "start_bankroll": 5.0,
+            "peak_equity": 5.0,
+            "positions": [{
+                "id": "pos",
+                "mint": MINT,
+                "symbol": "REG",
+                "stake_usd": 1.0,
+                "entry_price_usd": 1.0,
+                "qty_tokens": 1.0,
+                "last_price_usd": 1.0,
+                "opened_at": _utc(now - timedelta(minutes=1)),
+                "sl_pct": 20,
+                "client_id": "c",
+            }],
+            "closed": [],
+            "events": [],
+        })
+        self.assertEqual(
+            trade_stream.ingest_swap(MINT, 0.79, seed_ok=True, source="pool_swap"),
+            "ok",
+        )
+        st = game.tick_session()
+        self.assertEqual(st["positions"], [])
+        closed = st["closed"][0]
+        self.assertEqual(closed["close_reason"], "stop")
+        self.assertEqual(closed.get("fill_basis"), "last_executed_swap")
+        self.assertIn("filled at last executed swap", closed.get("fill_label") or "")
+        html = Path("static/index.html").read_text(encoding="utf-8")
+        self.assertIn("fill_basis", html)
+        self.assertIn("px-fallback", html)
+        self.assertIn("w98-full-name", html)
+        self.assertIn("const PANEL_V = 98", html)
 
 
 if __name__ == "__main__":
