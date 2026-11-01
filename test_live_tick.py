@@ -542,7 +542,7 @@ class TradeFillTests(unittest.TestCase):
 class HealthAndChartTests(unittest.TestCase):
     def test_health_is_v82_with_live_tick_and_a_five_second_sla(self):
         data = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 98)
+        self.assertEqual(data["panel_v"], 99)
         self.assertIn("live_tick", data["features"])
         self.assertLessEqual(data["quote_sla_s"], 5.0)
         self.assertEqual(data["quote_sla_s"], 5.0)
@@ -1070,7 +1070,7 @@ class ShipW3Tests(unittest.TestCase):
 
     def test_health_documents_the_stream_and_panel_87(self):
         data = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 98)
+        self.assertEqual(data["panel_v"], 99)
         self.assertIn("trade_stream", data["features"])
         self.assertIn("stream", data["live_tick"])
         self.assertIn("PumpPortal", data["live_tick"])
@@ -1082,7 +1082,7 @@ class ShipW3Tests(unittest.TestCase):
 
     def test_w20_w22_w23_w26_w27_w28_panel_contract(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
-        self.assertIn("const PANEL_V = 98", html)
+        self.assertIn("const PANEL_V = 99", html)
         self.assertIn("paintPanelVersion", html)
         self.assertIn("data-panel-v", html)
         pure = html[html.index("/* ship-w-pure-start */"):html.index("/* ship-w-pure-end */")]
@@ -3246,7 +3246,7 @@ class ShipW98Tests(unittest.TestCase):
             release.set()
             worker.join(2)
         self.assertLess(health_s, 0.5)
-        self.assertEqual(health["panel_v"], 98)
+        self.assertEqual(health["panel_v"], 99)
         self.assertIn("watched", health["stream"])
         samples.sort()
         p99 = samples[max(0, int(0.99 * (len(samples) - 1)))]
@@ -3359,7 +3359,160 @@ class ShipW98Tests(unittest.TestCase):
         self.assertIn("fill_basis", html)
         self.assertIn("px-fallback", html)
         self.assertIn("w98-full-name", html)
-        self.assertIn("const PANEL_V = 98", html)
+        self.assertIn("const PANEL_V = 99", html)
+
+
+class ShipW99Tests(unittest.TestCase):
+    """Quiet vault reads keep age fresh. SOL and quote-pool moves do not."""
+
+    def setUp(self):
+        import trade_stream
+        game._live_cache.clear()
+        game._live_backoff_until.clear()
+        game._live_backoff_s.clear()
+        game._qa_walks.clear()
+        game.set_qa_walk_sid(None)
+        game.set_client_sid(None)
+        trade_stream.reset_for_tests()
+
+    def tearDown(self):
+        import trade_stream
+        game._live_cache.clear()
+        game.set_qa_walk_sid(None)
+        game.set_client_sid(None)
+        trade_stream.reset_for_tests()
+
+    def _sol_pool(self, mint):
+        import trade_stream
+        pool = {
+            "mint": mint,
+            "kind": "pumpswap",
+            "address": _pk(80),
+            "base_mint": mint,
+            "quote_mint": trade_stream.SOL_MINT,
+            "base_vault": _pk(81),
+            "quote_vault": _pk(82),
+            "base_dec": 6,
+            "quote_dec": 9,
+            "virtual_quote": 0,
+        }
+        trade_stream._pools[mint] = pool
+        trade_stream._decimals[mint] = 6
+        trade_stream.note_anchor(trade_stream.SOL_MINT, 100.0, force=True)
+        return pool
+
+    def _backdate(self, mint, seconds=6.0):
+        import trade_stream
+        old = time.time() - seconds
+        game._live_cache[mint] = (old, dict(game._live_cache[mint][1]))
+        trade_stream._seen[mint] = old
+        return old
+
+    def test_unchanged_vault_read_keeps_a_quiet_pool_fresh(self):
+        import trade_stream
+        pool = self._sol_pool(MINT)
+        # Two agreeing vault reads are the baseline when the chain has no swap.
+        trade_stream._mark_chain_empty(MINT)
+        trade_stream._price_vault_pair("http://rpc", pool, 1_000_000, 2_000_000_000)
+        primed = trade_stream._price_vault_pair("http://rpc", pool, 1_000_000, 2_000_000_000)
+        self.assertAlmostEqual(primed, 200.0, places=3)
+        self._backdate(MINT)
+        again = trade_stream._price_vault_pair("http://rpc", pool, 1_000_000, 2_000_000_000)
+        self.assertAlmostEqual(again, 200.0, places=3)
+        tick = game.fetch_live_tick(MINT, apply_qa=False, network=False)
+        self.assertLess(tick["quote_age_s"], 1.0)
+        self.assertTrue(tick["quote_live"])
+        body = server.app.test_client().get("/api/game/tick?mint=" + MINT).get_json()
+        self.assertFalse(body["stale"])
+        self.assertTrue(body["quote_live"])
+
+    def test_failed_or_skipped_vault_read_goes_stale(self):
+        import trade_stream
+        pool = self._sol_pool(MINT)
+        trade_stream._mark_chain_empty(MINT)
+        trade_stream._price_vault_pair("http://rpc", pool, 1_000_000, 2_000_000_000)
+        trade_stream._price_vault_pair("http://rpc", pool, 1_000_000, 2_000_000_000)
+        self._backdate(MINT)
+        with mock.patch.object(trade_stream, "_vault_amounts", return_value=None):
+            self.assertIsNone(trade_stream._read_vault_mid("http://rpc", pool))
+        for step in range(1, 4):
+            sol = 100.0 + step
+            trade_stream.ingest_swap(MINT, (200.0 / 100.0) * sol, source="pool_vault", sol=sol)
+        tick = game.fetch_live_tick(MINT, apply_qa=False, network=False)
+        self.assertGreater(tick["quote_age_s"], 5.0)
+        self.assertFalse(tick.get("quote_live"))
+        body = server.app.test_client().get("/api/game/tick?mint=" + MINT).get_json()
+        self.assertTrue(body["stale"])
+
+    def test_baba_quote_move_does_not_refresh_fafa(self):
+        import trade_stream
+        fafa, baba = _pk(91), _pk(92)
+        pool = {
+            "mint": fafa,
+            "kind": "pumpswap",
+            "address": _pk(93),
+            "base_mint": fafa,
+            "quote_mint": baba,
+            "base_vault": _pk(94),
+            "quote_vault": _pk(95),
+            "base_dec": 6,
+            "quote_dec": 6,
+            "virtual_quote": 0,
+        }
+        trade_stream._pools[fafa] = pool
+        trade_stream._decimals[fafa] = 6
+        trade_stream._decimals[baba] = 6
+        trade_stream.note_anchor(trade_stream.SOL_MINT, 100.0, force=True)
+        trade_stream._quote_px[baba] = (time.time(), 2.0)
+        self.assertEqual(
+            trade_stream.ingest_swap(fafa, 2.0, seed_ok=True, source="pool_swap"),
+            "ok",
+        )
+        first = trade_stream._price_vault_pair("http://rpc", pool, 1_000_000, 1_000_000)
+        self.assertAlmostEqual(first, 2.0, places=4)
+        self._backdate(fafa)
+        trade_stream._quote_px[baba] = (time.time(), 2.02)
+        trade_stream.ingest_swap(baba, 2.02, seed_ok=True, source="pool_swap", sol=100.0)
+        moved = trade_stream._price_vault_pair("http://rpc", pool, 1_000_000, 1_000_000)
+        self.assertAlmostEqual(moved, 2.02, places=4)
+        tick = game.fetch_live_tick(fafa, apply_qa=False, network=False)
+        self.assertGreater(tick["quote_age_s"], 5.0)
+        self.assertFalse(tick.get("quote_live"))
+        body = server.app.test_client().get("/api/game/tick?mint=" + fafa).get_json()
+        self.assertTrue(body["stale"])
+        self.assertAlmostEqual(body["price_usd"], 2.02, places=4)
+
+    def test_watched_quiet_coins_are_due_within_three_seconds(self):
+        import trade_stream
+        now = time.time()
+        mints = []
+        for i in range(6):
+            mint = _pk(200 + i)
+            pool = {
+                "mint": mint,
+                "kind": "pumpswap",
+                "address": _pk(300 + i),
+                "base_mint": mint,
+                "quote_mint": trade_stream.SOL_MINT,
+                "base_vault": _pk(400 + i),
+                "quote_vault": _pk(500 + i),
+                "base_dec": 6,
+                "quote_dec": 9,
+                "virtual_quote": 0,
+            }
+            trade_stream._pools[mint] = pool
+            trade_stream.note_view(mint)
+            trade_stream._seen[mint] = now
+            trade_stream._last_px[mint] = 1.0
+            trade_stream._poll_at[pool["address"]] = now - 2.5
+            mints.append(mint)
+        self.assertLessEqual(trade_stream._poll_interval(2), 3.0)
+        due = {row["mint"] for row in trade_stream._due_pump_snaps()}
+        self.assertTrue(set(mints) <= due)
+
+    def test_jupiter_close_is_labeled_fallback(self):
+        self.assertEqual(game.stop_receipt("jupiter_fallback"), ("fallback", "Fallback"))
+        self.assertEqual(game._close_receipt("jupiter", manual=True), ("fallback", "Fallback"))
 
 
 if __name__ == "__main__":
