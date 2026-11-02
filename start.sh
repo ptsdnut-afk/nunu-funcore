@@ -124,8 +124,15 @@ echo "[start] launching bot loop"
 "$PY" bot.py --interval "$INTERVAL_MIN" --skip-fresh-sec "$SKIP_FRESH_SEC" &
 bot_pid=$!
 
-echo "[start] launching Flask"
-"$PY" server.py &
+echo "[start] launching gunicorn (1 gthread worker)"
+"$PY" -m gunicorn \
+  --workers 1 \
+  --worker-class gthread \
+  --threads 8 \
+  --timeout 30 \
+  --graceful-timeout 15 \
+  --bind "${HOST}:${PORT}" \
+  server:app &
 server_pid=$!
 
 echo "[start] bot pid=${bot_pid} server pid=${server_pid} (foreground; this process exits if either stops)"

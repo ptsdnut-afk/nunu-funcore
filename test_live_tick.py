@@ -560,7 +560,7 @@ class TradeFillTests(unittest.TestCase):
 class HealthAndChartTests(unittest.TestCase):
     def test_health_is_v82_with_live_tick_and_a_five_second_sla(self):
         data = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 100)
+        self.assertEqual(data["panel_v"], 101)
         self.assertIn("live_tick", data["features"])
         self.assertLessEqual(data["quote_sla_s"], 5.0)
         self.assertEqual(data["quote_sla_s"], 5.0)
@@ -1097,7 +1097,7 @@ class ShipW3Tests(unittest.TestCase):
 
     def test_health_documents_the_stream_and_panel_87(self):
         data = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 100)
+        self.assertEqual(data["panel_v"], 101)
         self.assertIn("trade_stream", data["features"])
         self.assertIn("stream", data["live_tick"])
         self.assertIn("PumpPortal", data["live_tick"])
@@ -1109,7 +1109,7 @@ class ShipW3Tests(unittest.TestCase):
 
     def test_w20_w22_w23_w26_w27_w28_panel_contract(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
-        self.assertIn("const PANEL_V = 100", html)
+        self.assertIn("const PANEL_V = 101", html)
         self.assertIn("paintPanelVersion", html)
         self.assertIn("data-panel-v", html)
         pure = html[html.index("/* ship-w-pure-start */"):html.index("/* ship-w-pure-end */")]
@@ -3322,7 +3322,7 @@ class ShipW98Tests(unittest.TestCase):
             release.set()
             worker.join(2)
         self.assertLess(health_s, 0.5)
-        self.assertEqual(health["panel_v"], 100)
+        self.assertEqual(health["panel_v"], 101)
         self.assertIn("watched", health["stream"])
         samples.sort()
         p99 = samples[max(0, int(0.99 * (len(samples) - 1)))]
@@ -3435,7 +3435,7 @@ class ShipW98Tests(unittest.TestCase):
         self.assertIn("fill_basis", html)
         self.assertIn("px-fallback", html)
         self.assertIn("w98-full-name", html)
-        self.assertIn("const PANEL_V = 100", html)
+        self.assertIn("const PANEL_V = 101", html)
 
 
 class ShipW99Tests(unittest.TestCase):
@@ -3663,6 +3663,119 @@ class ShipW99Tests(unittest.TestCase):
     def test_jupiter_close_is_labeled_fallback(self):
         self.assertEqual(game.stop_receipt("jupiter_fallback"), ("fallback", "Fallback"))
         self.assertEqual(game._close_receipt("jupiter", manual=True), ("fallback", "Fallback"))
+
+
+class ShipW101Tests(unittest.TestCase):
+    """A held price lock and a hung Jupiter call must not stall the panel."""
+
+    def setUp(self):
+        import trade_stream
+        game._live_cache.clear()
+        game._live_backoff_until.clear()
+        game._live_backoff_s.clear()
+        game._qa_walks.clear()
+        game.set_qa_walk_sid(None)
+        game.set_client_sid(None)
+        trade_stream.reset_for_tests()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        patch = mock.patch.object(game, "STATE_PATH", Path(self.tmp.name) / "state.json")
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def tearDown(self):
+        import trade_stream
+        game._live_cache.clear()
+        game.set_qa_walk_sid(None)
+        game.set_client_sid(None)
+        trade_stream.reset_for_tests()
+
+    def test_held_lock_and_hung_jupiter_return_stale_under_three_seconds(self):
+        game._live_cache[MINT] = (time.time(), {
+            "mint": MINT,
+            "price_usd": 1.25,
+            "price_ts": "2026-01-01T00:00:00Z",
+            "source": "pool_swap",
+            "driver": "swap",
+        })
+        game.start_session(force=True)
+        lock = game._live_lock(MINT)
+        self.assertTrue(lock.acquire(timeout=1))
+
+        def hang(*_args, **_kwargs):
+            time.sleep(30)
+            return 200, {MINT: {"usdPrice": 9, "blockId": 1}}
+
+        client = server.app.test_client()
+        try:
+            with mock.patch.object(game, "_http_json", side_effect=hang), \
+                 mock.patch.object(game, "fetch_dex_token", return_value={
+                     "symbol": "CAT", "name": "Cat", "price_usd": 1.25,
+                 }):
+                started = time.monotonic()
+                tick = client.get("/api/game/tick?mint=" + MINT).get_json()
+                health = client.get("/api/health").get_json()
+                quote = client.get("/api/game/quote?mint=" + MINT).get_json()
+                buy = client.post("/api/game/buy", json={
+                    "mint": MINT, "stake_usd": 1.0, "sl_pct": 20, "displayed_price": 1.25,
+                })
+                elapsed = time.monotonic() - started
+        finally:
+            lock.release()
+        self.assertLess(elapsed, 3.0, elapsed)
+        self.assertTrue(tick["stale"])
+        self.assertFalse(tick["quote_live"])
+        self.assertAlmostEqual(tick["price_usd"], 1.25)
+        self.assertTrue(health["ok"])
+        self.assertEqual(health["panel_v"], 101)
+        self.assertTrue(quote.get("stale") or quote.get("quote_live") is False)
+        self.assertEqual(buy.status_code, 400)
+        body = buy.get_json()
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["state"]["positions"], [])
+
+    def test_first_watch_starts_now_and_stays_stale_until_the_price_lands(self):
+        import trade_stream
+        started = threading.Event()
+        release = threading.Event()
+
+        def cold(mint):
+            started.set()
+            self.assertTrue(release.wait(2))
+            game._store_live(mint, time.time(), {
+                "mint": mint,
+                "price_usd": 2.5,
+                "price_ts": "2026-01-01T00:00:01Z",
+                "source": "pool_vault",
+                "driver": "swap",
+            })
+            return True
+
+        client = server.app.test_client()
+        with mock.patch.object(trade_stream, "cold_vault_price", side_effect=cold):
+            t0 = time.monotonic()
+            first = client.get("/api/game/tick?mint=" + MINT).get_json()
+            self.assertLess(time.monotonic() - t0, 1.0)
+            self.assertTrue(started.wait(0.5))
+            self.assertIsNone(first["price_usd"])
+            self.assertTrue(first["stale"])
+            self.assertFalse(first["quote_live"])
+            self.assertFalse(first["price_usd"] is None and first["stale"] is False)
+            release.set()
+            landed = time.monotonic()
+            body = first
+            deadline = landed + 5.0
+            while time.monotonic() < deadline:
+                body = client.get("/api/game/tick?mint=" + MINT).get_json()
+                if body.get("price_usd"):
+                    break
+                time.sleep(0.02)
+        self.assertAlmostEqual(body["price_usd"], 2.5)
+        self.assertLess(time.monotonic() - landed, 5.0)
+        self.assertLess(body["quote_age_s"], 5.0)
+        self.assertFalse(body["stale"])
+        self.assertTrue(body["quote_live"])
+        self.assertEqual(body["source"], "pool_vault")
 
 
 if __name__ == "__main__":
