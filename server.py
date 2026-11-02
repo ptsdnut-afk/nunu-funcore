@@ -28,6 +28,7 @@ import gold_scar
 import manual_update
 import qa_gold
 import qa_max
+import qa_x
 import viral as viral_mod
 from mcap_progress import apply_mcap
 
@@ -127,6 +128,14 @@ def _bind_qa_walk():
         client = uuid.uuid4().hex
         g.client_set_cookie = client
     game_mod.set_client_sid(client)
+    walk_cookie = (request.cookies.get(game_mod.QA_WALK_COOKIE) or "").strip()
+    qa_book = (
+        (request.headers.get("X-Nunu-QA") or "").strip() == "1"
+        or (request.args.get("qa") or "").strip() == "1"
+        or request.args.get("qa_tick") is not None
+        or bool(walk_cookie and game_mod.qa_walk_armed(walk_cookie))
+    )
+    g.book_token = game_mod._book.set("qa" if qa_book else "live")
     cookie = (request.cookies.get(game_mod.QA_WALK_COOKIE) or "").strip()
     query = (request.args.get("qa_tick") or "").strip().lower()
     path = request.path or ""
@@ -158,6 +167,9 @@ def _bind_qa_walk():
 
 @app.teardown_request
 def _log_slow_request(_exc=None):
+    token = getattr(g, "book_token", None)
+    if token is not None:
+        game_mod._book.reset(token)
     started = getattr(g, "slow_t0", None)
     slow_id = getattr(g, "slow_id", None)
     if slow_id is not None:
@@ -260,14 +272,20 @@ def _wants_qa_gold() -> bool:
     return raw in {"1", "true", "yes", "on", "arrive"}
 
 
+def _qa_x_mode() -> str | None:
+    """Opt-in checklist fixture. Absent leaves live rows alone."""
+    return qa_x.mode_from_query(request.args.get("qa_x"))
+
+
 def _prepare_cache_key() -> tuple:
     qa_max = _wants_qa_max()
     qa_gold = _wants_qa_gold()
+    qa_mode = _qa_x_mode()
     try:
         st = FLAGGED_PATH.stat()
-        return (st.st_mtime_ns, st.st_size, qa_max, qa_gold)
+        return (st.st_mtime_ns, st.st_size, qa_max, qa_gold, qa_mode)
     except OSError:
-        return (None, 0, qa_max, qa_gold)
+        return (None, 0, qa_max, qa_gold, qa_mode)
 
 
 def _prepare_flagged(data):
@@ -287,6 +305,10 @@ def _prepare_flagged(data):
     if _wants_qa_max():
         kept = [row for row in rows if not (isinstance(row, dict) and row.get("qa_max_fixture"))]
         rows = [qa_max.prepared_row()] + kept
+    mode = _qa_x_mode()
+    if mode:
+        kept = [row for row in rows if not (isinstance(row, dict) and row.get("qa_x_fixture"))]
+        rows = qa_x.rows_for(mode) + kept
     rows = gold_scar.annotate(rows)
     if _wants_qa_gold():
         rows = qa_gold.prepend(rows)
@@ -301,6 +323,9 @@ def _flagged_etag_suffix() -> str:
         parts.append("qa_max")
     if _wants_qa_gold():
         parts.append("qa_gold")
+    mode = _qa_x_mode()
+    if mode:
+        parts.append("qa_x:" + mode)
     return ":" + "+".join(parts)
 
 
@@ -338,7 +363,7 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 101,
+            "panel_v": 102,
             "time": _utc(),
             "qa_tick": "page ?qa_tick=both|up|down",
             "qa_end": "page ?qa_end=1 (one-shot) or POST /api/game/end",
@@ -479,7 +504,14 @@ def api_health():
             ),
             "live_tick_ttl_s": game_mod.LIVE_TICK_TTL_S,
             "stream": trade_stream_mod.stream_health_cached(),
-            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture", "game_ai_review", "gold_scar", "game_follow_tab", "filter_smart", "profile_custom_pic", "final_polish", "live_tick", "trade_stream"],
+            "coin_checklist": (
+                "Coin sheet checklist. GET /api/coin/checklist?mint= returns verdict "
+                "BUY-WATCH, WATCH, or SKIP from the scoring config. Unknown is not a pass. "
+                "A rug-history dev or a linked cluster at or above 10% forces SKIP. "
+                "The funder trace stops at 10s and is cached. Checklist fetches stay off "
+                "the tick, health, and buy paths."
+            ),
+            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture", "game_ai_review", "gold_scar", "game_follow_tab", "filter_smart", "profile_custom_pic", "final_polish", "live_tick", "trade_stream", "coin_checklist", "usd_price"],
             "sitting_drop_min": 5.0,
             "sitting_aged_min": 180.0,
             "sitting_keep": True,
@@ -517,7 +549,7 @@ def api_gold():
     return jsonify(
         {
             "ok": True,
-            "panel_v": 101,
+            "panel_v": 102,
             "feature": "gold_scar",
             "count": len(picks),
             "empty_ok": True,
@@ -772,6 +804,18 @@ def api_coin():
     mint = (request.args.get("mint") or request.args.get("ca") or request.args.get("q") or "").strip()
     if not mint:
         return jsonify({"ok": False, "error": "mint required"}), 400
+    if qa_x.is_fixture_mint(mint):
+        mode = _qa_x_mode()
+        if not mode or not any(isinstance(row, dict) and row.get("mint") == mint for row in qa_x.rows_for(mode)):
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": "QA checklist fixture is opt-in. Open the panel with ?qa_x=buywatch|watch|skip.",
+                    "mint": mint,
+                }
+            ), 400
+        row = next(row for row in qa_x.rows_for(mode) if row.get("mint") == mint)
+        return jsonify({"ok": True, "mint": mint, "source": "qa_x_fixture", "qa_x_fixture": True, "row": row})
     if game_mod.looks_like_mint(mint):
         game_mod.watch_mint(mint)
     if qa_gold.is_fixture_mint(mint):
@@ -822,6 +866,43 @@ def api_coin():
     result = filter_mod.coin_payload(mint, bypass_cache=fresh)
     code = 200 if result.get("ok") else 400
     return jsonify(result), code
+
+
+@app.get("/api/coin/checklist")
+def api_coin_checklist():
+    """SHIP X checklist. Verdict name is BUY-WATCH, WATCH, or SKIP."""
+    import coin_checklist
+
+    mint = (request.args.get("mint") or request.args.get("ca") or "").strip()
+    if not mint:
+        return jsonify({"ok": False, "error": "mint required", "verdict": None}), 400
+    if qa_x.is_fixture_mint(mint):
+        mode = _qa_x_mode()
+        payload = qa_x.checklist_for(mint) if mode else None
+        allowed = payload is not None and any(
+            isinstance(row, dict) and row.get("mint") == mint for row in qa_x.rows_for(mode or "")
+        )
+        if not allowed or payload is None:
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": "QA checklist fixture is opt-in. Open the panel with ?qa_x=buywatch|watch|skip.",
+                    "mint": mint,
+                    "verdict": None,
+                }
+            ), 400
+        return jsonify(payload)
+    if qa_gold.is_fixture_mint(mint) or qa_max.is_fixture_mint(mint):
+        payload = coin_checklist.assemble(mint, {})
+        payload["fixture"] = True
+        return jsonify(payload)
+    fresh = (request.args.get("fresh") or "").lower() in ("1", "true", "yes")
+    # This route is the drawer's fetch. Tick, health, and buy do not call it.
+    # A cached sheet returns immediately. A miss is gathered on a side thread
+    # and this call waits at most the funder-trace budget.
+    payload = coin_checklist.for_mint(mint, bypass=fresh)
+    code = 200 if payload.get("ok") else 400
+    return jsonify(payload)
 
 
 # —— Paper log (research CSV) ——
@@ -1206,6 +1287,7 @@ def _boot_stream() -> None:
         return
     import trade_stream
     trade_stream.ensure_started()
+    game_mod.reset_owner_game_once()
 
 
 _boot_stream()
