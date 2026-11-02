@@ -9,9 +9,13 @@ Also: paper-log CSV append + 24h $5 paper game.
 
 from __future__ import annotations
 
+import faulthandler
 import hashlib
 import json
 import os
+import sys
+import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -64,6 +68,52 @@ def _qa_walk_mint() -> str:
     return ""
 
 
+_inflight_lock = threading.Lock()
+_inflight: dict[int, dict] = {}
+_slow_watch_started = False
+
+
+def _mint_of_request() -> str:
+    mint = (request.args.get("mint") or request.args.get("ca") or "").strip()
+    if mint:
+        return mint
+    body = request.get_json(silent=True) or {}
+    if isinstance(body, dict):
+        return str(body.get("mint") or body.get("ca") or body.get("position_id") or body.get("id") or "")
+    return ""
+
+
+def _watch_slow_requests() -> None:
+    """Dump every thread once a request is still inside the process after 3s."""
+    while True:
+        time.sleep(0.5)
+        now = time.monotonic()
+        late: list[dict] = []
+        with _inflight_lock:
+            for row in _inflight.values():
+                if row.get("dumped"):
+                    continue
+                if now - float(row["t"]) < 3.0:
+                    continue
+                row["dumped"] = True
+                late.append(dict(row))
+        for row in late:
+            age = time.monotonic() - float(row["t"])
+            print(
+                f"[slow] still running {row['method']} {row['path']} mint={row['mint']} {age:.2f}s",
+                flush=True,
+            )
+            faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
+
+
+def _ensure_slow_watch() -> None:
+    global _slow_watch_started
+    if _slow_watch_started:
+        return
+    _slow_watch_started = True
+    threading.Thread(target=_watch_slow_requests, name="slow-watch", daemon=True).start()
+
+
 @app.before_request
 def _bind_qa_walk():
     """Arm a one-mint price walk from ?qa_tick=down. off, 0, and up clear it.
@@ -92,6 +142,35 @@ def _bind_qa_walk():
     elif cookie and game_mod.qa_walk_armed(cookie):
         sid = cookie
     game_mod.set_qa_walk_sid(sid)
+    _ensure_slow_watch()
+    g.slow_id = uuid.uuid4().hex
+    g.slow_t0 = time.monotonic()
+    g.slow_mint = _mint_of_request()
+    with _inflight_lock:
+        _inflight[g.slow_id] = {
+            "t": g.slow_t0,
+            "method": request.method,
+            "path": request.path or "",
+            "mint": g.slow_mint,
+            "dumped": False,
+        }
+
+
+@app.teardown_request
+def _log_slow_request(_exc=None):
+    started = getattr(g, "slow_t0", None)
+    slow_id = getattr(g, "slow_id", None)
+    if slow_id is not None:
+        with _inflight_lock:
+            _inflight.pop(slow_id, None)
+    if started is None:
+        return
+    elapsed = time.monotonic() - float(started)
+    if elapsed >= 1.0:
+        print(
+            f"[slow] {request.method} {request.path} mint={getattr(g, 'slow_mint', '')} {elapsed:.2f}s",
+            flush=True,
+        )
 
 _json_cache: dict[str, tuple[int, object]] = {}
 # Gold annotate is pure CPU. Pollers hit /api/flagged often. Keyed by the
@@ -259,7 +338,7 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 100,
+            "panel_v": 101,
             "time": _utc(),
             "qa_tick": "page ?qa_tick=both|up|down",
             "qa_end": "page ?qa_end=1 (one-shot) or POST /api/game/end",
@@ -329,6 +408,8 @@ def api_health():
                 "A SOL/USD conversion, or the quote token's own USD print, does not refresh it. "
                 "A Jupiter price is stale at every age, and Buy is refused. "
                 "/api/health and /api/game/tick read cached state and do not wait on RPC. "
+                "They wait at most 0.25s for a lock, then serve the last cached price marked stale. "
+                "Buy, sell, sell-all, and quote give up after about 3s and a buy is refused. "
                 "It is not the steady-state coin price. A pool that stays unreachable for more than "
                 "10s may return src jupiter_fallback, and that tick is stale so it cannot fill a buy "
                 "or a stop. A sell of an open position may still close at that labeled price. "
@@ -436,7 +517,7 @@ def api_gold():
     return jsonify(
         {
             "ok": True,
-            "panel_v": 100,
+            "panel_v": 101,
             "feature": "gold_scar",
             "count": len(picks),
             "empty_ok": True,
@@ -889,10 +970,17 @@ def api_game_tick():
         mint = resolved
     import trade_stream
     trade_stream.note_view(mint)
-    # Cached only. Jupiter and RPC stay on the vault thread.
+    # First watch starts a read on its own thread. This handler never awaits it.
+    game_mod.kick_price_refresh(mint)
     tick = game_mod.fetch_live_tick(mint, network=False)
     if not isinstance(tick, dict):
-        reason = "no_baseline" if trade_stream.awaiting_baseline(mint) else "cold"
+        waiting_base = False
+        if trade_stream._guard.acquire(timeout=0.25):
+            try:
+                waiting_base = mint in trade_stream._awaiting_pair
+            finally:
+                trade_stream._guard.release()
+        reason = "no_baseline" if waiting_base else "cold"
         return jsonify({
             "ok": False,
             "mint": mint,
@@ -1107,18 +1195,51 @@ def favicon():
     return ("", 204)
 
 
+def _boot_stream() -> None:
+    """Start the price poller once in this process. Tests skip it.
+
+    gunicorn is one gthread worker, so this import runs once and the poller
+    is not started again per thread.
+    """
+    argv = " ".join(sys.argv)
+    if os.environ.get("PYTEST_CURRENT_TEST") or "unittest" in argv or "pytest" in argv:
+        return
+    import trade_stream
+    trade_stream.ensure_started()
+
+
+_boot_stream()
+
+
 def main() -> None:
     host = os.environ.get("HOST", "0.0.0.0")
     try:
         port = int(os.environ.get("PORT", "8765"))
     except ValueError:
         port = 8765
-    debug = os.environ.get("FLASK_DEBUG", "").lower() in ("1", "true", "yes")
-    print(f"nunu-filter server on http://{host}:{port}/ (panel + /api/*)", flush=True)
+    print(f"nunu-filter gunicorn on http://{host}:{port}/ (panel + /api/*)", flush=True)
     print("Paper research only — no wallets, no order execution.", flush=True)
-    import trade_stream
-    trade_stream.ensure_started()
-    app.run(host=host, port=port, debug=debug, use_reloader=False)
+    os.execvp(
+        sys.executable,
+        [
+            sys.executable,
+            "-m",
+            "gunicorn",
+            "--workers",
+            "1",
+            "--worker-class",
+            "gthread",
+            "--threads",
+            "8",
+            "--timeout",
+            "30",
+            "--graceful-timeout",
+            "15",
+            "--bind",
+            f"{host}:{port}",
+            "server:app",
+        ],
+    )
 
 
 if __name__ == "__main__":

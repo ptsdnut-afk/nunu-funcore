@@ -604,11 +604,23 @@ def public_src(src: str | None) -> str:
     return "jupiter"
 
 
-def stream_is_fresh(mint: str, now: float | None = None) -> bool:
-    """True when an accepted swap or mid landed within STREAM_SILENCE_S."""
+def stream_is_fresh(mint: str, now: float | None = None, wait: float | None = None) -> bool:
+    """True when an accepted swap or mid landed within STREAM_SILENCE_S.
+
+    ``wait`` is how long a caller may sit on the stream lock. None waits.
+    """
     stamped = time.time() if now is None else now
-    with _guard:
+    if wait is None:
+        _guard.acquire()
+        got = True
+    else:
+        got = _guard.acquire(timeout=wait)
+    if not got:
+        return False
+    try:
         seen = _seen.get(mint)
+    finally:
+        _guard.release()
     if seen is None:
         return False
     return (stamped - seen) <= STREAM_SILENCE_S
@@ -890,10 +902,19 @@ def _real_baseline(mint: str, now: float | None = None) -> tuple[float | None, f
     return float(px), age
 
 
-def awaiting_baseline(mint: str) -> bool:
+def awaiting_baseline(mint: str, wait: float | None = None) -> bool:
     """True while a pumpswap price is waiting for swap and vault to agree."""
-    with _guard:
+    if wait is None:
+        _guard.acquire()
+        got = True
+    else:
+        got = _guard.acquire(timeout=wait)
+    if not got:
+        return False
+    try:
         return mint in _awaiting_pair
+    finally:
+        _guard.release()
 
 
 def _cancel_hold_timer(mint: str) -> None:
@@ -1999,12 +2020,17 @@ def ensure_started() -> None:
     argv = " ".join(sys.argv)
     if "unittest" in argv or "pytest" in argv:
         return
-    with _guard:
+    # A tick must not sit behind a poll that already holds the stream lock.
+    if not _guard.acquire(timeout=0.25):
+        return
+    try:
         if _thread is not None and _thread.is_alive():
             return
         _stop.clear()
         _thread = threading.Thread(target=_run, name="trade-stream", daemon=True)
         _thread.start()
+    finally:
+        _guard.release()
 
 
 def _record_ws(state: str, error: str = "") -> None:
@@ -2112,17 +2138,23 @@ def publish_stream_snapshot(snap: dict | None = None) -> None:
 
 
 def stream_health_cached() -> dict:
-    """Health payload. A busy stream lock returns the last snapshot."""
-    if not _guard.acquire(blocking=False):
+    """Health payload. Wait about 0.25s for the stream lock, else the last snapshot."""
+    if not _guard.acquire(timeout=0.25):
         with _health_snap_lock:
             if _health_snap:
                 return dict(_health_snap)
         return _empty_stream_health()
     try:
         snap = _stream_health_locked()
+        now_m = time.monotonic()
+        views = [mint for mint, seen in _views.items() if now_m - seen <= WATCH_TTL_S]
     finally:
         _guard.release()
-    snap["watched"] = watched_mints()
+    try:
+        positions = _position_mints()
+    except Exception:
+        positions = []
+    snap["watched"] = select_watched(positions, views)
     with _health_snap_lock:
         _health_snap.clear()
         _health_snap.update(snap)

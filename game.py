@@ -63,6 +63,15 @@ _live_backoff_until: dict[str, float] = {}
 _live_backoff_s: dict[str, float] = {}
 _live_guard = threading.Lock()
 _live_locks: dict[str, threading.Lock] = {}
+# Tick and health wait this long for a coin lock, then serve the last price stale.
+LOCK_WAIT_S = 0.25
+# Buy, sell, quote, and the open-book refresh stop waiting after this.
+PRICE_DEADLINE_S = 3.0
+_price_deadline: contextvars.ContextVar[float | None] = contextvars.ContextVar(
+    "nunu_price_deadline", default=None
+)
+_flight_guard = threading.Lock()
+_flights: dict[str, dict] = {}
 _qa_walks: dict[str, dict[str, dict]] = {}
 _qa_walk_guard = threading.Lock()
 _qa_sid: contextvars.ContextVar[str | None] = contextvars.ContextVar("nunu_qa_sid", default=None)
@@ -523,6 +532,132 @@ def _live_lock(mint: str) -> threading.Lock:
         return lk
 
 
+def _seconds_left() -> float | None:
+    deadline = _price_deadline.get()
+    if deadline is None:
+        return None
+    return deadline - time.monotonic()
+
+
+def _pull_budget(default: float) -> float:
+    """Seconds left for one upstream call. Never longer than the request deadline."""
+    left = _seconds_left()
+    if left is None:
+        return default
+    return max(0.0, min(default, left))
+
+
+def _bounded_wait(fn, timeout: float):
+    """Run fn on its own thread. A hang returns None and does not keep a coin lock.
+
+    Not the shared fetch pool: a cold start must not wait behind another mint.
+    """
+    if timeout <= 0:
+        return None
+    box: dict = {}
+
+    def run() -> None:
+        try:
+            box["v"] = fn()
+        except Exception as exc:
+            box["e"] = exc
+
+    worker = threading.Thread(target=run, name="price-budget", daemon=True)
+    worker.start()
+    worker.join(timeout)
+    if worker.is_alive():
+        return None
+    if "e" in box:
+        raise box["e"]
+    return box.get("v")
+
+
+def _flight_pull(mint: str, timeout: float):
+    """One Jupiter fetch per mint. Waiters share it. The coin lock is not held."""
+    if timeout <= 0:
+        return None
+    with _flight_guard:
+        slot = _flights.get(mint)
+        if slot is None:
+            slot = {"ev": threading.Event(), "box": {}}
+            _flights[mint] = slot
+            leader = True
+        else:
+            leader = False
+    if not leader:
+        slot["ev"].wait(timeout)
+        return slot["box"].get("result")
+    fut = _fetch_pool.submit(_pull_live_price, mint, timeout)
+    try:
+        result = fut.result(timeout=timeout)
+    except TimeoutError:
+        result = None
+    if fut.done():
+        slot["box"]["result"] = result
+        slot["ev"].set()
+        with _flight_guard:
+            if _flights.get(mint) is slot:
+                _flights.pop(mint, None)
+        return result
+
+    def _finish(done) -> None:
+        try:
+            slot["box"]["result"] = done.result()
+        except Exception:
+            slot["box"]["result"] = None
+        slot["ev"].set()
+        with _flight_guard:
+            if _flights.get(mint) is slot:
+                _flights.pop(mint, None)
+
+    fut.add_done_callback(_finish)
+    return None
+
+
+def _copy_live(mint: str, wait: float = LOCK_WAIT_S) -> tuple[tuple[float, dict] | None, bool]:
+    """(cache copy, got the lock). A busy lock still returns the last tuple."""
+    lk = _live_lock(mint)
+    got = lk.acquire(timeout=wait)
+    try:
+        hit = _live_cache.get(mint)
+        if got and hit and str((hit[1] or {}).get("source") or "") in ("qa_tick", "qa"):
+            _live_cache.pop(mint, None)
+            hit = None
+    finally:
+        if got:
+            lk.release()
+    if not hit:
+        return None, got
+    return (float(hit[0]), dict(hit[1])), got
+
+
+def _store_live(mint: str, stamp: float, payload: dict) -> None:
+    """Write the cache. Does not call the network."""
+    lk = _live_lock(mint)
+    if not lk.acquire(timeout=LOCK_WAIT_S):
+        return
+    try:
+        _live_cache[mint] = (stamp, dict(payload))
+        _clear_live_backoff(mint)
+    finally:
+        lk.release()
+
+
+def _with_price_deadline(fn):
+    """One 3s budget for a trade or a book refresh. Nested calls keep the outer clock."""
+    def wrapped(*args, **kwargs):
+        if _price_deadline.get() is not None:
+            return fn(*args, **kwargs)
+        token = _price_deadline.set(time.monotonic() + PRICE_DEADLINE_S)
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            _price_deadline.reset(token)
+    wrapped.__name__ = getattr(fn, "__name__", "wrapped")
+    wrapped.__doc__ = getattr(fn, "__doc__", None)
+    return wrapped
+
+
 def _http_json(url: str) -> tuple[int, dict | None]:
     """GET JSON. 429 is returned as a status so the caller can back off."""
     limit = float(getattr(_http_local, "timeout", _LIVE_TIMEOUT) or _LIVE_TIMEOUT)
@@ -907,6 +1042,53 @@ def _qa_overlay(sid: str | None, tick: dict | None) -> dict | None:
     return out
 
 
+_warm_guard = threading.Lock()
+_warm_on: set[str] = set()
+_warm_local = threading.local()
+
+
+def kick_price_refresh(mint: str) -> None:
+    """Start this coin's read on its own thread. The tick does not wait for it.
+
+    A fresh cache is left to the poller. A first watch, or a cache with no
+    price, starts immediately and is not queued behind other mints.
+    """
+    if getattr(_warm_local, "on", False):
+        return
+    mint = (mint or "").strip()
+    if len(mint) < 32:
+        return
+    hit = _live_cache.get(mint)
+    if hit:
+        try:
+            px = float((hit[1] or {}).get("price_usd") or 0)
+        except (TypeError, ValueError):
+            px = 0.0
+        if px > 0:
+            return
+    with _warm_guard:
+        if mint in _warm_on:
+            return
+        _warm_on.add(mint)
+
+    def run() -> None:
+        _warm_local.on = True
+        try:
+            import trade_stream
+            try:
+                priced = bool(trade_stream.cold_vault_price(mint))
+            except Exception:
+                priced = False
+            if not priced and not trade_stream._under_test():
+                fetch_live_tick(mint, network=True, await_pool=False, apply_qa=False)
+        finally:
+            _warm_local.on = False
+            with _warm_guard:
+                _warm_on.discard(mint)
+
+    threading.Thread(target=run, name="warm-price", daemon=True).start()
+
+
 def watch_mint(mint: str) -> None:
     """Remember a Quote, an open coin, or a /tick poll and attach the stream."""
     import trade_stream
@@ -920,14 +1102,20 @@ def _serve_cached_tick(mint: str, sid: str | None) -> dict | None:
     import trade_stream
 
     now = time.time()
-    with _live_lock(mint):
-        hit = _live_cache.get(mint)
-        if hit and str((hit[1] or {}).get("source") or "") in ("qa_tick", "qa"):
-            _live_cache.pop(mint, None)
-            hit = None
+    hit, got = _copy_live(mint, LOCK_WAIT_S)
+    if not got and hit:
+        real = _force_stale(_decorate_live(hit[1], hit[0], now))
+        return real if not sid else _qa_overlay(sid, real)
     if not hit:
-        if trade_stream.awaiting_baseline(mint):
+        waiting_base = False
+        if trade_stream._guard.acquire(timeout=LOCK_WAIT_S):
+            try:
+                waiting_base = mint in trade_stream._awaiting_pair
+            finally:
+                trade_stream._guard.release()
+        if waiting_base or not got:
             old = now - (QUOTE_FRESH_SLA_S + 0.05)
+            reason = "no_baseline" if waiting_base else "lock"
             waiting = {
                 "mint": mint,
                 "price_usd": None,
@@ -937,12 +1125,13 @@ def _serve_cached_tick(mint: str, sid: str | None) -> dict | None:
                 "fetched_at": _utc_ms(),
                 "source": "pool_swap",
                 "src": "pool_swap",
-                "driver": "no_baseline",
-                "stale_reason": "no_baseline",
+                "driver": reason,
+                "stale_reason": reason,
             }
-            return _force_stale(_decorate_live(waiting, old, now) if not sid else _qa_overlay(sid, _decorate_live(waiting, old, now)))
+            real = _force_stale(_decorate_live(waiting, old, now))
+            return real if not sid else _qa_overlay(sid, real)
         return None
-    real = _decorate_live(dict(hit[1]), float(hit[0]), now)
+    real = _decorate_live(hit[1], hit[0], now)
     if not sid:
         return real
     return _qa_overlay(sid, real)
@@ -984,8 +1173,12 @@ def fetch_live_tick(
     # thread refreshes the cache. Buy still may, and must not hold game._lock.
     if not network:
         return _serve_cached_tick(mint, sid)
-    if await_pool and not trade_stream.stream_is_fresh(mint):
-        trade_stream.cold_vault_price(mint)
+    if await_pool and not trade_stream.stream_is_fresh(mint, wait=LOCK_WAIT_S):
+        # Own thread, not the shared pool, so a cold start is not queued behind
+        # another mint. The tick route never reaches this: it only kicks a read.
+        budget = _pull_budget(PRICE_DEADLINE_S)
+        if budget > 0:
+            _bounded_wait(lambda: trade_stream.cold_vault_price(mint), budget)
     over_budget = (
         trade_stream.watched_count() > trade_stream.POOL_ONCHAIN_MAX
         and not trade_stream.pool_confirmed_absent(mint)
@@ -1000,7 +1193,7 @@ def fetch_live_tick(
         return _qa_overlay(sid, real)
 
     # No accepted baseline yet. Do not serve an unconfirmed override as live.
-    if not trade_stream.stream_is_fresh(mint) and trade_stream.awaiting_baseline(mint):
+    if not trade_stream.stream_is_fresh(mint, wait=LOCK_WAIT_S) and trade_stream.awaiting_baseline(mint, wait=LOCK_WAIT_S):
         now = time.time()
         old = now - (QUOTE_FRESH_SLA_S + 0.05)
         waiting = {
@@ -1017,13 +1210,21 @@ def fetch_live_tick(
         }
         return _force_stale(_out(waiting, old, now))
 
-    with _live_lock(mint):
-        now = time.time()
-        hit = _live_cache.get(mint)
-        if hit and str((hit[1] or {}).get("source") or "") in ("qa_tick", "qa"):
-            # A walked price must never sit in the shared cache. Drop it.
-            _live_cache.pop(mint, None)
-            hit = None
+    hit, got_lock = _copy_live(mint, LOCK_WAIT_S)
+    now = time.time()
+    if not got_lock:
+        if hit:
+            return _force_stale(_out(hit[1], hit[0], now))
+        old = now - (QUOTE_FRESH_SLA_S + 0.05)
+        waiting = {
+            "mint": mint,
+            "price_usd": None,
+            "source": "pool_swap",
+            "driver": "lock",
+            "stale_reason": "lock",
+        }
+        return _force_stale(_out(waiting, old, now))
+    if True:
         cache_age = None if not hit else max(0.0, now - float(hit[0]))
         poolish = bool(hit) and trade_stream.is_pool_source((hit[1] or {}).get("source"))
         # On-chain price stays the tick until the pool has been silent for 10s.
@@ -1067,7 +1268,7 @@ def fetch_live_tick(
                     if poolish:
                         return _out(hit[1], hit[0], now)
                     return None
-            fb = _stale_jupiter_fallback(mint)
+            fb = _bounded_wait(lambda: _stale_jupiter_fallback(mint), _pull_budget(_LIVE_TIMEOUT))
             if fb:
                 return _force_stale(_out(fb, time.time(), time.time()))
             if poolish:
@@ -1099,12 +1300,20 @@ def fetch_live_tick(
         if not bypass_cache and cache_fresh:
             return _out(hit[1], hit[0], now)
         cold = hit is None
-        timeout = 3.0 if cold else _LIVE_TIMEOUT
-        deadline = time.time() + (3.0 if cold else 0.0)
-        px, source, block, limited = _pull_live_price(mint, timeout=timeout)
-        if (px is None or px <= 0) and cold and time.time() < deadline:
-            left = max(0.3, deadline - time.time())
-            px, source, block, limited = _pull_live_price(mint, timeout=left)
+        timeout = _pull_budget(2.5 if cold else _LIVE_TIMEOUT)
+        started_pull = time.monotonic()
+        pulled = _flight_pull(mint, timeout) if timeout > 0 else None
+        if pulled is None:
+            px, source, block, limited = None, "", None, False
+        else:
+            px, source, block, limited = pulled
+        # A fast empty answer can try once more. A hang already used the budget.
+        if (px is None or px <= 0) and cold and (time.monotonic() - started_pull) < 0.5:
+            left = _pull_budget(1.0)
+            if left >= 0.3:
+                again = _flight_pull(mint, left)
+                if again is not None:
+                    px, source, block, limited = again
         if px is None or px <= 0:
             wait = 2.0 if limited else 0.9
             _arm_live_backoff(mint, time.time(), delay=wait)
@@ -1145,7 +1354,7 @@ def fetch_live_tick(
             payload.pop("qa_tick", None)
             payload.pop("qa_walk_drop", None)
             payload["source"] = "jupiter"
-        _live_cache[mint] = (fetched, dict(payload))
+        _store_live(mint, fetched, payload)
         trade_stream.note_anchor(mint, px, fetched)
         return _out(payload, fetched, fetched)
 
@@ -1966,7 +2175,9 @@ def pm_crash_stop(mint: str, entry: float, sl_pct: float) -> tuple[float, str] |
         return float(executed), label
     fill = executed if _below(executed) else None
     if fill is None:
-        fill = trade_stream.fetch_latest_executed_swap(mint, budget_s=10.0)
+        left = _seconds_left()
+        budget = 10.0 if left is None else max(0.0, min(10.0, left))
+        fill = trade_stream.fetch_latest_executed_swap(mint, budget_s=budget) if budget > 0 else None
     if fill is not None and fill < level:
         return float(fill), label
     return None
@@ -1977,21 +2188,30 @@ def _fetch_position_ticks(mints: list[str]) -> dict[str, dict]:
     ticks: dict[str, dict] = {}
     if not mints:
         return ticks
-    futs = {_fetch_pool.submit(fetch_live_tick, m, False, None, False): m for m in mints}
-    try:
-        for fut in as_completed(futs, timeout=max(4.0, _LIVE_TIMEOUT + 1)):
-            m = futs[fut]
-            try:
-                tick = fut.result()
-            except Exception:
-                tick = None
-            if isinstance(tick, dict):
-                ticks[m] = tick
-    except TimeoutError:
-        pass
+    left = _seconds_left()
+    if left is not None and left <= 0:
+        return ticks
+    timeout = 3.0 if left is None else max(0.05, min(3.0, left))
+    threads = []
+
+    def run(m: str) -> None:
+        try:
+            tick = fetch_live_tick(m, False, None, False)
+        except Exception:
+            tick = None
+        if isinstance(tick, dict):
+            ticks[m] = tick
+
+    for mint_name in mints:
+        worker = threading.Thread(target=run, args=(mint_name,), daemon=True)
+        worker.start()
+        threads.append(worker)
+    for worker in threads:
+        worker.join(timeout)
     return ticks
 
 
+@_with_price_deadline
 def tick_session(st: dict | None = None) -> dict:
     """Refresh open prices, hit SL/TP, force-close at 24h.
 
@@ -2150,6 +2370,7 @@ def _record_score(st: dict) -> None:
     save_scores(scores)
 
 
+@_with_price_deadline
 def buy(
     mint: str,
     stake_usd: float,
@@ -2283,6 +2504,7 @@ def buy(
         }
 
 
+@_with_price_deadline
 def sell(position_id: str) -> dict:
     with _lock:
         st = load_state()
@@ -2888,6 +3110,7 @@ def stop_fill_price(entry: float, tick_px: float, sl_pct: float) -> float:
     return px
 
 
+@_with_price_deadline
 def sell_all() -> dict:
     """Close every open position in one pass. The saved book is the count.
 
@@ -3065,18 +3288,18 @@ def _seed_quote_tick(mint: str, quote: dict | None) -> dict | None:
         "source": "jupiter",
         "src": "jupiter",
     }
-    with _live_lock(mint):
-        _live_cache[mint] = (now, payload)
-        _clear_live_backoff(mint)
+    _store_live(mint, now, payload)
     return payload
 
 
+@_with_price_deadline
 def quote_payload(mint: str, fresh: bool = False) -> dict:
     resolved, err, src = resolve_mint(mint)
     if not resolved:
         return _fail(err or "No quote")
     watch_mint(resolved)
-    q = fetch_dex_token(resolved, bypass_cache=fresh) or {}
+    dex_budget = _pull_budget(PRICE_DEADLINE_S)
+    q = _bounded_wait(lambda: fetch_dex_token(resolved, bypass_cache=fresh), dex_budget) or {}
     tick = fetch_live_tick(resolved, bypass_cache=True, apply_qa=False)
     if not fillable_tick(tick):
         # Quote still answers. The next /tick must not be "no price".
