@@ -729,14 +729,12 @@ def _decorate_live(payload: dict, fetched_at: float, now: float) -> dict:
     if not live:
         out["price_usd"] = px if px is not None and px > 0 else None
     src = str(out.get("source") or out.get("src") or "")
-    if src == "jupiter_fallback" or out.get("src") == "jupiter_fallback":
+    explicit = str(payload.get("source") or payload.get("src") or "")
+    if explicit in ("jupiter", "jupiter_fallback", "jup") or src == "jupiter_fallback":
+        # Jupiter is never a buyable quote. The age stays the real fetch age.
         out["fallback_label"] = "Fallback"
-        # A fallback quote 5s or older is stale. Under 5s can still be bought.
-        if out.get("quote_age_s") is None or float(out["quote_age_s"]) >= QUOTE_FRESH_SLA_S:
-            out["quote_live"] = False
-            out["stale"] = True
-        else:
-            out["stale"] = False
+        out["quote_live"] = False
+        out["stale"] = True
     return out
 
 
@@ -751,8 +749,18 @@ def tick_is_stale(age, sla: float | None = None) -> bool:
     return age_f > limit_f
 
 
+def jupiter_priced(tick: dict | None) -> bool:
+    """True when this tick's price came from Jupiter, at any age."""
+    if not isinstance(tick, dict):
+        return False
+    src = str(tick.get("source") or tick.get("src") or "")
+    return src in ("jupiter", "jupiter_fallback", "jup")
+
+
 def fillable_tick(tick: dict | None) -> bool:
-    """True when this tick may be a buy, sell, or stop fill."""
+    """True when this tick may be a buy or a stop fill. Jupiter never qualifies."""
+    if jupiter_priced(tick):
+        return False
     if not isinstance(tick, dict) or not tick.get("quote_live"):
         return False
     px = _f(tick.get("price_usd"))
@@ -760,6 +768,16 @@ def fillable_tick(tick: dict | None) -> bool:
     if tick_is_stale(age):
         return False
     return px is not None and px > 0 and age is not None and age <= QUOTE_FRESH_SLA_S
+
+
+def closeable_tick(tick: dict | None) -> bool:
+    """A sell may use a labeled Jupiter price. A buy and a stop may not."""
+    if fillable_tick(tick):
+        return True
+    if not jupiter_priced(tick):
+        return False
+    px = _f(tick.get("price_usd"))
+    return px is not None and px > 0
 
 
 def set_qa_walk_sid(sid: str | None) -> None:
@@ -881,6 +899,11 @@ def _qa_overlay(sid: str | None, tick: dict | None) -> dict | None:
     out["price_ts"] = _utc()
     out["quoted_at"] = out["price_ts"]
     out["trade_ts"] = out["price_ts"]
+    # The walk is its own price. The Jupiter quote underneath stays unbuyable.
+    out["quote_live"] = True
+    out["stale"] = False
+    out["quote_age_s"] = 0
+    out.pop("fallback_label", None)
     return out
 
 
@@ -2193,7 +2216,12 @@ def buy(
         cash = float(st.get("cash_usd") or 0)
         if stake > cash + 1e-9:
             return _fail(f"Need ${stake:.3f} but cash is ${cash:.3f}", st)
-        if trade_stream.legs_disagree(mint) or not fillable_tick(tick) or _f(tick.get("price_usd") if tick else None) is None:
+        if (
+            jupiter_priced(tick)
+            or trade_stream.legs_disagree(mint)
+            or not fillable_tick(tick)
+            or _f(tick.get("price_usd") if tick else None) is None
+        ):
             return _fail(
                 "STALE — no fill until a live price lands.",
                 st,
@@ -2266,7 +2294,7 @@ def sell(position_id: str) -> dict:
         mint = str(pos.get("mint") or "")
     tick = fetch_live_tick(mint, apply_qa=False)
     import trade_stream
-    if trade_stream.legs_disagree(mint) or not fillable_tick(tick):
+    if trade_stream.legs_disagree(mint) or not closeable_tick(tick):
         with _lock:
             return _fail("Price stale — can't sell yet", load_state())
     px = float(tick["price_usd"])
@@ -2888,7 +2916,7 @@ def sell_all() -> dict:
     for mint in mints:
         # Real book price. A walked copy must not be the only fill for mint 2.
         tick = fetch_live_tick(mint, bypass_cache=True, apply_qa=False)
-        if not fillable_tick(tick):
+        if not closeable_tick(tick):
             tick = fetch_live_tick(mint, bypass_cache=True, apply_qa=False)
         if isinstance(tick, dict):
             ticks[mint] = tick
@@ -2902,7 +2930,7 @@ def sell_all() -> dict:
                 continue
             mint = str(pos.get("mint") or "")
             tick = ticks.get(mint)
-            if fillable_tick(tick):
+            if closeable_tick(tick):
                 px = float(tick["price_usd"])
                 ts = tick.get("price_ts")
                 basis, label = _close_receipt(tick.get("source"), manual=True)

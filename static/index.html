@@ -3280,7 +3280,7 @@
 
   <script>
 
-    const PANEL_V = 99;
+    const PANEL_V = 100;
     function paintPanelVersion() {
       const label = String(PANEL_V);
       document.querySelectorAll("[data-panel-v]").forEach((el) => {
@@ -6061,6 +6061,8 @@
       const busy = !!(state.gameBusy || state.buyInFlight);
       const tick = state.lastTickResponse;
       const block = stale || (!!tick && !buyEnabledOnTick(tick));
+      // A labeled Jupiter price cannot open a buy. An open position may still close.
+      const sellBlock = block && !(tick && jupiterPricedTick(tick) && !tickPriceMissing(tick));
       const buy = document.getElementById("gBuy");
       if (buy) {
         buy.disabled = busy || block;
@@ -6068,8 +6070,8 @@
       }
       const sellAll = document.getElementById("gSellAll");
       if (sellAll) {
-        sellAll.disabled = busy || block;
-        sellAll.textContent = chrome.sellAll;
+        sellAll.disabled = busy || sellBlock;
+        sellAll.textContent = sellBlock ? chrome.sellAll : tradeButtonLabel("sellall", false);
       }
       const quoted = document.getElementById("gBuyQuoted");
       if (quoted) {
@@ -6079,8 +6081,8 @@
       const sl = document.getElementById("gSl");
       if (sl) sl.disabled = !!block;
       document.querySelectorAll(".g-sell, .gf-sell, [data-follow-sell]").forEach((el) => {
-        el.disabled = busy || block;
-        el.textContent = chrome.sell;
+        el.disabled = busy || sellBlock;
+        el.textContent = sellBlock ? chrome.sell : tradeButtonLabel("sell", false);
       });
     }
 
@@ -6367,8 +6369,16 @@
       return !(px > 0);
     }
 
+    function jupiterPricedTick(tick) {
+      if (!tick) return false;
+      const raw = String(tick.src || tick.source || "");
+      return !!tick.fallback_label || raw === "jupiter_fallback" || raw === "jupiter" || raw === "jup";
+    }
+
     function buyEnabledOnTick(tick) {
       if (!tick || tickPriceMissing(tick)) return false;
+      // Jupiter is never a buy, at 0s or at 5s. A pool quote still uses stale.
+      if (jupiterPricedTick(tick)) return false;
       if (tick.stale === true) return false;
       if (tick.stale === false) return true;
       return !feedStale(tick.quote_age_s, tick.quote_sla_s);

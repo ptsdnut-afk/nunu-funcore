@@ -64,7 +64,9 @@ class LiveTickCacheTests(unittest.TestCase):
             second = game.fetch_live_tick(MINT)
         self.assertEqual(after_miss, 1)
         self.assertEqual(calls["n"], after_miss)
-        self.assertTrue(game.fillable_tick(first))
+        self.assertFalse(game.fillable_tick(first))
+        self.assertTrue(first.get("stale"))
+        self.assertEqual(first.get("fallback_label"), "Fallback")
         self.assertEqual(second["price_usd"], first["price_usd"])
         self.assertEqual(second["price_ts"], first["price_ts"])
         self.assertLessEqual(second["quote_age_s"], game.LIVE_TICK_TTL_S)
@@ -115,7 +117,8 @@ class LiveTickCacheTests(unittest.TestCase):
 
         with mock.patch.object(game, "_http_json", side_effect=fake):
             tick = game.fetch_live_tick(MINT, bypass_cache=True)
-        self.assertTrue(game.fillable_tick(tick))
+        self.assertFalse(game.fillable_tick(tick))
+        self.assertTrue(tick.get("stale"))
         self.assertAlmostEqual(tick["price_usd"], 0.000737)
         self.assertEqual(tick["source"], "jupiter_fallback")
         dex = 0.000737
@@ -178,7 +181,8 @@ class LiveTickCacheTests(unittest.TestCase):
                 self.assertIsNotNone(tick)
                 self.assertLess(tick["quote_age_s"], 2.0)
                 self.assertFalse(game.tick_is_stale(tick["quote_age_s"], tick["quote_sla_s"]))
-                self.assertTrue(tick["quote_live"])
+                self.assertTrue(tick.get("stale"))
+                self.assertFalse(tick["quote_live"])
                 clock["t"] += 1.0
         self.assertEqual(calls["n"], 10)
 
@@ -197,7 +201,8 @@ class LiveTickCacheTests(unittest.TestCase):
 
         with mock.patch("game.time.time", side_effect=now), mock.patch.object(game, "_http_json", side_effect=fake):
             fresh = game.fetch_live_tick(MINT)
-            self.assertTrue(fresh["quote_live"])
+            self.assertFalse(fresh["quote_live"])
+            self.assertTrue(fresh.get("stale"))
             last = fresh
             for _ in range(6):
                 clock["t"] += 1.0
@@ -219,11 +224,14 @@ class LiveTickCacheTests(unittest.TestCase):
         with mock.patch.object(game, "_http_json", side_effect=fake):
             tick = game.fetch_live_tick(MINT)
             body = server.app.test_client().get("/api/game/tick?mint=" + MINT).get_json()
-        self.assertTrue(game.fillable_tick(tick))
+        self.assertFalse(game.fillable_tick(tick))
+        self.assertTrue(tick.get("stale"))
+        self.assertEqual(tick.get("fallback_label"), "Fallback")
         self.assertAlmostEqual(tick["price_usd"], 0.42)
         self.assertTrue(body["ok"])
         self.assertAlmostEqual(body["price_usd"], 0.42)
-        self.assertFalse(body["stale"])
+        self.assertTrue(body["stale"])
+        self.assertEqual(body.get("fallback_label"), "Fallback")
         self.assertNotEqual(body.get("error"), "no price")
 
     def test_tick_quote_and_coin_mark_watched_and_start_the_stream(self):
@@ -291,8 +299,13 @@ class TradeFillTests(unittest.TestCase):
         }
         game.start_session(force=True)
         before = time.time()
+        import trade_stream
+        self.assertEqual(
+            trade_stream.ingest_swap(MINT, 0.0000785, seed_ok=True, source="pool_swap"),
+            "ok",
+        )
         with mock.patch.object(game, "fetch_dex_token", return_value=dex), mock.patch.object(
-            game, "_http_json", return_value=_jup(0.0000785)
+            game, "_http_json", side_effect=AssertionError("jupiter")
         ):
             out = game.buy(MINT, 1.0, sl_pct=20, tp_pct=100)
         self.assertTrue(out["ok"], out)
@@ -468,8 +481,13 @@ class TradeFillTests(unittest.TestCase):
     def test_one_request_id_opens_one_position(self):
         dex = {"symbol": "NVD", "name": "Nvidia", "price_usd": 0.000112, "pair_url": "https://dexscreener.com/solana/x"}
         game.start_session(force=True)
+        import trade_stream
+        self.assertEqual(
+            trade_stream.ingest_swap(MINT, 0.0000785, seed_ok=True, source="pool_swap"),
+            "ok",
+        )
         with mock.patch.object(game, "fetch_dex_token", return_value=dex), mock.patch.object(
-            game, "_http_json", return_value=_jup(0.0000785)
+            game, "_http_json", side_effect=AssertionError("jupiter")
         ):
             first = game.buy(MINT, 1.0, sl_pct=20, tp_pct=100, client_request_id="click-1")
             second = game.buy(MINT, 1.0, sl_pct=20, tp_pct=100, client_request_id="click-1")
@@ -542,7 +560,7 @@ class TradeFillTests(unittest.TestCase):
 class HealthAndChartTests(unittest.TestCase):
     def test_health_is_v82_with_live_tick_and_a_five_second_sla(self):
         data = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 99)
+        self.assertEqual(data["panel_v"], 100)
         self.assertIn("live_tick", data["features"])
         self.assertLessEqual(data["quote_sla_s"], 5.0)
         self.assertEqual(data["quote_sla_s"], 5.0)
@@ -562,7 +580,7 @@ class HealthAndChartTests(unittest.TestCase):
             "quoted_epoch": time.time(),
             "quote_age_s": 0.4,
             "quote_live": True,
-            "source": "jupiter",
+            "source": "pool_swap",
         }
         client = server.app.test_client()
         with mock.patch.object(server.game_mod, "fetch_live_tick", return_value=fresh):
@@ -593,6 +611,14 @@ class HealthAndChartTests(unittest.TestCase):
         self.assertTrue(body["stale"])
         self.assertFalse(body["quote_live"])
         self.assertTrue(game.tick_is_stale(body["quote_age_s"], body["quote_sla_s"]))
+        jupiter = dict(fresh, source="jupiter_fallback", fallback_label="Fallback", quote_age_s=0.4, quote_live=True)
+        with mock.patch.object(server.game_mod, "fetch_live_tick", return_value=jupiter):
+            res = client.get("/api/game/tick?mint=" + MINT)
+        body = res.get_json()
+        self.assertTrue(body["stale"])
+        self.assertFalse(body["quote_live"])
+        self.assertEqual(body.get("fallback_label"), "Fallback")
+        self.assertEqual(body["price_usd"], 0.0000785)
 
     def test_stale_trade_buttons_say_waiting_for_live_price(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
@@ -870,7 +896,8 @@ class ShipW3Tests(unittest.TestCase):
         )
         with mock.patch.object(game, "_http_json", return_value=_jup(1.25, 4)):
             tick = game.fetch_live_tick(MINT, bypass_cache=True, apply_qa=False)
-        self.assertTrue(game.fillable_tick(tick))
+        self.assertFalse(game.fillable_tick(tick))
+        self.assertTrue(tick.get("stale"))
         self.assertLess(tick["quote_age_s"], 1.0)
         self.assertAlmostEqual(tick["price_usd"], 1.25)
         self.assertEqual(tick["source"], "jupiter_fallback")
@@ -1070,7 +1097,7 @@ class ShipW3Tests(unittest.TestCase):
 
     def test_health_documents_the_stream_and_panel_87(self):
         data = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 99)
+        self.assertEqual(data["panel_v"], 100)
         self.assertIn("trade_stream", data["features"])
         self.assertIn("stream", data["live_tick"])
         self.assertIn("PumpPortal", data["live_tick"])
@@ -1082,7 +1109,7 @@ class ShipW3Tests(unittest.TestCase):
 
     def test_w20_w22_w23_w26_w27_w28_panel_contract(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
-        self.assertIn("const PANEL_V = 99", html)
+        self.assertIn("const PANEL_V = 100", html)
         self.assertIn("paintPanelVersion", html)
         self.assertIn("data-panel-v", html)
         pure = html[html.index("/* ship-w-pure-start */"):html.index("/* ship-w-pure-end */")]
@@ -1128,6 +1155,14 @@ if (buyEnabledOnTick({ stale: false })) process.exit(29);
 if (buyEnabledOnTick({ price_usd: 1, stale: false }) !== true) process.exit(30);
 if (buyEnabledOnTick({ price_usd: 1, stale: true })) process.exit(31);
 if (buyEnabledOnTick(null)) process.exit(32);
+const jup0 = { price_usd: 1, source: "jupiter_fallback", fallback_label: "Fallback", stale: true, quote_age_s: 0, quote_sla_s: 5 };
+if (buyEnabledOnTick(jup0)) process.exit(36);
+const jup49 = { price_usd: 1, source: "jupiter_fallback", fallback_label: "Fallback", stale: false, quote_age_s: 4.9, quote_sla_s: 5 };
+if (buyEnabledOnTick(jup49)) process.exit(37);
+const jup5 = { price_usd: 1, source: "jupiter_fallback", fallback_label: "Fallback", stale: true, quote_age_s: 5, quote_sla_s: 5 };
+if (buyEnabledOnTick(jup5)) process.exit(38);
+const poolBuy = { price_usd: 1, source: "pool_swap", stale: false, quote_age_s: 1, quote_sla_s: 5 };
+if (buyEnabledOnTick(poolBuy) !== true) process.exit(39);
 if (tickDriver({ driver: "jupiter_fallback", source: "jupiter_fallback" }) !== "jupiter_fallback") process.exit(33);
 if (tickDriver({ driver: "cold" }) !== "cold") process.exit(34);
 if (tickPriceMissing({ price_usd: null, stale: false }) !== true) process.exit(35);
@@ -2596,8 +2631,9 @@ class ShipW94Tests(unittest.TestCase):
         state_patch.start()
         self.addCleanup(state_patch.stop)
         game.start_session(force=True)
+        self.assertEqual(trade_stream.ingest_swap(MINT, entry, seed_ok=True, source="pool_swap"), "ok")
         with mock.patch.object(game, "fetch_dex_token", return_value={"symbol": "NVD", "name": "N"}), \
-             mock.patch.object(game, "_http_json", return_value=_jup(entry)):
+             mock.patch.object(game, "_http_json", side_effect=AssertionError("jupiter")):
             opened = game.buy(MINT, 1.0, sl_pct=20)
         self.assertTrue(opened["ok"], opened)
         trade_stream.reset_for_tests()
@@ -2688,15 +2724,19 @@ class ShipW94Tests(unittest.TestCase):
         state_patch.start()
         self.addCleanup(state_patch.stop)
         game.start_session(force=True)
+        import trade_stream
+        self.assertEqual(trade_stream.ingest_swap(MINT, 1.0, seed_ok=True, source="pool_swap"), "ok")
         with mock.patch.object(game, "fetch_dex_token", return_value={"symbol": "NVD", "name": "N"}), \
-             mock.patch.object(game, "_http_json", return_value=_jup(1.0)):
+             mock.patch.object(game, "_http_json", side_effect=AssertionError("jupiter")):
             refused = game.buy(MINT, 1.0, sl_pct=20, displayed_price=1.06)
         self.assertFalse(refused["ok"])
         self.assertIn("5%", refused["error"])
         self.assertEqual(refused["state"]["positions"], [])
         game._live_cache.clear()
+        trade_stream.reset_for_tests()
+        self.assertEqual(trade_stream.ingest_swap(MINT, 1.03, seed_ok=True, source="pool_swap"), "ok")
         with mock.patch.object(game, "fetch_dex_token", return_value={"symbol": "NVD", "name": "N"}), \
-             mock.patch.object(game, "_http_json", return_value=_jup(1.03)):
+             mock.patch.object(game, "_http_json", side_effect=AssertionError("jupiter")):
             filled = game.buy(MINT, 1.0, sl_pct=20, displayed_price=1.0)
         self.assertTrue(filled["ok"], filled)
         self.assertAlmostEqual(filled["fill_price_usd"], 1.03)
@@ -3062,40 +3102,76 @@ class ShipW98Tests(unittest.TestCase):
         self.assertFalse(body["quote_live"])
         self.assertGreater(body["quote_age_s"], 5.0)
 
-    def test_fresh_fallback_with_a_passing_requote_is_buyable(self):
+    def test_jupiter_quote_is_stale_at_every_age_and_buy_is_refused(self):
         self._book()
-        with mock.patch.object(game, "_http_json", return_value=_jup(1.0)), \
-             mock.patch.object(game, "fetch_dex_token", return_value={"symbol": "N", "name": "N"}):
-            tick = game.fetch_live_tick(MINT, apply_qa=False)
-            self.assertEqual(tick["fallback_label"], "Fallback")
-            self.assertEqual(tick["source"], "jupiter_fallback")
-            self.assertLess(tick["quote_age_s"], 5.0)
-            self.assertTrue(tick["quote_live"])
-            self.assertFalse(tick.get("stale"))
-            filled = game.buy(MINT, 1.0, sl_pct=20, displayed_price=1.02)
-        self.assertTrue(filled["ok"], filled)
-        self.assertAlmostEqual(filled["fill_price_usd"], 1.0, places=6)
-
-    def test_fallback_five_seconds_or_older_is_refused(self):
-        self._book()
-        old = time.time() - 5.0
-        game._live_cache[MINT] = (old, {
+        now = 1_700_000_000.0
+        payload = {
             "mint": MINT,
             "price_usd": 1.0,
             "price_ts": "2026-01-01T00:00:00Z",
             "source": "jupiter_fallback",
             "driver": "jupiter_fallback",
-        })
-        with mock.patch.object(game, "_http_json", return_value=(0, None)), \
-             mock.patch.object(game, "fetch_dex_token", return_value={"symbol": "N", "name": "N"}):
-            tick = game.fetch_live_tick(MINT, apply_qa=False)
-            refused = game.buy(MINT, 1.0, sl_pct=20, displayed_price=1.0)
-        self.assertEqual(tick["fallback_label"], "Fallback")
-        self.assertGreaterEqual(tick["quote_age_s"], 5.0)
-        self.assertFalse(tick.get("quote_live"))
-        self.assertFalse(game.fillable_tick(tick))
-        self.assertFalse(refused["ok"], refused)
-        self.assertEqual(refused["state"]["positions"], [])
+        }
+        client = server.app.test_client()
+        for age in (0.0, 4.9, 5.0):
+            tick = game._decorate_live(payload, now - age, now)
+            self.assertEqual(tick["quote_age_s"], age)
+            self.assertTrue(tick["stale"])
+            self.assertFalse(tick["quote_live"])
+            self.assertEqual(tick["fallback_label"], "Fallback")
+            self.assertFalse(game.fillable_tick(tick))
+            game._live_cache[MINT] = (time.time() - age, dict(payload))
+            with mock.patch.object(game, "_http_json", return_value=(0, None)), \
+                 mock.patch.object(game, "fetch_dex_token", return_value={"symbol": "N", "name": "N"}):
+                body = client.get("/api/game/tick?mint=" + MINT).get_json()
+                api = client.post("/api/game/buy", json={
+                    "mint": MINT,
+                    "stake_usd": 1.0,
+                    "sl_pct": 20,
+                    "displayed_price": 1.0,
+                })
+            self.assertTrue(body["stale"], body)
+            self.assertFalse(body["quote_live"])
+            self.assertEqual(body.get("fallback_label"), "Fallback")
+            self.assertAlmostEqual(body["price_usd"], 1.0)
+            if age == 0.0:
+                self.assertLess(body["quote_age_s"], 1.0)
+            elif age == 4.9:
+                self.assertGreater(body["quote_age_s"], 4.0)
+                self.assertLess(body["quote_age_s"], 5.0)
+            else:
+                self.assertGreaterEqual(body["quote_age_s"], 5.0)
+            self.assertEqual(api.status_code, 400, api.get_json())
+            refused = api.get_json()
+            self.assertFalse(refused["ok"], refused)
+            self.assertEqual(refused["state"]["positions"], [])
+
+    def test_pool_priced_coin_still_buys(self):
+        import trade_stream
+        self._book()
+        self.assertEqual(
+            trade_stream.ingest_swap(MINT, 1.0, seed_ok=True, source="pool_swap", sol=100.0),
+            "ok",
+        )
+        with mock.patch.object(game, "_http_json", side_effect=AssertionError("jupiter")), \
+             mock.patch.object(game, "fetch_dex_token", return_value={"symbol": "POOL", "name": "Pool"}):
+            tick = game.fetch_live_tick(MINT, apply_qa=False, network=False)
+            body = server.app.test_client().get("/api/game/tick?mint=" + MINT).get_json()
+            filled = game.buy(MINT, 1.0, sl_pct=20, displayed_price=1.0)
+            api = server.app.test_client().post("/api/game/buy", json={
+                "mint": MINT,
+                "stake_usd": 1.0,
+                "sl_pct": 20,
+                "displayed_price": 1.0,
+            })
+        self.assertEqual(tick["source"], "pool_swap")
+        self.assertFalse(tick.get("stale"))
+        self.assertTrue(tick["quote_live"])
+        self.assertFalse(body["stale"])
+        self.assertTrue(filled["ok"], filled)
+        self.assertEqual(filled["position"]["price_source"], "pool_swap")
+        self.assertEqual(api.status_code, 200, api.get_json())
+        self.assertTrue(api.get_json()["ok"])
 
     def test_raydium_amm_v4_and_cpmm_price_from_vault_accounts(self):
         import base64
@@ -3246,7 +3322,7 @@ class ShipW98Tests(unittest.TestCase):
             release.set()
             worker.join(2)
         self.assertLess(health_s, 0.5)
-        self.assertEqual(health["panel_v"], 99)
+        self.assertEqual(health["panel_v"], 100)
         self.assertIn("watched", health["stream"])
         samples.sort()
         p99 = samples[max(0, int(0.99 * (len(samples) - 1)))]
@@ -3359,7 +3435,7 @@ class ShipW98Tests(unittest.TestCase):
         self.assertIn("fill_basis", html)
         self.assertIn("px-fallback", html)
         self.assertIn("w98-full-name", html)
-        self.assertIn("const PANEL_V = 99", html)
+        self.assertIn("const PANEL_V = 100", html)
 
 
 class ShipW99Tests(unittest.TestCase):
@@ -3444,7 +3520,7 @@ class ShipW99Tests(unittest.TestCase):
         body = server.app.test_client().get("/api/game/tick?mint=" + MINT).get_json()
         self.assertTrue(body["stale"])
 
-    def test_baba_quote_move_does_not_refresh_fafa(self):
+    def _fafa_pool(self):
         import trade_stream
         fafa, baba = _pk(91), _pk(92)
         pool = {
@@ -3470,17 +3546,91 @@ class ShipW99Tests(unittest.TestCase):
         )
         first = trade_stream._price_vault_pair("http://rpc", pool, 1_000_000, 1_000_000)
         self.assertAlmostEqual(first, 2.0, places=4)
+        return fafa, baba, pool
+
+    def test_unchanged_nonsol_vault_read_stays_fresh(self):
+        import trade_stream
+        fafa, baba, pool = self._fafa_pool()
+        self._backdate(fafa)
+        trade_stream._quote_px[baba] = (time.time(), 2.02)
+        again = trade_stream._price_vault_pair("http://rpc", pool, 1_000_000, 1_000_000)
+        self.assertAlmostEqual(again, 2.02, places=4)
+        tick = game.fetch_live_tick(fafa, apply_qa=False, network=False)
+        self.assertLess(tick["quote_age_s"], 1.0)
+        self.assertTrue(tick["quote_live"])
+        body = server.app.test_client().get("/api/game/tick?mint=" + fafa).get_json()
+        self.assertFalse(body["stale"])
+        self.assertTrue(body["quote_live"])
+
+    def test_baba_trade_alone_does_not_refresh_fafa(self):
+        import trade_stream
+        fafa, baba, _pool = self._fafa_pool()
         self._backdate(fafa)
         trade_stream._quote_px[baba] = (time.time(), 2.02)
         trade_stream.ingest_swap(baba, 2.02, seed_ok=True, source="pool_swap", sol=100.0)
-        moved = trade_stream._price_vault_pair("http://rpc", pool, 1_000_000, 1_000_000)
-        self.assertAlmostEqual(moved, 2.02, places=4)
         tick = game.fetch_live_tick(fafa, apply_qa=False, network=False)
         self.assertGreater(tick["quote_age_s"], 5.0)
         self.assertFalse(tick.get("quote_live"))
+        self.assertAlmostEqual(tick["price_usd"], 2.0, places=4)
         body = server.app.test_client().get("/api/game/tick?mint=" + fafa).get_json()
         self.assertTrue(body["stale"])
-        self.assertAlmostEqual(body["price_usd"], 2.02, places=4)
+
+    def test_stale_quote_usd_does_not_refresh_the_watched_coin(self):
+        import trade_stream
+        fafa, baba, pool = self._fafa_pool()
+        self._backdate(fafa)
+        trade_stream._quote_px[baba] = (time.time() - 6.0, 2.02)
+        with mock.patch.object(trade_stream, "quote_token_usd", return_value=None):
+            self.assertIsNone(trade_stream._price_vault_pair("http://rpc", pool, 1_000_000, 1_000_000))
+        tick = game.fetch_live_tick(fafa, apply_qa=False, network=False)
+        self.assertGreater(tick["quote_age_s"], 5.0)
+        self.assertFalse(tick.get("quote_live"))
+
+    def test_quote_token_pool_is_due_with_the_watched_coin(self):
+        import trade_stream
+        now = time.time()
+        baba = _pk(92)
+        quote_pool = {
+            "mint": baba,
+            "kind": "pumpswap",
+            "address": _pk(96),
+            "base_mint": baba,
+            "quote_mint": trade_stream.SOL_MINT,
+            "base_vault": _pk(97),
+            "quote_vault": _pk(98),
+            "base_dec": 6,
+            "quote_dec": 9,
+            "virtual_quote": 0,
+        }
+        trade_stream._quote_pools[baba] = quote_pool
+        trade_stream._seen[baba] = now
+        trade_stream._last_px[baba] = 2.0
+        trade_stream._poll_at[quote_pool["address"]] = now - 2.5
+        mints = []
+        for i in range(8):
+            mint = _pk(210 + i)
+            pool = {
+                "mint": mint,
+                "kind": "pumpswap",
+                "address": _pk(310 + i),
+                "base_mint": mint,
+                "quote_mint": baba if i == 0 else trade_stream.SOL_MINT,
+                "base_vault": _pk(410 + i),
+                "quote_vault": _pk(510 + i),
+                "base_dec": 6,
+                "quote_dec": 6 if i == 0 else 9,
+                "virtual_quote": 0,
+            }
+            trade_stream._pools[mint] = pool
+            trade_stream.note_view(mint)
+            trade_stream._seen[mint] = now
+            trade_stream._last_px[mint] = 1.0
+            trade_stream._poll_at[pool["address"]] = now - 2.5
+            mints.append(mint)
+        self.assertLessEqual(trade_stream._poll_interval(2), 3.0)
+        due = {row["mint"] for row in trade_stream._due_pump_snaps()}
+        self.assertTrue(set(mints) <= due)
+        self.assertIn(baba, due)
 
     def test_watched_quiet_coins_are_due_within_three_seconds(self):
         import trade_stream

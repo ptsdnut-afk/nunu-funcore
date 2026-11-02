@@ -280,7 +280,7 @@ class LockOrderTests(unittest.TestCase):
                     else:
                         with server.app.app_context():
                             body = server.api_health().get_json()
-                        if body.get("panel_v") != 99:
+                        if body.get("panel_v") != 100:
                             errors.append(f"panel {body.get('panel_v')}")
                             return
                         if len(body.get("stream", {}).get("watched") or []) < 12:

@@ -259,7 +259,7 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 99,
+            "panel_v": 100,
             "time": _utc(),
             "qa_tick": "page ?qa_tick=both|up|down",
             "qa_end": "page ?qa_end=1 (one-shot) or POST /api/game/end",
@@ -318,18 +318,21 @@ def api_health():
                 "they require a funded API key. "
                 "Jupiter Price API usdPrice is one batched call per second for the SOL anchor. "
                 "A coin with no supported pool may show fallback_label Fallback next to that price. "
-                "Buy is allowed on it only while the quote is under 5s and the re-quote is within 5%. "
-                "A fallback quote 5s or older is stale. Stops do not fill at a Jupiter price. "
+                "That Jupiter quote is stale at every age. Buy is refused. "
+                "A sell of an open position may still close at the labeled price. "
+                "Stops do not fill at a Jupiter price. "
                 "Raydium AMM v4 and CPMM are priced from their vaults on the same poll as PumpSwap. "
                 "At 12 or fewer watched coins a supported pool is the price. "
                 "Above that, a coin that misses the on-chain budget is stale rather than a fresh Jupiter print. "
                 "Quote age is the last successful read of this coin's own pool: a swap, or a vault read that returned, even when the balances did not change. "
-                "A SOL/USD conversion, or another pool's trade, does not refresh it. "
-                "A quote-token USD move on a non-SOL pair is the same as SOL/USD. "
+                "That includes a non-SOL pair such as FAFA/BABA or SIS/SPCX. "
+                "A SOL/USD conversion, or the quote token's own USD print, does not refresh it. "
+                "A Jupiter price is stale at every age, and Buy is refused. "
                 "/api/health and /api/game/tick read cached state and do not wait on RPC. "
                 "It is not the steady-state coin price. A pool that stays unreachable for more than "
-                "10s may return src jupiter_fallback, and that tick is stale so it cannot fill a buy, "
-                "sell, or stop. The first tick resolves the pool and reads vaults synchronously "
+                "10s may return src jupiter_fallback, and that tick is stale so it cannot fill a buy "
+                "or a stop. A sell of an open position may still close at that labeled price. "
+                "The first tick resolves the pool and reads vaults synchronously "
                 "(base64, within about 3s). A non-SOL quote is the pool ratio times that quote token's "
                 "own SOL or USDC pool (PumpSwap, Orca, pump.fun, Raydium CLMM, or Meteora DLMM). That pool is resolved, "
                 "cached, and subscribed even when it is not the quote token's busiest pair, so an "
@@ -433,7 +436,7 @@ def api_gold():
     return jsonify(
         {
             "ok": True,
-            "panel_v": 99,
+            "panel_v": 100,
             "feature": "gold_scar",
             "count": len(picks),
             "empty_ok": True,
@@ -906,14 +909,10 @@ def api_game_tick():
     sla = game_mod.QUOTE_FRESH_SLA_S
     # stale is exactly age > quote_sla_s, even if a caller marked quote_live.
     stale = game_mod.tick_is_stale(age, sla)
-    # A fallback quote at 5s is already stale. SOL-only reprices keep the old age.
+    # Jupiter is stale at every age. A pool quote still uses the 5s line.
     fb_src = str(tick.get("source") or tick.get("src") or "")
-    if tick.get("fallback_label") or fb_src == "jupiter_fallback":
-        try:
-            if age is None or float(age) >= float(sla):
-                stale = True
-        except (TypeError, ValueError):
-            stale = True
+    if tick.get("fallback_label") or fb_src in ("jupiter", "jupiter_fallback", "jup"):
+        stale = True
     px = tick.get("price_usd")
     try:
         px_ok = px is not None and float(px) > 0
