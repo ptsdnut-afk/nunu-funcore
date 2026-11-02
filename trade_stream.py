@@ -29,9 +29,9 @@ When ``HELIUS_API_KEY`` is set, the same subscribe runs on Helius.
 Jupiter is not on the steady-state path. A watched pool is priced from its
 vaults and from logsSubscribe. Raydium AMM v4 and CPMM use that same vault
 poll. Jupiter is a labeled fallback only when the mint has no supported
-pool: the tick carries fallback_label Fallback, a buy is allowed only while
-the quote is under 5 seconds and the re-quote is within 5%, and at 5 seconds
-the quote is stale. Stops do not fill at a Jupiter price. At 12 or fewer
+pool: the tick carries fallback_label Fallback and is stale at every age.
+Buy is refused. A sell of an open position may still close at that price.
+Stops do not fill at a Jupiter price. At 12 or fewer
 watched coins a supported pool is the price, not that fallback. Above that,
 a coin that misses the on-chain budget is stale instead of a fresh Jupiter
 print. Any quote mint that is not SOL or USDC/USDT is the pool
