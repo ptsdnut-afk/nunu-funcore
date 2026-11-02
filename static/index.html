@@ -925,8 +925,40 @@
       0% { transform: translateX(-120%); }
       100% { transform: translateX(320%); }
     }
+    .review-tabs { display: flex; gap: 6px; margin: 0 0 10px; }
+    .review-tabs button {
+      border: 1px solid #2a2a2a; background: #141414; color: var(--muted);
+      border-radius: 999px; padding: 4px 10px; font-size: 0.68rem; font-weight: 800;
+      letter-spacing: .04em; cursor: pointer;
+    }
+    .review-tabs button.on { background: #102018; color: var(--good); border-color: #2a5a40; }
+    .ai-board .ai-rank {
+      display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline;
+      padding: 8px 0; border-bottom: 1px solid var(--border);
+      font-variant-numeric: tabular-nums;
+    }
+    .ai-board .ai-rank .rk { color: var(--muted); font-weight: 800; width: 1.1rem; }
+    .ai-board .ai-rank .nm { font-weight: 800; min-width: 4.5rem; }
+    .ai-board .ai-rank .pct { font-weight: 800; }
+    .ai-board .ai-rank.up .pct { color: var(--good); }
+    .ai-board .ai-rank.down .pct { color: var(--bad); }
+    .ai-board .ai-rank .usd, .ai-board .ai-rank .dd { color: var(--muted); font-size: 0.78rem; }
+    .ai-legend { display: flex; gap: 12px; margin: 6px 0 0; font-size: 0.68rem; color: var(--muted); }
+    .ai-legend i { display: inline-block; width: 10px; height: 3px; margin-right: 4px; vertical-align: middle; }
+    .ai-legend .you { background: #e7e9ea; }
+    .ai-legend .vector { background: #3ecf8e; }
+    .ai-legend .ledger { background: #f0a33a; }
+    .ai-race { width: 100%; height: 120px; display: block; margin-top: 8px; }
+    .ai-note { margin: 8px 0 0; color: var(--muted); font-size: 0.72rem; line-height: 1.4; }
+    .ai-trade { border-top: 1px solid #2a2a2a; padding: 8px 0; font-size: 0.78rem; }
+    .ai-trade header { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; margin-bottom: 4px; }
+    .ai-trade .v { color: var(--muted); font-size: 0.68rem; font-weight: 800; }
+    .ai-flag { color: var(--amber); font-weight: 800; font-size: 0.62rem; letter-spacing: .04em; }
+    .ai-trade .lesson { margin: 4px 0 0; color: #d5dbe3; }
+    .ai-learn { margin: 4px 0; color: var(--muted); font-size: 0.68rem; }
     @media (max-width: 800px) {
       .review-sheet { position: relative; top: auto; right: auto; width: auto; margin: 0 0 10px; }
+      .ai-board .ai-rank .usd, .ai-board .ai-rank .dd { flex-basis: 100%; margin-left: 1.6rem; }
     }
     #gTradeBody[data-state="error"] .err { margin: 8px 0; }
     .quote-card, .pos-card, .score-row {
@@ -2997,7 +3029,13 @@
     <div id="modeGame">
       <div id="gReviewSheet" class="review-sheet" hidden data-feature="game_ai_review" data-blocks-trade="0" data-phase="closed" role="dialog" aria-modal="false" aria-labelledby="gReviewTitle">
         <button type="button" class="dismiss-x" id="gReviewClose" aria-label="Dismiss review" title="Dismiss review">✕</button>
-        <div id="gReviewBody"></div>
+        <div id="gReviewBody">
+          <div class="review-tabs" role="tablist" aria-label="Study">
+            <button type="button" data-study-tab="you" id="gStudyYou">You</button>
+            <button type="button" data-study-tab="VECTOR" id="gStudyVector">VECTOR</button>
+            <button type="button" data-study-tab="LEDGER" id="gStudyLedger">LEDGER</button>
+          </div>
+        </div>
         <div class="review-actions">
           <button type="button" class="gbtn primary" id="gReviewRestart">Start next 24h</button>
           <button type="button" class="gbtn" id="gReviewDismiss">Dismiss</button>
@@ -3127,10 +3165,24 @@
         </div>
       </div>
 
+      <section class="pane ai-board" id="gAiBoard" data-feature="ai_traders" aria-label="You versus AI traders">
+        <div class="pane-head">
+          <h2>You vs VECTOR vs LEDGER</h2>
+          <span class="sub">Paper % P/L this run</span>
+        </div>
+        <div class="pane-body">
+          <div id="gAiRanks"><div class="empty">Loading the paper race…</div></div>
+          <svg id="gAiRace" class="ai-race" viewBox="0 0 320 120" role="img" aria-label="Live paper P and L race"></svg>
+          <div class="ai-legend" aria-hidden="true"><span><i class="you"></i>You</span><span><i class="vector"></i>VECTOR</span><span><i class="ledger"></i>LEDGER</span></div>
+          <p class="ai-note">Each AI has its own $5 book. A fill waits 3 seconds for a fresh pool quote. Six buys an hour. LEDGER buys only BUY-WATCH.</p>
+        </div>
+      </section>
+
       <div class="game-search">
         <span class="sess" id="gSessChip">Idle</span>
         <button type="button" class="gbtn primary" id="gStart">Start 24h ($5)</button>
         <button type="button" class="gbtn" id="gReview" hidden data-feature="game_ai_review">Review</button>
+        <button type="button" class="gbtn" id="gStudy" data-feature="ai_traders">Study</button>
         <input type="text" id="gMint" placeholder="CA, ticker, or name (TikTok) — Play from Filter is safest." spellcheck="false" autocomplete="off" />
         <button type="button" class="gbtn" id="gQuote">Quote</button>
         <label class="gfield">Stake $<input type="text" inputmode="decimal" id="gStake" value="1" data-stake-draft="1" autocomplete="off" /></label>
@@ -3280,7 +3332,7 @@
 
   <script>
 
-    const PANEL_V = 101;
+    const PANEL_V = 103;
     function paintPanelVersion() {
       const label = String(PANEL_V);
       document.querySelectorAll("[data-panel-v]").forEach((el) => {
@@ -4362,6 +4414,7 @@
         loadGame(true);
         if (!state.gameTimer) state.gameTimer = setInterval(() => loadGame(true), state.GAME_POLL_MS || 2000);
         ensureLiveTick();
+        ensureAiBoard();
       }
       if (typeof paintFollowTab === "function") paintFollowTab();
     }
@@ -4372,6 +4425,7 @@
       if (state.gameTimer) return;
       state.gameTimer = setInterval(() => loadGame(true), state.GAME_POLL_MS || 2000);
       loadGame(true);
+      ensureAiBoard();
     }
 
     function feedLoopMin(feed) {
@@ -6717,6 +6771,7 @@
       const sid = (state.game && state.game.session_id) || "";
       if (sid) reviewStoreSet("nunu-review-dismiss", sid);
       state.reviewForcedSid = "";
+      state.studyOpen = false;
       clearTimeout(state.reviewCookTimer);
       const sheet = document.getElementById("gReviewSheet");
       if (sheet) {
@@ -6729,6 +6784,7 @@
       const sid = (state.game && state.game.session_id) || "";
       if (!sid) return;
       state.reviewForcedSid = sid;
+      state.studyTab = "you";
       if (reviewStoreGet("nunu-review-dismiss") === sid) reviewStoreSet("nunu-review-dismiss", "");
       renderGame();
     }
@@ -6793,6 +6849,160 @@
         '<p class="review-humility">' + esc(REVIEW_COOKING.note) + "</p>";
     }
 
+    function studyFrame(youHtml) {
+      return '<div class="review-tabs" role="tablist" aria-label="Study">' +
+        '<button type="button" data-study-tab="you">You</button>' +
+        '<button type="button" data-study-tab="VECTOR">VECTOR</button>' +
+        '<button type="button" data-study-tab="LEDGER">LEDGER</button>' +
+        "</div>" +
+        '<div data-study-pane="you">' + youHtml + "</div>" +
+        '<div data-study-pane="VECTOR"></div>' +
+        '<div data-study-pane="LEDGER"></div>';
+    }
+
+    function studyMoney(n) {
+      const v = Number(n);
+      if (!Number.isFinite(v)) return "—";
+      if (Math.abs(v) < 0.005) return "$0.00";
+      return (v < 0 ? "−$" : "$") + Math.abs(v).toFixed(2);
+    }
+
+    function studyPct(n) {
+      const v = Number(n);
+      if (!Number.isFinite(v)) return "—";
+      const rounded = Math.round(v * 10) / 10;
+      if (rounded === 0) return "0.0%";
+      return (rounded > 0 ? "+" : "−") + Math.abs(rounded).toFixed(1) + "%";
+    }
+
+    function studyTradeHtml(t) {
+      t = t || {};
+      const flag = (t.skip_flag || t.flag === "SKIP") ? '<span class="ai-flag">SKIP</span>' : "";
+      return '<article class="ai-trade">' +
+        "<header><b>" + esc(t.symbol || "?") + "</b> " + flag +
+        ' <span class="v">' + esc(t.verdict || "UNKNOWN") + "</span>" +
+        " <span>" + esc(studyPct(t.pnl_pct)) + " · " + esc(studyMoney(t.pnl_usd)) + "</span></header>" +
+        "<p>Entry: " + esc(t.entry_reason || "—") + "</p>" +
+        "<p>Exit: " + esc(t.exit_reason || "—") + "</p>" +
+        '<p class="lesson">' + esc(t.lesson || "") + "</p></article>";
+    }
+
+    function studyLearnHtml(ai) {
+      const rows = ((state.aiBoard && state.aiBoard.settings_log) || []).filter((row) => row && row.ai === ai).slice(0, 3);
+      if (!rows.length) return "";
+      return rows.map((row) => {
+        const side = row.applied ? "kept" : "rejected";
+        const valid = row.validate || {};
+        const cur = valid.current || {};
+        const cand = valid.candidate || {};
+        return '<p class="ai-learn">' + esc(row.setting || "setting") + " " + esc(row.before) + "→" + esc(row.after) +
+          " " + side + " · validate " + esc(studyMoney(cand.pnl_usd)) + " vs " + esc(studyMoney(cur.pnl_usd)) +
+          " · dd " + esc(studyPct(cand.max_drawdown_pct)) + " · " + esc(row.reason || row.reject_reason || "") + "</p>";
+      }).join("");
+    }
+
+    function fillAiStudy(ai) {
+      const pane = document.querySelector('#gReviewSheet [data-study-pane="' + ai + '"]');
+      if (!pane) return;
+      const trader = state.aiBoard && state.aiBoard.traders && state.aiBoard.traders[ai];
+      const trades = (trader && trader.trades) || [];
+      const body = trades.length
+        ? trades.map(studyTradeHtml).join("")
+        : '<p class="review-summary">No paper trades yet.</p>';
+      const note = trader
+        ? '<p class="review-disclaimer">Paper research review. Not financial advice.</p>'
+        : '<p class="review-summary">Waiting for the paper book.</p>';
+      pane.innerHTML = note + studyLearnHtml(ai) + body;
+    }
+
+    function paintStudyTabs() {
+      const tab = state.studyTab || "you";
+      document.querySelectorAll("#gReviewSheet [data-study-tab]").forEach((el) => {
+        const on = el.getAttribute("data-study-tab") === tab;
+        el.classList.toggle("on", on);
+        el.setAttribute("aria-selected", on ? "true" : "false");
+      });
+      document.querySelectorAll("#gReviewSheet [data-study-pane]").forEach((el) => {
+        el.hidden = el.getAttribute("data-study-pane") !== tab;
+      });
+      fillAiStudy("VECTOR");
+      fillAiStudy("LEDGER");
+    }
+
+    function openAiStudy(which) {
+      state.studyOpen = true;
+      state.studyTab = which || "VECTOR";
+      paintRunReview(state.game || {});
+      loadAiBoard();
+    }
+
+    function paintAiRace(series) {
+      const svg = document.getElementById("gAiRace");
+      if (!svg) return;
+      const names = ["YOU", "VECTOR", "LEDGER"];
+      const colors = { YOU: "#e7e9ea", VECTOR: "#3ecf8e", LEDGER: "#f0a33a" };
+      const width = 320, height = 120, pad = 8;
+      const all = [];
+      names.forEach((name) => {
+        ((series && series[name]) || []).forEach((pt) => all.push(Number(pt && pt.pnl_pct) || 0));
+      });
+      if (!all.length) {
+        svg.innerHTML = '<text x="12" y="64" fill="#8b98a5" font-size="11">Waiting for paper marks</text>';
+        return;
+      }
+      let min = 0, max = 0;
+      all.forEach((v) => { if (v < min) min = v; if (v > max) max = v; });
+      if (max - min < 1) { min -= 1; max += 1; }
+      const x = (i, n) => pad + (n <= 1 ? 0 : (i / (n - 1)) * (width - pad * 2));
+      const y = (v) => pad + (1 - (v - min) / (max - min)) * (height - pad * 2);
+      const zeroY = y(0);
+      let html = '<line x1="' + pad + '" y1="' + zeroY.toFixed(1) + '" x2="' + (width - pad) + '" y2="' + zeroY.toFixed(1) + '" stroke="#2a2a2a"/>';
+      names.forEach((name) => {
+        const row = (series && series[name]) || [];
+        if (!row.length) return;
+        const d = row.map((pt, i) => (i ? "L" : "M") + x(i, row.length).toFixed(1) + "," + y(Number(pt.pnl_pct) || 0).toFixed(1)).join(" ");
+        html += '<path d="' + d + '" fill="none" stroke="' + colors[name] + '" stroke-width="1.8"/>';
+      });
+      svg.innerHTML = html;
+    }
+
+    function paintAiBoard() {
+      const host = document.getElementById("gAiRanks");
+      const board = state.aiBoard;
+      if (!host || !board) return;
+      const rows = board.scoreboard || [];
+      if (!rows.length) {
+        host.innerHTML = '<div class="empty">No paper race yet.</div>';
+      } else {
+        host.innerHTML = rows.map((r) => {
+          const pnl = Math.round((Number(r.pnl_pct) || 0) * 10) / 10;
+          const cls = pnl > 0 ? "up" : pnl < 0 ? "down" : "";
+          const dd = Math.abs(Number(r.max_drawdown_pct) || 0);
+          return '<div class="ai-rank ' + cls + '"><span class="rk">' + esc(r.rank) + '</span><span class="nm">' +
+            esc(r.label || r.id) + '</span><span class="pct">' + esc(studyPct(r.pnl_pct)) +
+            '</span><span class="usd">' + esc(studyMoney(r.pnl_usd)) + '</span><span class="dd">max dd ' +
+            esc(dd.toFixed(1) + "%") + "</span></div>";
+        }).join("");
+      }
+      paintAiRace(board.series || {});
+      if (document.getElementById("gReviewSheet") && !document.getElementById("gReviewSheet").hidden) paintStudyTabs();
+    }
+
+    async function loadAiBoard() {
+      try {
+        const res = await fetch("/api/game/ai", { cache: "no-store" });
+        if (!res.ok) return;
+        state.aiBoard = await res.json();
+        paintAiBoard();
+      } catch (e) {}
+    }
+
+    function ensureAiBoard() {
+      if (state.aiTimer) return;
+      state.aiTimer = setInterval(loadAiBoard, 2000);
+      loadAiBoard();
+    }
+
     function paintRunReview(g) {
       const sheet = document.getElementById("gReviewSheet");
       const btn = document.getElementById("gReview");
@@ -6804,20 +7014,34 @@
       if (btn) btn.hidden = !decision.offer;
       const forced = !!(decision.offer && state.reviewForcedSid && state.reviewForcedSid === sid);
       const wantOpen = decision.open || forced;
-      if (!wantOpen) {
+      const study = !!state.studyOpen;
+      if (!wantOpen && !study) {
         sheet.hidden = true;
         sheet.setAttribute("data-phase", "closed");
         return;
       }
-      const phase = ensureReviewPhase(sid);
-      const stamp = sid + ":" + phase;
+      if (wantOpen && state.reviewTabSid !== sid) {
+        state.reviewTabSid = sid;
+        if (!study) state.studyTab = "you";
+      }
+      let phase = "study";
+      let youHtml = '<div class="review-kicker">You</div>' +
+        '<h3 id="gReviewTitle">This 24h is still open</h3>' +
+        '<p class="review-summary">The run recap waits until the clock ends. VECTOR and LEDGER show each paper trade.</p>' +
+        '<p class="review-disclaimer">' + esc(REVIEW_COOKING.disclaimer) + "</p>";
+      if (wantOpen) {
+        phase = ensureReviewPhase(sid);
+        youHtml = phase === "ready" ? reviewReadyHtml(g.review) : reviewCookingHtml();
+      }
+      const stamp = wantOpen ? (sid + ":" + phase) : "study";
       sheet.hidden = false;
       sheet.setAttribute("data-phase", phase);
       sheet.setAttribute("data-blocks-trade", "0");
       if (sheet.getAttribute("data-stamp") !== stamp) {
         sheet.setAttribute("data-stamp", stamp);
-        body.innerHTML = phase === "ready" ? reviewReadyHtml(g.review) : reviewCookingHtml();
+        body.innerHTML = studyFrame(youHtml);
       }
+      paintStudyTabs();
     }
 
     function ensureQaTickPlan() {
@@ -9945,6 +10169,15 @@
     document.getElementById("gStart").addEventListener("click", gameStart);
     const gReviewBtn = document.getElementById("gReview");
     if (gReviewBtn) gReviewBtn.addEventListener("click", openRunReview);
+    const gStudyBtn = document.getElementById("gStudy");
+    if (gStudyBtn) gStudyBtn.addEventListener("click", () => openAiStudy("VECTOR"));
+    const gReviewSheetEl = document.getElementById("gReviewSheet");
+    if (gReviewSheetEl) gReviewSheetEl.addEventListener("click", (ev) => {
+      const tab = ev.target.closest("[data-study-tab]");
+      if (!tab) return;
+      state.studyTab = tab.getAttribute("data-study-tab") || "you";
+      paintStudyTabs();
+    });
     const gReviewDismiss = document.getElementById("gReviewDismiss");
     if (gReviewDismiss) gReviewDismiss.addEventListener("click", dismissRunReview);
     const gReviewClose = document.getElementById("gReviewClose");

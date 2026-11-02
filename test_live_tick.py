@@ -560,7 +560,7 @@ class TradeFillTests(unittest.TestCase):
 class HealthAndChartTests(unittest.TestCase):
     def test_health_is_v82_with_live_tick_and_a_five_second_sla(self):
         data = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 101)
+        self.assertEqual(data["panel_v"], 103)
         self.assertIn("live_tick", data["features"])
         self.assertLessEqual(data["quote_sla_s"], 5.0)
         self.assertEqual(data["quote_sla_s"], 5.0)
@@ -1097,7 +1097,7 @@ class ShipW3Tests(unittest.TestCase):
 
     def test_health_documents_the_stream_and_panel_87(self):
         data = server.app.test_client().get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 101)
+        self.assertEqual(data["panel_v"], 103)
         self.assertIn("trade_stream", data["features"])
         self.assertIn("stream", data["live_tick"])
         self.assertIn("PumpPortal", data["live_tick"])
@@ -1109,7 +1109,7 @@ class ShipW3Tests(unittest.TestCase):
 
     def test_w20_w22_w23_w26_w27_w28_panel_contract(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
-        self.assertIn("const PANEL_V = 101", html)
+        self.assertIn("const PANEL_V = 103", html)
         self.assertIn("paintPanelVersion", html)
         self.assertIn("data-panel-v", html)
         pure = html[html.index("/* ship-w-pure-start */"):html.index("/* ship-w-pure-end */")]
@@ -3322,7 +3322,7 @@ class ShipW98Tests(unittest.TestCase):
             release.set()
             worker.join(2)
         self.assertLess(health_s, 0.5)
-        self.assertEqual(health["panel_v"], 101)
+        self.assertEqual(health["panel_v"], 103)
         self.assertIn("watched", health["stream"])
         samples.sort()
         p99 = samples[max(0, int(0.99 * (len(samples) - 1)))]
@@ -3435,7 +3435,7 @@ class ShipW98Tests(unittest.TestCase):
         self.assertIn("fill_basis", html)
         self.assertIn("px-fallback", html)
         self.assertIn("w98-full-name", html)
-        self.assertIn("const PANEL_V = 101", html)
+        self.assertIn("const PANEL_V = 103", html)
 
 
 class ShipW99Tests(unittest.TestCase):
@@ -3727,7 +3727,7 @@ class ShipW101Tests(unittest.TestCase):
         self.assertFalse(tick["quote_live"])
         self.assertAlmostEqual(tick["price_usd"], 1.25)
         self.assertTrue(health["ok"])
-        self.assertEqual(health["panel_v"], 101)
+        self.assertEqual(health["panel_v"], 103)
         self.assertTrue(quote.get("stale") or quote.get("quote_live") is False)
         self.assertEqual(buy.status_code, 400)
         body = buy.get_json()

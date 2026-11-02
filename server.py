@@ -338,7 +338,7 @@ def api_health():
         {
             "ok": True,
             "service": "nunu-filter",
-            "panel_v": 101,
+            "panel_v": 103,
             "time": _utc(),
             "qa_tick": "page ?qa_tick=both|up|down",
             "qa_end": "page ?qa_end=1 (one-shot) or POST /api/game/end",
@@ -479,7 +479,19 @@ def api_health():
             ),
             "live_tick_ttl_s": game_mod.LIVE_TICK_TTL_S,
             "stream": trade_stream_mod.stream_health_cached(),
-            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture", "game_ai_review", "gold_scar", "game_follow_tab", "filter_smart", "profile_custom_pic", "final_polish", "live_tick", "trade_stream"],
+            "ai_traders": (
+                "Paper only. VECTOR (momentum) and LEDGER (checklist) each run their own $5 24h book "
+                "on the Filter list, on a background thread. A fill waits 3s, needs a fresh pool quote "
+                "(Jupiter or a stale print is refused), and stops at 6 buys an hour. "
+                "LEDGER buys only BUY-WATCH and never buys SKIP or UNKNOWN. "
+                "VECTOR may buy a SKIP coin; that receipt is flagged SKIP. "
+                "Verdicts come from get_verdict, which is UNKNOWN until the checklist code is present. "
+                "After each close, one setting is nudged and kept only when a train/validate split "
+                "on stored receipts beats the current setting with drawdown at or under 20%. "
+                "Balances reset each 24h. Tuned settings stay in game_state.json. "
+                "They never touch the owner's book. Tick, health, and buy do not run them."
+            ),
+            "features": ["filter", "viral", "social_tap", "traders", "paper_log", "game_24h", "name_search", "on_demand_scan", "coin_detail", "viral_live", "filter_theme", "coin_relevant", "mcap_progress", "quote_sync", "game_finish", "sitting_window", "social_tap_fresh", "delay_warning", "game_polish", "token_flow_new_sound", "dismiss_back", "game_24h_restart", "manual_update", "sitting_keep", "trade_chart", "hide_max_unknown", "qa_max_fixture", "game_ai_review", "gold_scar", "game_follow_tab", "filter_smart", "profile_custom_pic", "final_polish", "live_tick", "trade_stream", "ai_traders"],
             "sitting_drop_min": 5.0,
             "sitting_aged_min": 180.0,
             "sitting_keep": True,
@@ -517,7 +529,7 @@ def api_gold():
     return jsonify(
         {
             "ok": True,
-            "panel_v": 101,
+            "panel_v": 103,
             "feature": "gold_scar",
             "count": len(picks),
             "empty_ok": True,
@@ -1073,6 +1085,14 @@ def api_game_scores():
     return jsonify({"ok": True, "scores": game_mod.load_scores()})
 
 
+@app.get("/api/game/ai")
+def api_game_ai():
+    """Scoreboard and study for VECTOR and LEDGER. Does not tick, quote, or trade."""
+    import ai_traders
+
+    return jsonify(ai_traders.public_payload())
+
+
 @app.post("/api/game/profile")
 def api_game_profile():
     body = request.get_json(silent=True) or {}
@@ -1206,6 +1226,12 @@ def _boot_stream() -> None:
         return
     import trade_stream
     trade_stream.ensure_started()
+    try:
+        import ai_traders
+        ai_traders.ensure_started()
+    except Exception:
+        import traceback
+        traceback.print_exc()
 
 
 _boot_stream()

@@ -1533,9 +1533,20 @@ def load_state() -> dict:
 
 
 def save_state(st: dict) -> None:
+    """Write the owner book. A parallel ``ai_traders`` block is kept from disk.
+
+    SHIP AB stores tuned AI settings in this same file. The owner tick rewrites
+    the book often and must not replace that block with a stale copy. The AI
+    thread writes the block itself and does not rewrite the owner fields from
+    a stale copy. The critical section is this read-merge-write only.
+    """
     with _lock:
-        _write_json(STATE_PATH, st)
-        publish_open_mints(st)
+        existing = _read_json(STATE_PATH, None)
+        out = dict(st)
+        if isinstance(existing, dict) and "ai_traders" in existing:
+            out["ai_traders"] = existing["ai_traders"]
+        _write_json(STATE_PATH, out)
+        publish_open_mints(out)
 
 
 def load_scores() -> list:
@@ -2992,6 +3003,8 @@ def public_state(st: dict | None = None) -> dict:
     if remain_s < 0:
         remain_s = 0
     out = dict(st)
+    # The AI book lives in the same file. It is not the owner's game.
+    out.pop("ai_traders", None)
     out["equity_usd"] = eq
     out["pnl_usd"] = round(eq - float(st.get("start_bankroll") or START_BANKROLL), 6)
     out["pnl_pct"] = round(
