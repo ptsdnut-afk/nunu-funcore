@@ -131,6 +131,12 @@ class LiveHttpPathTests(unittest.TestCase):
         pos = self._pos("one", SOL, spot)
         pos["client_id"] = "client-http"
         self._book([pos])
+        live = game.load_state()
+        token = game._book.set("qa")
+        try:
+            game.save_state(live)
+        finally:
+            game._book.reset(token)
         armed = self.client.get("/api/game/tick?mint=" + SOL + "&qa_tick=down")
         self.assertEqual(armed.status_code, 200)
         for _ in range(59):
@@ -158,7 +164,7 @@ class LiveHttpPathTests(unittest.TestCase):
 
     def test_health_reports_stream_attachment(self):
         data = self.client.get("/api/health").get_json()
-        self.assertEqual(data["panel_v"], 101)
+        self.assertEqual(data["panel_v"], 102)
         stream = data["stream"]
         self.assertIn("why", stream)
         self.assertIn("ws_state", stream)
@@ -169,7 +175,7 @@ class LiveHttpPathTests(unittest.TestCase):
 
     def test_version_labels_share_one_constant_and_score_is_its_own_cell(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
-        self.assertIn("const PANEL_V = 101", html)
+        self.assertIn("const PANEL_V = 102", html)
         self.assertGreaterEqual(html.count("data-panel-v"), 2)
         self.assertIn("function paintPanelVersion()", html)
         self.assertIn("/* w31-score-cell", html)

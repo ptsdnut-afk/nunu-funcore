@@ -25,6 +25,7 @@ from mcap_progress import apply_mcap, build_mcap_progress, merge_live_progress, 
 DIR = Path(__file__).resolve().parent
 STATE_PATH = DIR / "game_state.json"
 SCORES_PATH = DIR / "game_scores.json"
+_book: contextvars.ContextVar[str] = contextvars.ContextVar("nunu_book", default="live")
 FLAGGED_PATH = DIR / "flagged.json"
 PAPER_CSV = Path("/workspace/trading/papertrades.csv")
 # also allow Chromebook-relative sibling if present
@@ -1507,12 +1508,24 @@ def open_position_mints() -> list[str]:
     return list(_open_mints)
 
 
+def book_name() -> str:
+    return _book.get() or "live"
+
+
+def _qa_path(path: Path) -> Path:
+    if book_name() != "qa":
+        return path
+    return path.with_name(path.stem + "_qa" + path.suffix)
+
+
 def load_state() -> dict:
+    live = book_name() != "qa"
     with _lock:
-        st = _read_json(STATE_PATH, None)
+        st = _read_json(_qa_path(STATE_PATH), None)
         base = empty_state()
         if not isinstance(st, dict):
-            publish_open_mints(base)
+            if live:
+                publish_open_mints(base)
             return base
         # merge so corrupt/partial files never crash the UI
         for k, v in base.items():
@@ -1528,23 +1541,26 @@ def load_state() -> dict:
             st["cash_usd"] = float(st.get("cash_usd") if st.get("cash_usd") is not None else START_BANKROLL)
         except (TypeError, ValueError):
             st["cash_usd"] = START_BANKROLL
-        publish_open_mints(st)
+        if live:
+            publish_open_mints(st)
         return st
 
 
 def save_state(st: dict) -> None:
+    live = book_name() != "qa"
     with _lock:
-        _write_json(STATE_PATH, st)
-        publish_open_mints(st)
+        _write_json(_qa_path(STATE_PATH), st)
+        if live:
+            publish_open_mints(st)
 
 
 def load_scores() -> list:
-    data = _read_json(SCORES_PATH, [])
+    data = _read_json(_qa_path(SCORES_PATH), [])
     return data if isinstance(data, list) else []
 
 
 def save_scores(scores: list) -> None:
-    _write_json(SCORES_PATH, scores[:MAX_SCORES])
+    _write_json(_qa_path(SCORES_PATH), scores[:MAX_SCORES])
 
 
 # —— Points, profile, shop (paper cosmetics — no wallets) ——
@@ -1718,7 +1734,7 @@ def _clean_profile(raw: dict) -> dict:
 
 def load_profile() -> dict:
     with _lock:
-        raw = _read_json(PROFILE_PATH, None)
+        raw = _read_json(_qa_path(PROFILE_PATH), None)
         if not isinstance(raw, dict):
             return empty_profile()
         return _clean_profile(raw)
@@ -1726,7 +1742,35 @@ def load_profile() -> dict:
 
 def save_profile(profile: dict) -> None:
     with _lock:
-        _write_json(PROFILE_PATH, _clean_profile(profile))
+        _write_json(_qa_path(PROFILE_PATH), _clean_profile(profile))
+
+
+def reset_owner_game_once() -> bool:
+    """Put the owner's cash and points back to the start. Runs once per deploy of 102.
+
+    Test traffic and unit tests do not write this marker or the live files.
+    """
+    argv = " ".join(__import__("sys").argv)
+    if os.environ.get("PYTEST_CURRENT_TEST") or "unittest" in argv or "pytest" in argv:
+        return False
+    marker = DIR / ".game_reset_v102"
+    if marker.exists():
+        return False
+    raw = _read_json(STATE_PATH, None)
+    if isinstance(raw, dict):
+        raw["cash_usd"] = START_BANKROLL
+        _write_json(STATE_PATH, raw)
+    prof = _read_json(PROFILE_PATH, None)
+    if not isinstance(prof, dict):
+        prof = empty_profile()
+    else:
+        prof = _clean_profile(prof)
+    prof["points"] = 0
+    prof["earned_today"] = 0
+    prof["personal_peak"] = START_BANKROLL
+    _write_json(PROFILE_PATH, prof)
+    marker.write_text("102\n", encoding="utf-8")
+    return True
 
 
 def _roll_cap(profile: dict, day: str | None = None) -> None:
